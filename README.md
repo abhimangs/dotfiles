@@ -93,25 +93,15 @@ These selections mean that **Bash**, **Neofetch**, and **Wallpaper** will be ins
 
 To install everything with all custom configurations, simply enter `1`.
 
+## Fuel My Code with a Coffee! ☕
+If you enjoy my projects, a small tip keeps me coding!
 
+## Fuel My Code with a Coffee! ☕
+If you enjoy my projects, a small tip keeps me coding!
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+<a href="https://abhiman.lemonsqueezy.com/buy/47982b9f-ab2f-49c1-a11d-4dc364d5dfe6?discount=0">
+  <img src="https://raw.githubusercontent.com/abhimangs/abhimangs/main/assets/buy.png" alt="Buy Now" width="300">
+</a>
 
 ## 🐞 Found a Bug?
 If you encounter any issues or have suggestions, please open an issue on the [GitHub repository](https://github.com/abhimangs/dotfiles/issues).
