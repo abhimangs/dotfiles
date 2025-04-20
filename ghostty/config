@@ -1,0 +1,14 @@
+clipboard-paste-protection = true
+window-inherit-font-size = true
+theme = catppuccin-mocha
+copy-on-select = true
+
+# theme = GruvboxDark
+# font-family = Meslo LGS Nerd Font Mono
+# font-family = CaskaydiaMono Nerd Font
+font-family = CaskaydiaCove Nerd Font
+font-size = 10
+background-opacity = 0.95
+gtk-titlebar = false
+
+background = 000000

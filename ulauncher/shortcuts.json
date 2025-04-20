@@ -1,0 +1,32 @@
+{
+    "ef2ef0a7-c85a-4bff-b7f2-61be4515071c": {
+        "id": "ef2ef0a7-c85a-4bff-b7f2-61be4515071c",
+        "name": "Youtube",
+        "keyword": "yt",
+        "cmd": "https://www.youtube.com/results?search_query=%s",
+        "icon": "~/Pictures/YouTube_23392.ico",
+        "is_default_search": false,
+        "run_without_argument": false,
+        "added": 1735661827.8409786
+    },
+    "02831f90-e5fe-4827-8ba4-7e1ed1625f7e": {
+        "id": "02831f90-e5fe-4827-8ba4-7e1ed1625f7e",
+        "name": "Google",
+        "keyword": "gg",
+        "cmd": "https://www.google.com/search?q=%s",
+        "icon": "~/Pictures/google_icon-icons.com_62736.ico",
+        "is_default_search": false,
+        "run_without_argument": false,
+        "added": 1735690284.5412018
+    },
+    "1d63d55b-11af-4e45-a76d-79c6514f6efc": {
+        "id": "1d63d55b-11af-4e45-a76d-79c6514f6efc",
+        "name": "Time Google",
+        "keyword": "ti",
+        "cmd": "https://www.google.com/search?q=what+time+is+now+in+%s",
+        "icon": "~/Pictures/hourglass_3302096.png",
+        "is_default_search": false,
+        "run_without_argument": false,
+        "added": 1736085987.9924266
+    }
+}
