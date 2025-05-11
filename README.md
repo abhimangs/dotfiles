@@ -11,3 +11,4 @@ yay -S obsidian
 yay -S brave-bin
 yay -S notion-app-electron
 yay -S zen-browser-bin
+yay -S ulauncher
