@@ -28,5 +28,15 @@
         "is_default_search": false,
         "run_without_argument": false,
         "added": 1736085987.9924266
+    },
+    "c0286d24-57be-41ae-91a5-dbb51620ce3d": {
+        "id": "c0286d24-57be-41ae-91a5-dbb51620ce3d",
+        "name": "link",
+        "keyword": "w",
+        "cmd": "https://www.%s",
+        "icon": null,
+        "is_default_search": false,
+        "run_without_argument": false,
+        "added": 1746976884.8325727
     }
 }
