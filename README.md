@@ -1,4 +1,4 @@
-
+sudo pacman -Syu
 
 sudo pacman -S partitionmanager
 sudo pacman -S firefox
