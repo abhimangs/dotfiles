@@ -5,6 +5,7 @@ sudo pacman -S firefox
 sudo pacman -S thunderbird
 sudo pacman -S vlc
 sudo pacman -S ghostty
+sudo pacman -S rofi-wayland
 
 
 yay -S obsidian
