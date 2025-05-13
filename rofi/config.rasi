@@ -12,8 +12,8 @@ configuration {
 
 * {
   bg: #000000;
-  bg-alt:rgba(97, 100, 122, 0.4);
-  bg-selected:rgb(97, 105, 245);
+  bg-alt: #0d1b2a;
+  bg-selected:rgb(84, 127, 255);
 
   fg:rgb(255, 255, 255);
   fg-alt:rgb(89, 93, 115);
