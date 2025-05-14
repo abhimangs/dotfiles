@@ -16,6 +16,7 @@
  - sudo pacman -S grub-customizer
  - sudo pacman -S neovim
  - sudo pacman -S neofetch
+ - sudo pacman -S kitty
 
 
  - yay -S obsidian

@@ -117,30 +117,50 @@ for OPTION in "${SELECTED[@]}"; do
         "Fastfetch")
             echo -e "\033[0;32m- fastfetch\033[0m"
             # Add your code here to execute when Fastfetch is selected (e.g., installation commands)
+            command -v fastfetch >/dev/null 2>&1 || sudo pacman -S --noconfirm fastfetch
+            rm -rf ~/.config/fastfetch
+            cp -r ~/dotfiles/fastfetch ~/.config/fastfetch
             ;;
         "Ghostty")
             echo -e "\033[0;32m- ghostty\033[0m"
             # Add your code here to execute when Ghostty is selected (e.g., installation commands)
+            command -v ghostty >/dev/null 2>&1 || sudo pacman -S --noconfirm ghostty
+            rm -rf ~/.config/ghostty
+            cp -r ~/dotfiles/ghostty ~/.config/ghostty
             ;;
         "Kitty")
             echo -e "\033[0;32m- kitty\033[0m"
             # Add your code here to execute when Kitty is selected (e.g., installation commands)
+            command -v kitty >/dev/null 2>&1 || sudo pacman -S --noconfirm kitty
+            rm -rf ~/.config/kitty
+            cp -r ~/dotfiles/kitty ~/.config/kitty
             ;;
         "NeoVim")
             echo -e "\033[0;32m- neovim\033[0m"
             # Add your code here to execute when NeoVim is selected (e.g., installation commands)
+            command -v nvim >/dev/null 2>&1 || sudo pacman -S --noconfirm nvim
+            rm -rf ~/.config/nvim
+            cp -r ~/dotfiles/nvim ~/.config/nvim
             ;;
         "Rofi")
             echo -e "\033[0;32m- rofi\033[0m"
             # Add your code here to execute when Rofi is selected (e.g., installation commands)
+            command -v rofi >/dev/null 2>&1 || sudo pacman -S --noconfirm rofi-wayland
+            rm -rf ~/.config/rofi
+            cp -r ~/dotfiles/rofi ~/.config/rofi
             ;;
         "ULauncher")
             echo -e "\033[0;32m- ulauncher\033[0m"
             # Add your code here to execute when ULauncher is selected (e.g., installation commands)
+            command -v ulauncher >/dev/null 2>&1 || yay -S --noconfirm ulauncher
+            rm -rf ~/.config/ulauncher
+            cp -r ~/dotfiles/ulauncher ~/.config/ulauncher
             ;;
         "Pacman")
             echo -e "\033[0;32m- pacman\033[0m"
             # Add your code here to execute when Pacman is selected (e.g., installation commands)
+            sudo rm -rf /etc/pacman.conf
+            sudo cp -r ~/dotfiles/pacman/pacman.conf /etc/pacman.conf
             ;;
         *)
             echo -e "\033[0;31m- Unknown option: $OPTION\033[0m"
@@ -148,4 +168,4 @@ for OPTION in "${SELECTED[@]}"; do
     esac
 done
 
-echo -e "\033[0;32mInstallation simulation complete.\033[0m"
+echo -e "\033[0;32mInstallation simulation complete.\033[0m"s
