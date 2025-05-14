@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOCATION=$($HOME)
+LOCATION="$HOME"
 
 cd $LOCATION
 mv -f dotfiles $LOCATION/dotfiles_backup
