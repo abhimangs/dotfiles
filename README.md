@@ -2,7 +2,11 @@
 
 
  - sudo pacman -S partitionmanager
+ - sudo pacman -S gparted
+
  - sudo pacman -S firefox
+ - sudo pacman -S chromium
+
  - sudo pacman -S thunderbird
  - sudo pacman -S vlc
  - sudo pacman -S ghostty
@@ -10,6 +14,8 @@
  - sudo pacman -S obs-studio
  - sudo pacman -S code
  - sudo pacman -S grub-customizer
+ - sudo pacman -S neovim
+ - sudo pacman -S neofetch
 
 
  - yay -S obsidian
