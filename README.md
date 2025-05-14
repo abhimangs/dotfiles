@@ -19,3 +19,5 @@
  - yay -S ulauncher
  - yay -S tor-browser-bin
  - yay -S opera
+
+ - yay -S ttf-meslo-nerd-font-powerlevel10k
