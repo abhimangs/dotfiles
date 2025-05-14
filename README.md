@@ -1,8 +1,8 @@
 ## Download
 
-`
+```bash
 curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/run.sh | sh
-`
+```
 
 
  - sudo pacman -Syu
