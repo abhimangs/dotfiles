@@ -7,6 +7,7 @@ curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/run.sh | sh
 
  - sudo pacman -Syu
 
+   
 
  - sudo pacman -S partitionmanager
  - sudo pacman -S gparted
