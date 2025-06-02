@@ -7,7 +7,7 @@ My dotfiles for Arch Linux (btw) 🐧.
 To set up the dotfiles, run the following command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/run.sh | sh
+curl -fsSL https://go.abhiman.io/linux | sh
 ```
 
 This will execute the run.sh script to configure the dotfiles. For detailed setup, refer to the install.sh script in the repository 📜.
