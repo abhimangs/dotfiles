@@ -43,6 +43,9 @@ error()   { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_RED}✘ ${C_RESET}$1\n"; }
 pkg_installed() { pacman -Q "$1" &>/dev/null; }
 
 pacman_install() {
+    if [ -f /var/lib/pacman/db.lck ]; then
+        sudo rm -f /var/lib/pacman/db.lck
+    fi
     sudo pacman -S --needed --noconfirm "$1" &>/dev/null 2>&1
 }
 
@@ -287,7 +290,8 @@ show_plan() {
                 steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -e "$target" ] && ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
+            if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
+                    ! -type l ! -type d 2>/dev/null | grep -q .; then
                 [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
@@ -308,7 +312,8 @@ show_plan() {
             ;;
           fastfetch)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -e "$target" ] && ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
+            if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
+                    ! -type l ! -type d 2>/dev/null | grep -q .; then
                 [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
@@ -563,7 +568,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–6 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–7 separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -974,7 +979,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             fi
         fi
     done
-    unset app _lbl _type _pkg _bin _exit
+    unset app _lbl _type _pkg _bin
 fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
