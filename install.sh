@@ -142,7 +142,8 @@ DEP_PKG[zoxide]="zoxide"
 DEP_PKG[thefuck]="thefuck"
 DEP_PKG[lazygit]="lazygit"
 DEP_PKG[btop]="btop"
-DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop)
+DEP_PKG[tree]="tree"
+DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
@@ -536,6 +537,7 @@ case "$tool" in
   thefuck)  desc="fuck  correct last command"                                         ;;
   lazygit)  desc="lg  git TUI"                                                        ;;
   btop)     desc="btop  resource monitor · Catppuccin Mocha theme"                   ;;
+  tree)     desc="tree  directory listing as a tree"                                 ;;
   *)        desc=""                                                                   ;;
 esac
 G="\033[38;2;166;209;137m"
@@ -582,6 +584,7 @@ else
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck ${C_DIM}(fuck command)${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}lazygit ${C_DIM}(lg alias)${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}btop    ${C_DIM}(resource monitor, Catppuccin theme)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}tree    ${C_DIM}(directory tree listing)${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All    ${C_DIM}· Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
     read -rp "" DEP_RAW
@@ -597,6 +600,7 @@ else
                 5) DEPS+=(thefuck)  ;;
                 6) DEPS+=(lazygit)  ;;
                 7) DEPS+=(btop)     ;;
+                8) DEPS+=(tree)     ;;
             esac
         done
     fi
