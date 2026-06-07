@@ -294,6 +294,7 @@ APP_BIN[codex-cli]="codex"
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
+    local _font_planned=0
 
     local _mode_label
     [[ "$BACKUP_MODE" == "delete" ]] \
@@ -314,8 +315,9 @@ show_plan() {
 
         case "$cfg" in
           ghostty|kitty)
-            if ! pkg_installed "$FONT_PKG"; then
+            if [ "$_font_planned" -eq 0 ] && ! pkg_installed "$FONT_PKG"; then
                 steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+                _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
@@ -343,6 +345,10 @@ show_plan() {
             fi
             ;;
           fastfetch|rofi)
+            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ] && ! pkg_installed "$FONT_PKG"; then
+                steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+                _font_planned=1
+            fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -379,7 +385,11 @@ show_plan() {
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
             if [ -e "$script" ] && [ ! -L "$script" ]; then
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}pvpn.zsh → pvpn.zsh.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}pvpn.zsh${C_RESET}")
+                else
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}pvpn.zsh → pvpn.zsh.bak${C_RESET}")
+                fi
             fi
             steps+=("${C_GREEN}stow ~/scripts/pvpn/pvpn.zsh${C_RESET}")
             ;;
@@ -518,6 +528,10 @@ if ! sudo -v; then
     exit 1
 fi
 success "Authenticated"
+
+( while true; do sudo -v; sleep 240; done ) &>/dev/null &
+_SUDO_KEEPALIVE=$!
+trap 'kill "$_SUDO_KEEPALIVE" 2>/dev/null; echo -ne "\033[0m"' EXIT
 
 # ── Step 1: paru ─────────────────────────────────────────────────────────────
 info "Checking AUR helper..."
@@ -806,8 +820,13 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
         else
             substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
-            pacman_install "$dep_pkg" || error "Failed to install ${dep} — skipping"
+            if ! pacman_install "$dep_pkg"; then
+                error "Failed to install ${dep} — skipping"
+                FAILED+=("$dep")
+                continue
+            fi
         fi
+        INSTALLED+=("$dep")
 
         # Stow config for deps that have one
         for _dc in "${DEP_HAS_CONFIG[@]}"; do
@@ -973,31 +992,10 @@ for cfg in "${SELECTED[@]}"; do
             fi
         fi
 
-        # Stow directly into ~/.config/ulauncher (package has flat structure, no subdir)
-        ul_target="$HOME/.config/ulauncher"
-        ul_bak="${ul_target}.bak"
-        ul_oldbak="${ul_target}.old.bak"
-        if [ -L "$ul_target" ]; then
-            stow --target "$ul_target" --dir "$DOTFILES_DIR" -D "ulauncher" &>/dev/null 2>&1 || rm "$ul_target"
-        elif [ -e "$ul_target" ]; then
-            if [[ "$BACKUP_MODE" == "delete" ]]; then
-                rm -rf "$ul_target"
-                substep "Deleted ${C_ACCENT}ulauncher${C_RESET}"
-            else
-                if [ -e "$ul_bak" ]; then
-                    [ -e "$ul_oldbak" ] && rm -rf "$ul_oldbak"
-                    mv "$ul_bak" "$ul_oldbak"
-                    substep "Rotated ${C_DIM}ulauncher.bak → ulauncher.old.bak${C_RESET}"
-                fi
-                mv "$ul_target" "$ul_bak"
-                substep "Backed up ${C_ACCENT}ulauncher${C_RESET} → ${C_DIM}ulauncher.bak${C_RESET}"
-            fi
-        fi
-        if ! stow_to "$ul_target" "ulauncher"; then
+        if ! stow_config "ulauncher"; then
             FAILED+=(ulauncher)
             continue
         fi
-        unset ul_target ul_bak ul_oldbak
 
         # Autostart — create desktop entry if missing
         autostart_dir="$HOME/.config/autostart"
