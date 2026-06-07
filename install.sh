@@ -117,33 +117,29 @@ _paru_run_robust() {
 paru_install()   { _paru_run_robust ""  "$1"; }
 paru_install_y() { _paru_run_robust "y" "$1"; }
 
-# ── Backup + stow to ~/.config ────────────────────────────────────────────────
-backup_and_stow() {
+# ── Stow package directly into ~/.config/<name>/ (flat repo structure) ────────
+stow_config() {
     local name="$1"
     local target="$HOME/.config/$name"
     local bak="${target}.bak"
+    local oldbak="${target}.old.bak"
 
     if [ -L "$target" ]; then
-        substep "Removing existing stow link for ${C_ACCENT}${name}${C_RESET}..."
-        stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "$name" &>/dev/null 2>&1
-    elif [ -e "$target" ]; then
-        if [ -e "$bak" ]; then
-            local oldbak="${target}.old.bak"
-            substep "Backing up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET} (old .bak → .old.bak)..."
-            [ -e "$oldbak" ] && rm -rf "$oldbak"
-            mv "$bak" "$oldbak"
-        else
-            substep "Backing up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}..."
+        # Old wrong stow left a dir-level symlink — remove it
+        rm "$target"
+    elif [ -d "$target" ]; then
+        # If the dir already has symlinks pointing to dotfiles, it's already managed — skip backup
+        if ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
+            if [ -e "$bak" ]; then
+                [ -e "$oldbak" ] && rm -rf "$oldbak"
+                mv "$bak" "$oldbak"
+            fi
+            mv "$target" "$bak"
+            substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
         fi
-        mv "$target" "$bak"
     fi
 
-    mkdir -p "$HOME/.config"
-    if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
-        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ~/.config/${name}"
-        return 1
-    fi
-    return 0
+    stow_to "$target" "$name"
 }
 
 # ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
@@ -282,14 +278,14 @@ show_plan() {
                 steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -L "$target" ]; then
-                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$target" ]; then
+            if [ -e "$target" ] && ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
                 [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
+                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
+            elif [ -e "$target" ]; then
+                steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
             else
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             if [ "$wallpaper_stowed" -eq 0 ]; then
                 local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
@@ -303,14 +299,14 @@ show_plan() {
             ;;
           fastfetch)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -L "$target" ]; then
-                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$target" ]; then
+            if [ -e "$target" ] && ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
                 [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
+                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
+            elif [ -e "$target" ]; then
+                steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
             else
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             ;;
           zsh)
@@ -700,7 +696,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         # Stow config for deps that have one
         for _dc in "${DEP_HAS_CONFIG[@]}"; do
             if [[ "$dep" == "$_dc" ]] && [ -d "$DOTFILES_DIR/$dep" ]; then
-                backup_and_stow "$dep"
+                stow_config "$dep"
                 break
             fi
         done
@@ -739,14 +735,14 @@ for cfg in "${SELECTED[@]}"; do
             FONT_DONE=1
         fi
 
-        if ! backup_and_stow "$cfg"; then
+        if ! stow_config "$cfg"; then
             FAILED+=("$cfg")
             continue
         fi
 
         if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
             if [ -d "$DOTFILES_DIR/wallpapers" ]; then
-                backup_and_stow "wallpapers"
+                stow_config "wallpapers"
                 STOWED_WALLPAPER=1
             fi
         fi
