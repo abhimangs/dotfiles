@@ -34,7 +34,8 @@ bash install.sh
 ## Installer features
 
 - **fzf TUI** — multi-select configs with a live preview pane
-- **Dep tools menu** — always shown; select bat, eza, fd, zoxide, thefuck, lazygit, btop
+- **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree
+- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Antigravity IDE, Claude Code CLI, Antigravity 2.0, Antigravity CLI, Codex CLI, Notion
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing

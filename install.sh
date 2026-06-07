@@ -911,7 +911,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
     for app in "${APPS[@]}"; do
         _lbl="${APP_LABEL[$app]}"
         _type="${APP_TYPE[$app]}"
-        info "  ${C_ACCENT}${_lbl}${C_RESET}..."
+        substep "${C_ACCENT}${_lbl}${C_RESET}"
 
         if [[ "$_type" == "curl" ]]; then
             _bin="${APP_BIN[$app]:-}"
@@ -920,20 +920,28 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
             else
-                substep "Running installer for ${C_ACCENT}${_lbl}${C_RESET}..."
+                substep "Downloading installer for ${C_ACCENT}${_lbl}${C_RESET}..."
+                _tmpsh=$(mktemp /tmp/installer_XXXXXX.sh)
                 case "$app" in
-                    claude-code)    curl -fsSL https://claude.ai/install.sh | bash ;;
-                    antigravity-cli) curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
-                    codex-cli)      curl -fsSL https://chatgpt.com/codex/install.sh | sh ;;
+                    claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
+                    antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
+                    codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell=sh   ;;
                 esac
-                _exit=$?
-                if [ "$_exit" -eq 0 ]; then
-                    success "${C_ACCENT}${_lbl}${C_RESET} installed"
-                    INSTALLED+=("$_lbl")
+                if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
+                    substep "Running installer..."
+                    if "$_shell" "$_tmpsh"; then
+                        success "${C_ACCENT}${_lbl}${C_RESET} installed"
+                        INSTALLED+=("$_lbl")
+                    else
+                        error "Installer exited with error for ${C_ACCENT}${_lbl}${C_RESET}"
+                        FAILED+=("$_lbl")
+                    fi
                 else
-                    error "Failed to install ${C_ACCENT}${_lbl}${C_RESET}"
+                    error "Download failed for ${C_ACCENT}${_lbl}${C_RESET} — check network"
                     FAILED+=("$_lbl")
                 fi
+                rm -f "$_tmpsh"
+                unset _tmpsh _curl_url _shell
             fi
         else
             _pkg="${APP_PKG[$app]}"
