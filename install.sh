@@ -91,14 +91,24 @@ backup_file() {
     fi
 }
 
-# ── Stow to ~ (for home/ and scripts/) ───────────────────────────────────────
-stow_home() {
-    local name="$1"
-    if ! stow --target "$HOME" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
-        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ~/"
+# ── Stow to an arbitrary target dir ──────────────────────────────────────────
+# Usage: stow_to <target-dir> <package-name>
+stow_to() {
+    local target_dir="$1"
+    local name="$2"
+    mkdir -p "$target_dir"
+    # Un-stow first so re-runs are idempotent
+    stow --target "$target_dir" --dir "$DOTFILES_DIR" -D "$name" &>/dev/null 2>&1 || true
+    if ! stow --target "$target_dir" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
+        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ${target_dir}/"
         return 1
     fi
     return 0
+}
+
+# ── Stow to ~ (zsh, etc.) ────────────────────────────────────────────────────
+stow_home() {
+    stow_to "$HOME" "$1"
 }
 
 # ── App + package mapping ─────────────────────────────────────────────────────
@@ -641,12 +651,22 @@ for cfg in "${SELECTED[@]}"; do
             fi
         fi
 
-        mkdir -p "$HOME/scripts/pvpn"
-        backup_file "$HOME/scripts/pvpn/pvpn.zsh"
-        if ! stow_home "proton-vpn"; then
+        # Unlink stow-folded dirs from a previous run before backup
+        local pvpn_dir="$HOME/scripts/pvpn"
+        if [ -L "$pvpn_dir" ]; then
+            rm "$pvpn_dir"
+        fi
+        if [ -L "$HOME/scripts" ]; then
+            rm "$HOME/scripts"
+        fi
+        mkdir -p "$pvpn_dir"
+        backup_file "$pvpn_dir/pvpn.zsh"
+        # stow proton-vpn/ directly into ~/scripts/pvpn/
+        if ! stow_to "$pvpn_dir" "proton-vpn"; then
             FAILED+=(protonvpn)
             continue
         fi
+        unset pvpn_dir
         ;;
 
     esac
