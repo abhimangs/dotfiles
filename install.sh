@@ -84,7 +84,7 @@ if command -v paru &>/dev/null; then
 else
     substep "paru not found — installing..."
     substep "Installing build dependencies..."
-    if ! sudo pacman -S --needed --noconfirm base-devel git &>/dev/null 2>&1; then
+    if ! sudo pacman -S --needed --noconfirm base-devel git; then
         error "Failed to install base-devel/git. Check your internet or sudo access."
         exit 1
     fi
@@ -96,11 +96,12 @@ else
         exit 1
     fi
 
-    substep "Building and installing paru (this may take a minute)..."
-    if ! (cd /tmp/paru-build && makepkg -si --noconfirm &>/dev/null 2>&1); then
-        error "paru build failed. Check /tmp/paru-build for details."
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
+    if ! (cd /tmp/paru-build && makepkg -si --noconfirm); then
+        error "paru build failed."
         exit 1
     fi
+    echo ""
 
     rm -rf /tmp/paru-build
 
