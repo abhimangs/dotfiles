@@ -693,6 +693,24 @@ for cfg in "${SELECTED[@]}"; do
             FAILED+=(zsh)
             continue
         fi
+
+        # Change default shell to zsh if still on bash/something else
+        zsh_path="$(command -v zsh)"
+        current_shell="$(getent passwd "$USER" | cut -d: -f7)"
+        if [ "$current_shell" != "$zsh_path" ]; then
+            substep "Changing default shell to ${C_ACCENT}zsh${C_RESET}..."
+            if ! grep -qx "$zsh_path" /etc/shells; then
+                echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
+            fi
+            if chsh -s "$zsh_path"; then
+                substep "${C_GREEN}Default shell changed — log out and back in to apply${C_RESET}"
+            else
+                error "chsh failed — change shell manually: chsh -s $zsh_path"
+            fi
+        else
+            substep "${C_DIM}Default shell already zsh${C_RESET}"
+        fi
+        unset zsh_path current_shell
         ;;
 
       # ── protonvpn ────────────────────────────────────────────────────────
