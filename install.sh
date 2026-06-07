@@ -132,20 +132,23 @@ stow_config() {
         rm "$target"
 
     elif [ -d "$target" ]; then
-        # Check for real files (not symlinks, not dirs) anywhere inside.
-        # Symlinks — dotfiles or foreign — don't count: stow -D cleans ours,
-        # and foreign ones either coexist or cause a reported stow conflict.
-        # Only real files need a backup because stow cannot overwrite them.
+        # Only real files (not symlinks, not dirs) need handling — stow -D
+        # removes our own symlinks; foreign symlinks coexist or cause a conflict.
         if find "$target" -mindepth 1 -maxdepth 3 \
                 ! -type l ! -type d 2>/dev/null | grep -q .; then
-            if [ -e "$bak" ]; then
-                [ -e "$oldbak" ] && rm -rf "$oldbak"
-                mv "$bak" "$oldbak"
+            if [[ "$BACKUP_MODE" == "delete" ]]; then
+                rm -rf "$target"
+                substep "Deleted ${C_ACCENT}${name}${C_RESET}"
+            else
+                if [ -e "$bak" ]; then
+                    [ -e "$oldbak" ] && rm -rf "$oldbak"
+                    mv "$bak" "$oldbak"
+                fi
+                mv "$target" "$bak"
+                substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
             fi
-            mv "$target" "$bak"
-            substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
         fi
-        # Only symlinks / empty dir: skip backup — stow_to -D will clean ours
+        # Only symlinks / empty dir: nothing to do — stow_to -D cleans ours
     fi
 
     # Explicitly create the target dir before stowing.
@@ -164,13 +167,18 @@ backup_file() {
     if [ -L "$target" ]; then
         rm "$target"
     elif [ -e "$target" ]; then
-        if [ -e "$bak" ]; then
-            [ -e "$oldbak" ] && rm -rf "$oldbak"
-            mv "$bak" "$oldbak"
-            substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
+        if [[ "$BACKUP_MODE" == "delete" ]]; then
+            rm -rf "$target"
+            substep "Deleted ${C_ACCENT}${name}${C_RESET}"
+        else
+            if [ -e "$bak" ]; then
+                [ -e "$oldbak" ] && rm -rf "$oldbak"
+                mv "$bak" "$oldbak"
+                substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
+            fi
+            mv "$target" "$bak"
+            substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
         fi
-        mv "$target" "$bak"
-        substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
     fi
 }
 
@@ -271,7 +279,11 @@ show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
 
-    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Installation plan${C_RESET}"
+    local _mode_label
+    [[ "$BACKUP_MODE" == "delete" ]] \
+        && _mode_label="${C_RED}delete${C_RESET}" \
+        || _mode_label="${C_YELLOW}backup${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Installation plan ${C_DIM}(existing configs: ${_mode_label}${C_DIM})${C_RESET}"
 
     for cfg in "${cfgs[@]}"; do
         local pkg="${PKG_MAP[$cfg]}"
@@ -292,8 +304,12 @@ show_plan() {
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
-                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
+                else
+                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                fi
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
             elif [ -e "$target" ]; then
                 steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
@@ -314,8 +330,12 @@ show_plan() {
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
-                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
+                else
+                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                fi
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
             elif [ -e "$target" ]; then
                 steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
@@ -328,8 +348,12 @@ show_plan() {
             if [ -L "$rc" ]; then
                 steps+=("${C_ACCENT}re-stow .zshrc${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
             elif [ -e "$rc" ]; then
-                [ -e "${rc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.zshrc.bak → .zshrc.old.bak${C_RESET}")
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.zshrc → .zshrc.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.zshrc${C_RESET}")
+                else
+                    [ -e "${rc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.zshrc.bak → .zshrc.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.zshrc → .zshrc.bak${C_RESET}")
+                fi
                 steps+=("${C_GREEN}stow ~/.zshrc${C_RESET}")
             else
                 steps+=("${C_GREEN}stow ~/.zshrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
@@ -347,8 +371,12 @@ show_plan() {
             if [ -L "$target" ]; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
             elif [ -e "$target" ]; then
-                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml.bak → starship.toml.old.bak${C_RESET}")
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml → starship.toml.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}starship.toml${C_RESET}")
+                else
+                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml.bak → starship.toml.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml → starship.toml.bak${C_RESET}")
+                fi
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET}")
             else
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
@@ -359,8 +387,12 @@ show_plan() {
             if [ -L "$target" ]; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
             elif [ -e "$target" ]; then
-                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
+                else
+                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                fi
                 steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
             else
                 steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
@@ -431,6 +463,21 @@ show_plan() {
 
 # ─────────────────────────────────────────────────────────────────────────────
 header
+
+# ── Backup mode ───────────────────────────────────────────────────────────────
+BACKUP_MODE="backup"
+echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}Backup  ${C_DIM}(move existing config to .bak before replacing)${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}Delete  ${C_DIM}(wipe existing config cleanly, no backup kept)${C_RESET}"
+echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice [1/2, default=1]: ${C_RESET}"
+read -rp "" _bm
+if [[ "$_bm" == "2" ]]; then
+    BACKUP_MODE="delete"
+else
+    BACKUP_MODE="backup"
+fi
+unset _bm
+echo ""
 
 # ── Sudo cache ────────────────────────────────────────────────────────────────
 info "Authentication..."
@@ -874,13 +921,18 @@ for cfg in "${SELECTED[@]}"; do
         if [ -L "$ul_target" ]; then
             stow --target "$ul_target" --dir "$DOTFILES_DIR" -D "ulauncher" &>/dev/null 2>&1 || rm "$ul_target"
         elif [ -e "$ul_target" ]; then
-            if [ -e "$ul_bak" ]; then
-                [ -e "$ul_oldbak" ] && rm -rf "$ul_oldbak"
-                mv "$ul_bak" "$ul_oldbak"
-                substep "Rotated ${C_DIM}ulauncher.bak → ulauncher.old.bak${C_RESET}"
+            if [[ "$BACKUP_MODE" == "delete" ]]; then
+                rm -rf "$ul_target"
+                substep "Deleted ${C_ACCENT}ulauncher${C_RESET}"
+            else
+                if [ -e "$ul_bak" ]; then
+                    [ -e "$ul_oldbak" ] && rm -rf "$ul_oldbak"
+                    mv "$ul_bak" "$ul_oldbak"
+                    substep "Rotated ${C_DIM}ulauncher.bak → ulauncher.old.bak${C_RESET}"
+                fi
+                mv "$ul_target" "$ul_bak"
+                substep "Backed up ${C_ACCENT}ulauncher${C_RESET} → ${C_DIM}ulauncher.bak${C_RESET}"
             fi
-            mv "$ul_target" "$ul_bak"
-            substep "Backed up ${C_ACCENT}ulauncher${C_RESET} → ${C_DIM}ulauncher.bak${C_RESET}"
         fi
         if ! stow_to "$ul_target" "ulauncher"; then
             FAILED+=(ulauncher)
