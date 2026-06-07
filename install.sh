@@ -218,6 +218,7 @@ PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
 PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
+PKG_MAP[git]="git"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 NEEDS_FONT=(ghostty kitty rofi)
@@ -436,6 +437,22 @@ show_plan() {
                 steps+=("${C_DIM}autostart already configured${C_RESET}")
             fi
             ;;
+          git)
+            local gc="$HOME/.gitconfig"
+            if [ -L "$gc" ]; then
+                steps+=("${C_ACCENT}re-stow .gitconfig${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$gc" ]; then
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.gitconfig${C_RESET}")
+                else
+                    [ -e "${gc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.gitconfig.bak → .gitconfig.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.gitconfig → .gitconfig.bak${C_RESET}")
+                fi
+                steps+=("${C_GREEN}stow ~/.gitconfig${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.gitconfig${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
+            ;;
         esac
 
         echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
@@ -622,7 +639,7 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher)
+CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher git)
 declare -a SELECTED=()
 
 if command -v fzf &>/dev/null; then
@@ -636,7 +653,8 @@ if command -v fzf &>/dev/null; then
             "protonvpn"  "ProtonVPN wrapper script" \
             "starship"   "cross-shell prompt" \
             "rofi"       "keyboard-driven launcher   ·  JetBrains Nerd Font" \
-            "ulauncher"  "app launcher              ·  AUR" | \
+            "ulauncher"  "app launcher              ·  AUR" \
+            "git"        "git config  →  ~/.gitconfig" | \
         fzf --multi \
             --height=40% \
             --min-height=12 \
@@ -666,6 +684,7 @@ else
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship    ${C_DIM}·  cross-shell prompt${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}rofi        ${C_DIM}·  keyboard-driven launcher${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}ulauncher   ${C_DIM}·  app launcher (AUR)${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}9 ${C_DIM}❯ ${C_RESET}git         ${C_DIM}·  git config  →  ~/.gitconfig${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
@@ -687,6 +706,7 @@ else
                 6) tmp+=(starship)   ;;
                 7) tmp+=(rofi)       ;;
                 8) tmp+=(ulauncher)  ;;
+                9) tmp+=(git)        ;;
                 *) valid=false; break ;;
             esac
         done
@@ -701,7 +721,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–8 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–9 separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -935,6 +955,7 @@ for cfg in "${SELECTED[@]}"; do
 
         if [[ "$cfg" == "rofi" ]]; then
             substep "${C_DIM}Launch rofi with: ${C_ACCENT}rofi -show drun${C_RESET}"
+            substep "${C_DIM}Note: on KDE+Wayland use ${C_ACCENT}rofi-wayland${C_RESET}${C_DIM} (AUR) for native Wayland support${C_RESET}"
         fi
         ;;
 
@@ -1026,6 +1047,26 @@ for cfg in "${SELECTED[@]}"; do
         if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
             error "Stow failed for starship — check for conflicts in ~/.config/"
             FAILED+=(starship)
+            continue
+        fi
+        ;;
+
+      # ── git ──────────────────────────────────────────────────────────────
+      git)
+        if pkg_installed git; then
+            substep "${C_ACCENT}git${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}git${C_RESET}..."
+            if ! pacman_install git; then
+                error "Failed to install git — skipping"
+                FAILED+=(git)
+                continue
+            fi
+        fi
+
+        backup_file "$HOME/.gitconfig"
+        if ! stow_home "git"; then
+            FAILED+=(git)
             continue
         fi
         ;;

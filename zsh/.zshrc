@@ -3,6 +3,12 @@ export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
 
+# ── Environment ───────────────────────────────────────────────
+export EDITOR='code'
+export VISUAL='code'
+export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+export KEYTIMEOUT=20
+
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"
 if [[ ! -f "$_zinit_zsh" ]]; then
@@ -17,19 +23,30 @@ if [[ -f "$_zinit_zsh" ]]; then
     autoload -Uz _zinit
     (( ${+_comps} )) && _comps[zinit]=_zinit
     zinit light-mode for \
-        zdharma-continuum/zinit-annex-as-monitor \
-        zdharma-continuum/zinit-annex-bin-gem-node \
-        zdharma-continuum/zinit-annex-patch-dl \
-        zdharma-continuum/zinit-annex-rust
+        zdharma-continuum/zinit-annex-bin-gem-node
+
+    # Turbo mode: load after prompt appears (faster perceived startup)
+    zinit ice wait"0" lucid atload"_zsh_autosuggest_start"
     zinit light zsh-users/zsh-autosuggestions
+
+    zinit ice wait"0" lucid
     zinit light zdharma-continuum/fast-syntax-highlighting
+
+    zinit ice wait"0" lucid
     zinit light zsh-users/zsh-completions
+
+    zinit ice wait"0" lucid
     zinit light MichaelAquilina/zsh-you-should-use
 fi
 unset _zinit_zsh
 
 # ── Completion ────────────────────────────────────────────────
-autoload -Uz compinit && compinit
+autoload -Uz compinit
+if [[ -n ${ZDOTDIR:-$HOME}/.zcompdump(#qN.mh+24) ]]; then
+    compinit
+else
+    compinit -C
+fi
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
@@ -40,6 +57,8 @@ SAVEHIST=10000
 setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
+setopt EXTENDED_HISTORY
+setopt AUTO_CD
 
 # ── fzf ───────────────────────────────────────────────────────
 [ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
@@ -55,6 +74,14 @@ export FZF_DEFAULT_OPTS=" \
 --color=fg:#cdd6f4,header:#f38ba8,info:#cba6f7,pointer:#f5e0dc \
 --color=marker:#b4befe,fg+:#cdd6f4,prompt:#cba6f7,hl+:#f38ba8"
 
+export FZF_CTRL_T_OPTS="--preview 'bat --color=always --style=numbers {}' --walker-skip .git,node_modules"
+export FZF_CTRL_R_OPTS="--preview 'echo {}' --preview-window=down:3:wrap"
+export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --icons=always {}'"
+
+# ── zsh-autosuggestions ───────────────────────────────────────
+export ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
+export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
 # ── Keybindings ───────────────────────────────────────────────
 bindkey '^[[A' history-search-backward
 bindkey '^[[B' history-search-forward
@@ -69,8 +96,14 @@ bindkey '^T' ''
 # ── zoxide ────────────────────────────────────────────────────
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 
-# ── thefuck ───────────────────────────────────────────────────
-command -v thefuck &>/dev/null && eval "$(thefuck --alias)"
+# ── thefuck (lazy-loaded — no Python subprocess on startup) ───
+if command -v thefuck &>/dev/null; then
+    fuck() {
+        eval "$(thefuck --alias)"
+        unfunction fuck
+        fuck "$@"
+    }
+fi
 
 # ── Aliases: Navigation ───────────────────────────────────────
 alias ..='cd ..'
@@ -94,14 +127,18 @@ if command -v bat &>/dev/null; then
     alias fp='fzf --preview "bat --color=always --style=numbers {}"'
 fi
 alias grep='grep --color=auto'
+alias rg='rg --color=always'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
+alias serve='python -m http.server'
+alias path='echo $PATH | tr ":" "\n"'
 
 # ── Aliases: System ───────────────────────────────────────────
-alias update='sudo pacman -Syu'
+alias update='sudo pacman -Syuu && paru -Syu'
 alias reload='source ~/.zshrc'
-alias zshrc='nano ~/.zshrc'
-alias myip='curl ifconfig.me'
+alias zshrc='${EDITOR:-nano} ~/.zshrc'
+alias myip='curl -s ifconfig.me'
 alias ports='ss -tulpn'
+alias meminfo='free -h'
 
 # ── Aliases: Git ──────────────────────────────────────────────
 alias gs='git status'
@@ -109,6 +146,9 @@ alias ga='git add .'
 alias gc='git commit -m'
 alias gp='git push'
 alias gl='git pull'
+alias gd='git diff'
+alias gst='git stash'
+alias gco='git checkout'
 alias lg='lazygit'
 alias glog='git log --oneline --graph --decorate'
 
@@ -128,11 +168,13 @@ alias ff='fastfetch'
 # ── ProtonVPN ─────────────────────────────────────────────────
 [ -f "$HOME/scripts/pvpn/pvpn.zsh" ] && source "$HOME/scripts/pvpn/pvpn.zsh"
 
-# Kitty: reuse existing instance for near-instant startup
+# ── Kitty: reuse existing instance + SSH with full support ────
 alias kitty='kitty --single-instance'
+[[ "$TERM" == "xterm-kitty" ]] && alias ssh='kitten ssh'
 
 alias cc='claude --dangerously-skip-permissions'
 alias ccr='claude --dangerously-skip-permissions --resume'
 alias ccc='claude --dangerously-skip-permissions --continue'
 
-export PATH="$HOME/.local/bin:$PATH"
+# ── Machine-specific overrides ────────────────────────────────
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

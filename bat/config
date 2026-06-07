@@ -1,1 +1,6 @@
 --theme="Catppuccin Mocha"
+--style=numbers,changes,header
+--map-syntax '*.conf:ini'
+--map-syntax '*.rasi:css'
+--map-syntax '*.zsh:bash'
+--italic-text=always
