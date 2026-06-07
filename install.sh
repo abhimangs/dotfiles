@@ -680,13 +680,10 @@ for cfg in "${SELECTED[@]}"; do
         if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
             if ! pkg_installed "$FONT_PKG"; then
                 substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                if pacman_install "$FONT_PKG"; then
-                    substep "Rebuilding font cache..."
-                    fc-cache -fv &>/dev/null 2>&1 || true
-                else
-                    error "Failed to install font — continuing"
-                fi
+                pacman_install "$FONT_PKG" || error "Failed to install font — continuing"
             fi
+            substep "Rebuilding font cache..."
+            fc-cache -fv &>/dev/null 2>&1 || true
             FONT_DONE=1
         fi
 
