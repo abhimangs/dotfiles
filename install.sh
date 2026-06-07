@@ -63,6 +63,7 @@ backup_and_stow() {
         mv "$target" "$bak"
     fi
 
+    mkdir -p "$HOME/.config"
     if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
         error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ~/.config/${name}"
         return 1
@@ -153,6 +154,15 @@ show_plan() {
 # ─────────────────────────────────────────────────────────────────────────────
 header
 
+# ── Sudo cache ────────────────────────────────────────────────────────────────
+info "Authentication..."
+substep "Enter your sudo password once — cached for the full install"
+if ! sudo -v; then
+    error "Authentication failed. Exiting."
+    exit 1
+fi
+success "Authenticated"
+
 # ── Step 1: paru ─────────────────────────────────────────────────────────────
 info "Checking AUR helper..."
 if command -v paru &>/dev/null; then
@@ -191,23 +201,23 @@ fi
 
 # ── Step 2: tools (stow + fzf) ───────────────────────────────────────────────
 info "Checking tools..."
-MISSING_TOOLS=()
-command -v stow &>/dev/null || MISSING_TOOLS+=(stow)
-command -v fzf  &>/dev/null || MISSING_TOOLS+=(fzf)
-
-if [ "${#MISSING_TOOLS[@]}" -gt 0 ]; then
-    substep "Installing: ${C_ACCENT}${MISSING_TOOLS[*]}${C_RESET}..."
-    substep "${C_DIM}You may be prompted for your sudo password once${C_RESET}"
-    sudo -v
-    if ! sudo pacman -S --needed --noconfirm "${MISSING_TOOLS[@]}" &>/dev/null 2>&1; then
-        error "Failed to install ${MISSING_TOOLS[*]}."
-        exit 1
+TOOLS_TO_INSTALL=()
+TOOLS_TO_UPDATE=()
+for tool in stow fzf; do
+    if ! command -v "$tool" &>/dev/null; then
+        TOOLS_TO_INSTALL+=("$tool")
+    else
+        TOOLS_TO_UPDATE+=("$tool")
     fi
-else
-    substep "${C_DIM}sudo -v to cache credentials${C_RESET}"
-    sudo -v
+done
+
+[ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:        ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
+[ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
+
+if ! sudo pacman -S --needed --noconfirm stow fzf &>/dev/null 2>&1; then
+    error "Failed to install/update stow and fzf."
+    exit 1
 fi
-substep "stow + fzf ready"
 success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
@@ -386,7 +396,7 @@ for cfg in "${SELECTED[@]}"; do
     # stow wallpapers (once, ghostty/kitty only)
     if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
         if [ -d "$DOTFILES_DIR/wallpapers" ]; then
-            backup_and_stow "wallpapers" &>/dev/null || true
+            backup_and_stow "wallpapers"
             STOWED_WALLPAPER=1
         fi
     fi
