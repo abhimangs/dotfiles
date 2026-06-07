@@ -118,6 +118,7 @@ PKG_MAP[ghostty]="ghostty"
 PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
 PKG_MAP[protonvpn]="proton-vpn-cli"
+PKG_MAP[starship]="starship"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 NEEDS_FONT=(ghostty kitty)
@@ -135,9 +136,8 @@ ZSH_DEP_PKG[eza]="eza"
 ZSH_DEP_PKG[fd]="fd"
 ZSH_DEP_PKG[zoxide]="zoxide"
 ZSH_DEP_PKG[thefuck]="thefuck"
-ZSH_DEP_PKG[starship]="starship"
 ZSH_DEP_PKG[lazygit]="lazygit"
-ZSH_DEPS_LIST=(bat eza fd zoxide thefuck starship lazygit)
+ZSH_DEPS_LIST=(bat eza fd zoxide thefuck lazygit)
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 show_plan() {
@@ -223,6 +223,18 @@ show_plan() {
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}pvpn.zsh → pvpn.zsh.bak${C_RESET}")
             fi
             steps+=("${C_GREEN}stow ~/scripts/pvpn/pvpn.zsh${C_RESET}")
+            ;;
+          starship)
+            target="$HOME/.config/starship.toml"; bak="${target}.bak"
+            if [ -L "$target" ]; then
+                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$target" ]; then
+                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml.bak → starship.toml.old.bak${C_RESET}")
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml → starship.toml.bak${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
             ;;
         esac
 
@@ -311,18 +323,19 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty zsh protonvpn)
+CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship)
 declare -a SELECTED=()
 
 PREVIEW='
 cfg="{}"
 case "$cfg" in
-  fastfetch)  pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ;;
-  ghostty)    pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ;;
-  kitty)      pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ;;
-  zsh)        pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ;;
-  protonvpn)  pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ;;
-  *)          pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ;;
+  fastfetch)  pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
+  ghostty)    pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
+  kitty)      pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
+  zsh)        pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ; is_starship=0 ;;
+  protonvpn)  pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ; is_starship=0 ;;
+  starship)   pkg="starship"       ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=1 ;;
+  *)          pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
 esac
 P="\033[38;2;202;169;224m\033[1m"
 A="\033[38;2;145;177;240m"
@@ -371,6 +384,21 @@ elif [ "$is_pvpn" = "1" ]; then
   else
     echo -e "  ${G}+${X} fresh stow ${D}(no existing script)${X}"
   fi
+elif [ "$is_starship" = "1" ]; then
+  echo -e "${P}  Config${X}"
+  sc="$HOME/.config/starship.toml"
+  if [ -L "$sc" ]; then
+    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+  elif [ -e "$sc" ]; then
+    echo -e "  ${Y}→${X} ${D}starship.toml → starship.toml.bak${X}"
+    echo -e "  ${G}+${X} stow ${D}dotfiles/starship/starship.toml${X}"
+  else
+    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
+  fi
+  echo ""
+  echo -e "${P}  Prompt${X}"
+  echo -e "  ${D}Catppuccin Mocha powerline theme${X}"
+  echo -e "  ${D}OS · user · dir · git · langs · time${X}"
 else
   echo -e "${P}  Config${X}"
   target="$HOME/.config/$cfg"
@@ -435,6 +463,7 @@ else
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}kitty"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}Select All"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
@@ -453,6 +482,7 @@ else
                 3) tmp+=(kitty)      ;;
                 4) tmp+=(zsh)        ;;
                 5) tmp+=(protonvpn)  ;;
+                6) tmp+=(starship)   ;;
                 *) valid=false; break ;;
             esac
         done
@@ -467,7 +497,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–5 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–6 separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -492,7 +522,6 @@ case "$tool" in
   fd)       desc="fzf file/dir search"             ;;
   zoxide)   desc="z smart cd"                      ;;
   thefuck)  desc="fuck command"                    ;;
-  starship) desc="shell prompt"                    ;;
   lazygit)  desc="lg alias"                        ;;
   *)        desc=""                                ;;
 esac
@@ -695,6 +724,25 @@ for cfg in "${SELECTED[@]}"; do
             continue
         fi
         unset pvpn_dir
+        ;;
+
+      # ── starship ─────────────────────────────────────────────────────────
+      starship)
+        if pkg_installed starship; then
+            substep "${C_ACCENT}starship${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}starship${C_RESET}..."
+            if ! pacman_install starship; then
+                error "Failed to install starship — skipping"
+                FAILED+=(starship)
+                continue
+            fi
+        fi
+
+        if ! backup_and_stow "starship"; then
+            FAILED+=(starship)
+            continue
+        fi
         ;;
 
     esac
