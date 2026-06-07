@@ -2,7 +2,7 @@
 # Bootstrap script — clone dotfiles and run the installer on a fresh Arch Linux system.
 # Usage: bash arch.sh          — fresh clone + install
 #        bash arch.sh --pull   — update existing ~/dotfiles then run install
-#        bash <(curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh)
+#        curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh | sh
 
 set -uo pipefail
 

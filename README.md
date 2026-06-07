@@ -5,7 +5,7 @@ Arch Linux dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
 ## Quick start — fresh Arch install
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh)
+curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh | sh
 ```
 
 Or clone manually:
