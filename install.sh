@@ -8,6 +8,10 @@ fi
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+DRY_RUN=0
+for _arg in "$@"; do [[ "$_arg" == "--dry-run" ]] && DRY_RUN=1; done
+unset _arg
+
 trap 'echo -ne "\033[0m"' EXIT
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -252,6 +256,10 @@ show_plan() {
     fi
 
     echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
+        exit 0
+    fi
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
     read -rp "" CONFIRM
     [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
@@ -607,9 +615,13 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         fi
     done
     echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
-    read -rp "" DEP_CONFIRM
-    [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && DEPS=()
+    if [ "$DRY_RUN" -eq 0 ]; then
+        echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
+        read -rp "" DEP_CONFIRM
+        [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && DEPS=()
+    else
+        echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_DIM}[dry run] skipping confirmation${C_RESET}\n"
+    fi
 fi
 echo ""
 
@@ -668,7 +680,12 @@ for cfg in "${SELECTED[@]}"; do
         if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
             if ! pkg_installed "$FONT_PKG"; then
                 substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                pacman_install "$FONT_PKG" || error "Failed to install font — continuing"
+                if pacman_install "$FONT_PKG"; then
+                    substep "Rebuilding font cache..."
+                    fc-cache -fv &>/dev/null 2>&1 || true
+                else
+                    error "Failed to install font — continuing"
+                fi
             fi
             FONT_DONE=1
         fi
