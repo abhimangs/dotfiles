@@ -129,15 +129,19 @@ needs_font() {
     return 1
 }
 
-# ── Zsh optional dep tools ────────────────────────────────────────────────────
-declare -A ZSH_DEP_PKG
-ZSH_DEP_PKG[bat]="bat"
-ZSH_DEP_PKG[eza]="eza"
-ZSH_DEP_PKG[fd]="fd"
-ZSH_DEP_PKG[zoxide]="zoxide"
-ZSH_DEP_PKG[thefuck]="thefuck"
-ZSH_DEP_PKG[lazygit]="lazygit"
-ZSH_DEPS_LIST=(bat eza fd zoxide thefuck lazygit)
+# ── Optional dep tools ───────────────────────────────────────────────────────
+declare -A DEP_PKG
+DEP_PKG[bat]="bat"
+DEP_PKG[eza]="eza"
+DEP_PKG[fd]="fd"
+DEP_PKG[zoxide]="zoxide"
+DEP_PKG[thefuck]="thefuck"
+DEP_PKG[lazygit]="lazygit"
+DEP_PKG[btop]="btop"
+DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop)
+
+# Deps that also have a config to stow into ~/.config
+DEP_HAS_CONFIG=(bat btop)
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 show_plan() {
@@ -205,17 +209,6 @@ show_plan() {
             else
                 steps+=("${C_GREEN}stow ~/.zshrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
-            if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
-                for _d in "${ZSH_DEPS[@]}"; do
-                    if pkg_installed "${ZSH_DEP_PKG[$_d]}"; then
-                        steps+=("${C_DIM}dep: $_d already installed${C_RESET}")
-                    else
-                        steps+=("${C_YELLOW}install dep: $_d${C_RESET}")
-                    fi
-                done
-            else
-                steps+=("${C_DIM}no dep tools selected${C_RESET}")
-            fi
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
@@ -244,6 +237,19 @@ show_plan() {
             echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${step}"
         done
     done
+
+    # Dep tools section
+    if [ "${#DEPS[@]}" -gt 0 ]; then
+        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
+        for _d in "${DEPS[@]}"; do
+            if pkg_installed "${DEP_PKG[$_d]}"; then
+                echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
+            else
+                echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
+            fi
+        done
+    fi
 
     echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
@@ -507,23 +513,22 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     exit 0
 fi
 
-# ── Zsh dep sub-menu ─────────────────────────────────────────────────────────
-ZSH_DEPS=()
-for _cfg in "${SELECTED[@]}"; do
-    if [[ "$_cfg" == "zsh" ]]; then
-        info "Optional tools for ${C_ACCENT}zsh${C_RESET}..."
-        echo ""
+# ── Dep tools sub-menu (always shown) ────────────────────────────────────────
+DEPS=()
+info "Optional dep tools..."
+echo ""
 
-        DEP_PREVIEW='
+DEP_PREVIEW='
 tool="{}"
 case "$tool" in
-  bat)      desc="cat='\''bat'\''  ·  fp preview" ;;
-  eza)      desc="ls  ll  lt  la  aliases"         ;;
-  fd)       desc="fzf file/dir search"             ;;
-  zoxide)   desc="z smart cd"                      ;;
-  thefuck)  desc="fuck command"                    ;;
-  lazygit)  desc="lg alias"                        ;;
-  *)        desc=""                                ;;
+  bat)      desc="cat alias · syntax highlight · Catppuccin Mocha theme · fp preview" ;;
+  eza)      desc="ls  ll  lt  la  aliases"                                            ;;
+  fd)       desc="fzf file/dir search backend"                                        ;;
+  zoxide)   desc="z  smart cd"                                                        ;;
+  thefuck)  desc="fuck  correct last command"                                         ;;
+  lazygit)  desc="lg  git TUI"                                                        ;;
+  btop)     desc="btop  resource monitor · Catppuccin Mocha theme"                   ;;
+  *)        desc=""                                                                   ;;
 esac
 G="\033[38;2;166;209;137m"
 Y="\033[38;2;229;200;144m"
@@ -542,83 +547,104 @@ else
 fi
 '
 
-        if command -v fzf &>/dev/null; then
-            mapfile -t ZSH_DEPS < <(
-                printf '%s\n' "${ZSH_DEPS_LIST[@]}" | \
-                fzf --multi \
-                    --height=60% \
-                    --min-height=14 \
-                    --reverse \
-                    --border=rounded \
-                    --prompt="  " \
-                    --pointer="❯" \
-                    --marker="✔" \
-                    --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
-                    --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-                    --bind='enter:toggle+down' \
-                    --bind='ctrl-j:accept' \
-                    --bind='ctrl-a:select-all' \
-                    --preview="$DEP_PREVIEW" \
-                    --preview-window='right:40%:wrap:border-left'
-            )
-        else
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat    ${C_DIM}(cat alias, fp preview)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza    ${C_DIM}(ls ll lt la)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd     ${C_DIM}(fzf file search)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide ${C_DIM}(z smart cd)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck${C_DIM}(fuck command)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship${C_DIM}(shell prompt)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}lazygit${C_DIM}(lg alias)${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All   ${C_DIM}· Enter to skip${C_RESET}"
-            echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
-            read -rp "" DEP_RAW
-            if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
-                ZSH_DEPS=("${ZSH_DEPS_LIST[@]}")
-            elif [[ -n "$DEP_RAW" ]]; then
-                for token in $DEP_RAW; do
-                    case "$token" in
-                        1) ZSH_DEPS+=(bat)      ;;
-                        2) ZSH_DEPS+=(eza)      ;;
-                        3) ZSH_DEPS+=(fd)       ;;
-                        4) ZSH_DEPS+=(zoxide)   ;;
-                        5) ZSH_DEPS+=(thefuck)  ;;
-                        6) ZSH_DEPS+=(starship) ;;
-                        7) ZSH_DEPS+=(lazygit)  ;;
-                    esac
-                done
-            fi
-        fi
-
-        # ── Dep confirmation plan ─────────────────────────────────────────────
-        if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
-            echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Zsh dep tools plan${C_RESET}"
-            echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-            for _dep in "${ZSH_DEPS[@]}"; do
-                _dep_pkg="${ZSH_DEP_PKG[$_dep]}"
-                if pkg_installed "$_dep_pkg"; then
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
-                else
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_YELLOW}will be installed${C_RESET}"
-                fi
-            done
-            echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-            echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
-            read -rp "" DEP_CONFIRM
-            [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && ZSH_DEPS=()
-        fi
-        echo ""
-        break
+if command -v fzf &>/dev/null; then
+    mapfile -t DEPS < <(
+        printf '%s\n' "${DEPS_LIST[@]}" | \
+        fzf --multi \
+            --height=60% \
+            --min-height=14 \
+            --reverse \
+            --border=rounded \
+            --prompt="  " \
+            --pointer="❯" \
+            --marker="✔" \
+            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
+            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
+            --bind='enter:toggle+down' \
+            --bind='ctrl-j:accept' \
+            --bind='ctrl-a:select-all' \
+            --preview="$DEP_PREVIEW" \
+            --preview-window='right:40%:wrap:border-left'
+    )
+else
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat     ${C_DIM}(cat alias, Catppuccin theme)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza     ${C_DIM}(ls ll lt la)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd      ${C_DIM}(fzf file search)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide  ${C_DIM}(z smart cd)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck ${C_DIM}(fuck command)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}lazygit ${C_DIM}(lg alias)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}btop    ${C_DIM}(resource monitor, Catppuccin theme)${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All    ${C_DIM}· Enter to skip${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
+    read -rp "" DEP_RAW
+    if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
+        DEPS=("${DEPS_LIST[@]}")
+    elif [[ -n "$DEP_RAW" ]]; then
+        for token in $DEP_RAW; do
+            case "$token" in
+                1) DEPS+=(bat)      ;;
+                2) DEPS+=(eza)      ;;
+                3) DEPS+=(fd)       ;;
+                4) DEPS+=(zoxide)   ;;
+                5) DEPS+=(thefuck)  ;;
+                6) DEPS+=(lazygit)  ;;
+                7) DEPS+=(btop)     ;;
+            esac
+        done
     fi
-done
+fi
+
+# ── Dep confirmation plan ─────────────────────────────────────────────────────
+if [ "${#DEPS[@]}" -gt 0 ]; then
+    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Dep tools plan${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+    for _dep in "${DEPS[@]}"; do
+        _dep_pkg="${DEP_PKG[$_dep]}"
+        if pkg_installed "$_dep_pkg"; then
+            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+        else
+            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_YELLOW}will be installed${C_RESET}"
+        fi
+    done
+    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
+    read -rp "" DEP_CONFIRM
+    [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && DEPS=()
+fi
+echo ""
 
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
 
-# ── Step 5: install ───────────────────────────────────────────────────────────
+# ── Step 5a: install dep tools ───────────────────────────────────────────────
 FONT_DONE=0
 STOWED_WALLPAPER=0
 INSTALLED=()
 FAILED=()
+
+if [ "${#DEPS[@]}" -gt 0 ]; then
+    info "Installing dep tools..."
+    for dep in "${DEPS[@]}"; do
+        dep_pkg="${DEP_PKG[$dep]}"
+        if pkg_installed "$dep_pkg"; then
+            substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+        else
+            substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
+            pacman_install "$dep_pkg" || error "Failed to install ${dep} — skipping"
+        fi
+
+        # Stow config for deps that have one
+        for _dc in "${DEP_HAS_CONFIG[@]}"; do
+            if [[ "$dep" == "$_dc" ]] && [ -d "$DOTFILES_DIR/$dep" ]; then
+                backup_and_stow "$dep"
+                break
+            fi
+        done
+    done
+    success "Dep tools done"
+fi
+
+# ── Step 5b: install configs ──────────────────────────────────────────────────
 
 for cfg in "${SELECTED[@]}"; do
     info "Installing ${C_ACCENT}${cfg}${C_RESET}..."
@@ -671,21 +697,6 @@ for cfg in "${SELECTED[@]}"; do
                 FAILED+=(zsh)
                 continue
             fi
-        fi
-
-        if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
-            substep "Installing dep tools: ${C_ACCENT}${ZSH_DEPS[*]}${C_RESET}"
-            for dep in "${ZSH_DEPS[@]}"; do
-                dep_pkg="${ZSH_DEP_PKG[$dep]}"
-                if pkg_installed "$dep_pkg"; then
-                    substep "  ${C_DIM}${dep} already installed${C_RESET}"
-                else
-                    substep "  Installing ${C_ACCENT}${dep}${C_RESET}..."
-                    pacman_install "$dep_pkg" || error "  Failed to install ${dep} — skipping"
-                fi
-            done
-        else
-            substep "${C_DIM}No dep tools selected — aliases will silently fail if tools missing${C_RESET}"
         fi
 
         backup_file "$HOME/.zshrc"
