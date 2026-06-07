@@ -133,3 +133,6 @@ alias kitty='kitty --single-instance'
 
 alias cc='claude --dangerously-skip-permissions'
 alias ccr='claude --dangerously-skip-permissions --resume'
+alias ccc='claude --dangerously-skip-permissions --continue'
+
+export PATH="$HOME/.local/bin:$PATH"
