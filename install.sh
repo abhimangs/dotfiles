@@ -221,7 +221,7 @@ DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 DEP_HAS_CONFIG=(bat btop)
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli notion)
+APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli notion vlc)
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
 
@@ -234,6 +234,7 @@ APP_LABEL[antigravity]="Antigravity 2.0"
 APP_LABEL[antigravity-cli]="Antigravity CLI"
 APP_LABEL[codex-cli]="Codex CLI"
 APP_LABEL[notion]="Notion"
+APP_LABEL[vlc]="VLC"
 
 APP_TYPE[brave-beta]="paru-y"
 APP_TYPE[brave-stable]="paru-y"
@@ -244,6 +245,7 @@ APP_TYPE[antigravity]="paru"
 APP_TYPE[antigravity-cli]="curl"
 APP_TYPE[codex-cli]="curl"
 APP_TYPE[notion]="paru"
+APP_TYPE[vlc]="pacman"
 
 APP_PKG[brave-beta]="brave-origin-beta-bin"
 APP_PKG[brave-stable]="brave-origin-bin"
@@ -251,6 +253,7 @@ APP_PKG[vscode]="visual-studio-code-bin"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[notion]="notion-app-electron"
+APP_PKG[vlc]="vlc"
 
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
@@ -952,6 +955,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             fi
             if [[ "$_type" == "paru-y" ]]; then
                 paru_install_y "$_pkg"
+            elif [[ "$_type" == "pacman" ]]; then
+                pacman_install "$_pkg"
             else
                 paru_install "$_pkg"
             fi
