@@ -21,16 +21,23 @@ C_DIM='\033[38;2;129;122;150m'
 C_GREEN='\033[38;2;166;209;137m'
 C_YELLOW='\033[38;2;229;200;144m'
 C_RED='\033[38;2;231;130;132m'
+C_TEAL='\033[38;2;148;226;213m'
 C_BOLD='\033[1m'
 C_RESET='\033[0m'
+
+# Full Catppuccin Mocha fzf theme
+_FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,prompt:#cba6f7,pointer:#f5e0dc,marker:#a6e3a1,border:#585b70,header:#94e2d5,info:#cba6f7,spinner:#f5e0dc,separator:#585b70,gutter:#1e1e2e"
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
 header() {
     clear
     echo -e "${C_MAIN}${C_BOLD}"
-    echo " ╭──────────────────────────────────────────╮"
-    echo " │        󰄴 DOTFILES INSTALLER 󰄴            │"
-    echo " ╰──────────────────────────────────────────╯"
+    echo " ╭──────────────────────────────────────────────────────╮"
+    echo " │                                                      │"
+    echo " │    󰄴  DOTFILES INSTALLER                            │"
+    echo " │       Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha  │"
+    echo " │                                                      │"
+    echo " ╰──────────────────────────────────────────────────────╯"
     echo -e "${C_RESET}"
 }
 
@@ -466,17 +473,31 @@ header
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
 BACKUP_MODE="backup"
-echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}Backup  ${C_DIM}(move existing config to .bak before replacing)${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}Delete  ${C_DIM}(wipe existing config cleanly, no backup kept)${C_RESET}"
-echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice [1/2, default=1]: ${C_RESET}"
-read -rp "" _bm
-if [[ "$_bm" == "2" ]]; then
-    BACKUP_MODE="delete"
+if command -v fzf &>/dev/null; then
+    _bm=$(printf '%s\n' \
+        "backup   ·  move existing config to .bak  (safe, reversible)" \
+        "delete   ·  wipe existing config cleanly  (no backup kept)" | \
+        fzf --no-multi \
+            --height=9 \
+            --min-height=9 \
+            --reverse \
+            --border=rounded \
+            --prompt="  " \
+            --pointer="❯" \
+            --color="${_FZF_CLR}" \
+            --header=$'What to do with existing configs before replacing?\n' \
+            --bind='ctrl-j:accept' 2>/dev/null | awk '{print $1}')
+    [[ "$_bm" == "delete" ]] && BACKUP_MODE="delete"
+    unset _bm
 else
-    BACKUP_MODE="backup"
+    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}Backup  ${C_DIM}·  move to .bak before replacing${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}Delete  ${C_DIM}·  wipe cleanly, no backup kept${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice [1/2, default=1]: ${C_RESET}"
+    read -rp "" _bm
+    [[ "$_bm" == "2" ]] && BACKUP_MODE="delete"
+    unset _bm
 fi
-unset _bm
 echo ""
 
 # ── Sudo cache ────────────────────────────────────────────────────────────────
@@ -553,7 +574,14 @@ declare -a SELECTED=()
 if command -v fzf &>/dev/null; then
     echo ""
     mapfile -t SELECTED < <(
-        printf '%s\n' "${CONFIGS[@]}" | \
+        printf '%-11s  ·  %s\n' \
+            "fastfetch"  "system info display at login" \
+            "ghostty"    "GPU-accelerated terminal   ·  JetBrains Nerd Font" \
+            "kitty"      "cross-platform terminal    ·  JetBrains Nerd Font" \
+            "zsh"        "shell + Zinit plugins" \
+            "protonvpn"  "ProtonVPN wrapper script" \
+            "starship"   "cross-shell prompt" \
+            "ulauncher"  "app launcher              ·  AUR" | \
         fzf --multi \
             --height=40% \
             --min-height=12 \
@@ -562,11 +590,12 @@ if command -v fzf &>/dev/null; then
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
-            --header=$'Enter=select  Ctrl-J=install  Ctrl-A=select all\n' \
+            --color="${_FZF_CLR}" \
+            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all'
+            --bind='ctrl-a:select-all' | \
+        awk '{print $1}'
     )
     echo ""
 else
@@ -574,14 +603,14 @@ else
     echo ""
     attempts=0
     while true; do
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}fastfetch"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}ghostty"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}kitty"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}ulauncher"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}Select All"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}fastfetch   ${C_DIM}·  system info display${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}ghostty     ${C_DIM}·  GPU-accelerated terminal${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}kitty       ${C_DIM}·  cross-platform terminal${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh         ${C_DIM}·  shell + Zinit plugins${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn   ${C_DIM}·  ProtonVPN wrapper script${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship    ${C_DIM}·  cross-shell prompt${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}ulauncher   ${C_DIM}·  app launcher (AUR)${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
 
@@ -632,31 +661,40 @@ echo ""
 
 if command -v fzf &>/dev/null; then
     mapfile -t DEPS < <(
-        printf '%s\n' "${DEPS_LIST[@]}" | \
+        printf '%-10s  ·  %s\n' \
+            "bat"      "cat with syntax highlighting  ·  Catppuccin theme" \
+            "eza"      "modern ls  →  ls  ll  lt  la aliases" \
+            "fd"       "fast find replacement  →  fzf integration" \
+            "zoxide"   "smart cd  →  z command" \
+            "thefuck"  "corrects last command  →  fuck alias" \
+            "lazygit"  "git TUI  →  lg alias" \
+            "btop"     "resource monitor  ·  Catppuccin theme" \
+            "tree"     "directory tree listing" | \
         fzf --multi \
-            --height=35% \
+            --height=40% \
             --min-height=12 \
             --reverse \
             --border=rounded \
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
+            --color="${_FZF_CLR}" \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all'
+            --bind='ctrl-a:select-all' | \
+        awk '{print $1}'
     )
 else
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat     ${C_DIM}(cat alias, Catppuccin theme)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza     ${C_DIM}(ls ll lt la)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd      ${C_DIM}(fzf file search)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide  ${C_DIM}(z smart cd)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck ${C_DIM}(fuck command)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}lazygit ${C_DIM}(lg alias)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}btop    ${C_DIM}(resource monitor, Catppuccin theme)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}tree    ${C_DIM}(directory tree listing)${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All    ${C_DIM}· Enter to skip${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat       ${C_DIM}·  cat with syntax highlighting${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza       ${C_DIM}·  modern ls  →  ls ll lt la${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd        ${C_DIM}·  fast find  →  fzf integration${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide    ${C_DIM}·  smart cd   →  z command${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck   ${C_DIM}·  corrects last command  →  fuck alias${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}lazygit   ${C_DIM}·  git TUI  →  lg alias${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}btop      ${C_DIM}·  resource monitor  ·  Catppuccin theme${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}tree      ${C_DIM}·  directory tree listing${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
     read -rp "" DEP_RAW
     if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
@@ -682,43 +720,47 @@ APPS=()
 info "Optional applications..."
 echo ""
 
-_app_labels=()
+# Build tab-delimited lines: key<TAB>display — fzf shows only the display column
+_app_lines=()
 for _k in "${APPS_LIST[@]}"; do
-    _app_labels+=("${APP_LABEL[$_k]}")
+    case "${APP_TYPE[$_k]}" in
+        paru-y|paru) _tl="paru"   ;;
+        pacman)      _tl="pacman" ;;
+        curl)        _tl="curl"   ;;
+        *)           _tl="${APP_TYPE[$_k]}" ;;
+    esac
+    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ·  %s' "${APP_LABEL[$_k]}" "$_tl")")
 done
 
 if command -v fzf &>/dev/null; then
-    _sel_labels=()
-    mapfile -t _sel_labels < <(
-        printf '%s\n' "${_app_labels[@]}" | \
+    mapfile -t APPS < <(
+        printf '%s\n' "${_app_lines[@]}" | \
         fzf --multi \
-            --height=40% \
-            --min-height=12 \
+            --delimiter=$'\t' \
+            --with-nth=2 \
+            --height=45% \
+            --min-height=14 \
             --reverse \
             --border=rounded \
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
+            --color="${_FZF_CLR}" \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all'
+            --bind='ctrl-a:select-all' | \
+        awk -F'\t' '{print $1}'
     )
-    for _lbl in "${_sel_labels[@]}"; do
-        for _k in "${APPS_LIST[@]}"; do
-            [[ "${APP_LABEL[$_k]}" == "$_lbl" ]] && APPS+=("$_k") && break
-        done
-    done
-    unset _sel_labels _lbl _k
     echo ""
 else
     _app_i=1
-    for _lbl in "${_app_labels[@]}"; do
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${_app_i} ${C_DIM}❯ ${C_RESET}${_lbl}"
+    for _line in "${_app_lines[@]}"; do
+        _disp="${_line#*$'\t'}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${_app_i} ${C_DIM}❯ ${C_RESET}${_disp}"
         (( _app_i++ ))
     done
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}· Enter to skip${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
     read -rp "" APP_RAW
     if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
@@ -730,9 +772,9 @@ else
             APPS+=("${APPS_LIST[$((token-1))]}")
         done
     fi
-    unset _app_i _lbl APP_RAW token
+    unset _app_i _disp APP_RAW token
 fi
-unset _app_labels _k
+unset _app_lines _k _tl _line
 
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
