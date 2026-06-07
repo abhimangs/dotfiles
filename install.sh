@@ -490,29 +490,6 @@ else
     fi
 fi
 
-# ── Dep confirmation plan ─────────────────────────────────────────────────────
-if [ "${#DEPS[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Dep tools plan${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-    for _dep in "${DEPS[@]}"; do
-        _dep_pkg="${DEP_PKG[$_dep]}"
-        if pkg_installed "$_dep_pkg"; then
-            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
-        else
-            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_YELLOW}will be installed${C_RESET}"
-        fi
-    done
-    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-    if [ "$DRY_RUN" -eq 0 ]; then
-        echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
-        read -rp "" DEP_CONFIRM
-        [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && DEPS=()
-    else
-        echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_DIM}[dry run] skipping confirmation${C_RESET}\n"
-    fi
-fi
-echo ""
-
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
 
