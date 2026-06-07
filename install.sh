@@ -622,7 +622,7 @@ for cfg in "${SELECTED[@]}"; do
         fi
 
         backup_file "$HOME/.zshrc"
-        if ! stow_home "home"; then
+        if ! stow_home "zsh"; then
             FAILED+=(zsh)
             continue
         fi
@@ -643,7 +643,7 @@ for cfg in "${SELECTED[@]}"; do
 
         mkdir -p "$HOME/scripts/pvpn"
         backup_file "$HOME/scripts/pvpn/pvpn.zsh"
-        if ! stow_home "scripts"; then
+        if ! stow_home "proton-vpn"; then
             FAILED+=(protonvpn)
             continue
         fi
