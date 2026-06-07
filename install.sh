@@ -42,7 +42,7 @@ pacman_install() {
     sudo pacman -S --needed --noconfirm "$1" &>/dev/null 2>&1
 }
 
-# ── Backup + stow a config ────────────────────────────────────────────────────
+# ── Backup + stow to ~/.config ────────────────────────────────────────────────
 backup_and_stow() {
     local name="$1"
     local target="$HOME/.config/$name"
@@ -71,11 +71,43 @@ backup_and_stow() {
     return 0
 }
 
+# ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
+backup_file() {
+    local target="$1"
+    local bak="${target}.bak"
+    local oldbak="${target}.old.bak"
+    local name; name="$(basename "$target")"
+
+    if [ -L "$target" ]; then
+        rm "$target"
+    elif [ -e "$target" ]; then
+        if [ -e "$bak" ]; then
+            [ -e "$oldbak" ] && rm -rf "$oldbak"
+            mv "$bak" "$oldbak"
+            substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
+        fi
+        mv "$target" "$bak"
+        substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+    fi
+}
+
+# ── Stow to ~ (for home/ and scripts/) ───────────────────────────────────────
+stow_home() {
+    local name="$1"
+    if ! stow --target "$HOME" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
+        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ~/"
+        return 1
+    fi
+    return 0
+}
+
 # ── App + package mapping ─────────────────────────────────────────────────────
 declare -A PKG_MAP
 PKG_MAP[fastfetch]="fastfetch"
 PKG_MAP[ghostty]="ghostty"
 PKG_MAP[kitty]="kitty"
+PKG_MAP[zsh]="zsh"
+PKG_MAP[protonvpn]="proton-vpn-cli"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 NEEDS_FONT=(ghostty kitty)
@@ -86,7 +118,18 @@ needs_font() {
     return 1
 }
 
-# ── Pre-install plan (shown after selection, before running) ──────────────────
+# ── Zsh optional dep tools ────────────────────────────────────────────────────
+declare -A ZSH_DEP_PKG
+ZSH_DEP_PKG[bat]="bat"
+ZSH_DEP_PKG[eza]="eza"
+ZSH_DEP_PKG[fd]="fd"
+ZSH_DEP_PKG[zoxide]="zoxide"
+ZSH_DEP_PKG[thefuck]="thefuck"
+ZSH_DEP_PKG[starship]="starship"
+ZSH_DEP_PKG[lazygit]="lazygit"
+ZSH_DEPS_LIST=(bat eza fd zoxide thefuck starship lazygit)
+
+# ── Pre-install plan ──────────────────────────────────────────────────────────
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
@@ -95,47 +138,73 @@ show_plan() {
 
     for cfg in "${cfgs[@]}"; do
         local pkg="${PKG_MAP[$cfg]}"
-        local target="$HOME/.config/$cfg"
-        local bak="${target}.bak"
-        local oldbak="${target}.old.bak"
         local steps=()
+        local target bak
 
-        # package
         if pkg_installed "$pkg"; then
             steps+=("${C_DIM}$pkg already installed${C_RESET}")
         else
             steps+=("${C_YELLOW}install $pkg${C_RESET}")
         fi
 
-        # font
-        if needs_font "$cfg" && ! pkg_installed "$FONT_PKG"; then
-            steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-        fi
-
-        # config backup
-        if [ -L "$target" ]; then
-            steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-        elif [ -e "$target" ]; then
-            if [ -e "$bak" ]; then
-                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak, $cfg → $cfg.bak${C_RESET}")
-            else
+        case "$cfg" in
+          ghostty|kitty)
+            if ! pkg_installed "$FONT_PKG"; then
+                steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+            fi
+            target="$HOME/.config/$cfg"; bak="${target}.bak"
+            if [ -L "$target" ]; then
+                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$target" ]; then
+                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                 steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-            fi
-            steps+=("${C_GREEN}stow config${C_RESET}")
-        else
-            steps+=("${C_GREEN}stow config${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-        fi
-
-        # wallpaper (once)
-        if needs_font "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
-            local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
-            if [ ! -f "$wp" ]; then
-                steps+=("${C_GREEN}stow wallpapers${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
             else
-                steps+=("${C_DIM}wallpaper already in place${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
-            wallpaper_stowed=1
-        fi
+            if [ "$wallpaper_stowed" -eq 0 ]; then
+                local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
+                if [ ! -f "$wp" ]; then
+                    steps+=("${C_GREEN}stow wallpapers${C_RESET}")
+                else
+                    steps+=("${C_DIM}wallpaper already in place${C_RESET}")
+                fi
+                wallpaper_stowed=1
+            fi
+            ;;
+          fastfetch)
+            target="$HOME/.config/$cfg"; bak="${target}.bak"
+            if [ -L "$target" ]; then
+                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$target" ]; then
+                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
+            ;;
+          zsh)
+            local rc="$HOME/.zshrc"
+            if [ -L "$rc" ]; then
+                steps+=("${C_ACCENT}re-stow .zshrc${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$rc" ]; then
+                [ -e "${rc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.zshrc.bak → .zshrc.old.bak${C_RESET}")
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.zshrc → .zshrc.bak${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.zshrc${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.zshrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
+            steps+=("${C_DIM}optional dep tools shown next${C_RESET}")
+            ;;
+          protonvpn)
+            local script="$HOME/scripts/pvpn/pvpn.zsh"
+            if [ -e "$script" ] && [ ! -L "$script" ]; then
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}pvpn.zsh → pvpn.zsh.bak${C_RESET}")
+            fi
+            steps+=("${C_GREEN}stow ~/scripts/pvpn/pvpn.zsh${C_RESET}")
+            ;;
+        esac
 
         echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}${cfg}${C_RESET}"
@@ -211,7 +280,7 @@ for tool in stow fzf; do
     fi
 done
 
-[ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:        ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
+[ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:         ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
 [ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
 
 if ! sudo pacman -S --needed --noconfirm stow fzf &>/dev/null 2>&1; then
@@ -222,25 +291,22 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty)
+CONFIGS=(fastfetch ghostty kitty zsh protonvpn)
 declare -a SELECTED=()
 
-if command -v fzf &>/dev/null; then
-    echo ""
-
-    # Preview script: runs per highlighted item, shows live status
-    PREVIEW='
+PREVIEW='
 cfg="{}"
 case "$cfg" in
-  fastfetch) pkg="fastfetch" ; nf=0 ;;
-  ghostty)   pkg="ghostty"   ; nf=1 ;;
-  kitty)     pkg="kitty"     ; nf=1 ;;
-  *)         pkg="$cfg"      ; nf=0 ;;
+  fastfetch)  pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ;;
+  ghostty)    pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ;;
+  kitty)      pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ;;
+  zsh)        pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ;;
+  protonvpn)  pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ;;
+  *)          pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ;;
 esac
 P="\033[38;2;202;169;224m\033[1m"
 A="\033[38;2;145;177;240m"
 G="\033[38;2;166;209;137m"
-R="\033[38;2;231;130;132m"
 Y="\033[38;2;229;200;144m"
 D="\033[38;2;129;122;150m"
 X="\033[0m"
@@ -251,39 +317,75 @@ else
   echo -e "  ${Y}→${X} ${A}$pkg${X} ${D}will be installed${X}"
 fi
 echo ""
-echo -e "${P}  Config${X}"
-target="$HOME/.config/$cfg"
-bak="${target}.bak"
-if [ -L "$target" ]; then
-  echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-elif [ -d "$target" ] || [ -f "$target" ]; then
-  if [ -e "$bak" ]; then
-    echo -e "  ${Y}→${X} ${D}$cfg.bak → $cfg.old.bak${X}"
+if [ "$is_zsh" = "1" ]; then
+  echo -e "${P}  Config${X}"
+  rc="$HOME/.zshrc"
+  if [ -L "$rc" ]; then
+    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+  elif [ -e "$rc" ]; then
+    echo -e "  ${Y}→${X} ${D}.zshrc → .zshrc.bak${X}"
+    echo -e "  ${G}+${X} stow ${D}dotfiles/home/.zshrc${X}"
+  else
+    echo -e "  ${G}+${X} fresh stow ${D}(no existing .zshrc)${X}"
   fi
-  echo -e "  ${Y}→${X} ${D}$cfg → $cfg.bak${X}"
-  echo -e "  ${G}+${X} stow ${D}dotfiles/$cfg/${X}"
+  echo ""
+  echo -e "${P}  Optional dep tools${X}"
+  installed=0
+  for d in bat eza fd zoxide thefuck starship lazygit; do
+    if pacman -Q "$d" &>/dev/null 2>&1; then
+      echo -e "  ${G}✔${X} $d"
+      (( installed++ ))
+    else
+      echo -e "  ${D}· $d${X}"
+    fi
+  done
+  echo -e "\n  ${D}${installed}/7 already installed — sub-menu shown after confirm${X}"
+elif [ "$is_pvpn" = "1" ]; then
+  echo -e "${P}  Script${X}"
+  sc="$HOME/scripts/pvpn/pvpn.zsh"
+  if [ -L "$sc" ]; then
+    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+  elif [ -e "$sc" ]; then
+    echo -e "  ${Y}→${X} ${D}pvpn.zsh → pvpn.zsh.bak${X}"
+    echo -e "  ${G}+${X} stow ${D}dotfiles/scripts/pvpn/pvpn.zsh${X}"
+  else
+    echo -e "  ${G}+${X} fresh stow ${D}(no existing script)${X}"
+  fi
 else
-  echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
-fi
-if [ "$nf" = "1" ]; then
-  echo ""
-  echo -e "${P}  Font${X}"
-  if pacman -Q ttf-jetbrains-mono-nerd &>/dev/null; then
-    echo -e "  ${G}✔${X} JetBrainsMono Nerd Font ${D}installed${X}"
+  echo -e "${P}  Config${X}"
+  target="$HOME/.config/$cfg"
+  bak="${target}.bak"
+  if [ -L "$target" ]; then
+    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+  elif [ -d "$target" ] || [ -f "$target" ]; then
+    [ -e "$bak" ] && echo -e "  ${Y}→${X} ${D}$cfg.bak → $cfg.old.bak${X}"
+    echo -e "  ${Y}→${X} ${D}$cfg → $cfg.bak${X}"
+    echo -e "  ${G}+${X} stow ${D}dotfiles/$cfg/${X}"
   else
-    echo -e "  ${Y}→${X} JetBrainsMono Nerd Font ${D}will be installed${X}"
+    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
   fi
-  echo ""
-  echo -e "${P}  Wallpaper${X}"
-  wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
-  if [ -f "$wp" ]; then
-    echo -e "  ${G}✔${X} wallpaper already in place"
-  else
-    echo -e "  ${Y}→${X} stow ${D}dotfiles/wallpapers/${X}"
+  if [ "$nf" = "1" ]; then
+    echo ""
+    echo -e "${P}  Font${X}"
+    if pacman -Q ttf-jetbrains-mono-nerd &>/dev/null; then
+      echo -e "  ${G}✔${X} JetBrainsMono Nerd Font ${D}installed${X}"
+    else
+      echo -e "  ${Y}→${X} JetBrainsMono Nerd Font ${D}will be installed${X}"
+    fi
+    echo ""
+    echo -e "${P}  Wallpaper${X}"
+    wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
+    if [ -f "$wp" ]; then
+      echo -e "  ${G}✔${X} wallpaper already in place"
+    else
+      echo -e "  ${Y}→${X} stow ${D}dotfiles/wallpapers/${X}"
+    fi
   fi
 fi
 '
 
+if command -v fzf &>/dev/null; then
+    echo ""
     mapfile -t SELECTED < <(
         printf '%s\n' "${CONFIGS[@]}" | \
         fzf --multi \
@@ -304,15 +406,17 @@ fi
     )
     echo ""
 else
-    substep "${C_DIM}fzf not found — using basic menu${C_RESET}"
+    substep "${C_DIM}fzf unavailable — using basic menu${C_RESET}"
     echo ""
     attempts=0
     while true; do
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}fastfetch"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}ghostty"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}kitty"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}Select All"
-        echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 3 or a): ${C_RESET}"
+        echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
 
         if [[ "$RAW" == "a" || "$RAW" == "A" ]]; then
@@ -321,12 +425,14 @@ else
         fi
 
         valid=true
-        declare -a tmp=()
+        tmp=()
         for token in $RAW; do
             case "$token" in
-                1) tmp+=(fastfetch) ;;
-                2) tmp+=(ghostty)   ;;
-                3) tmp+=(kitty)     ;;
+                1) tmp+=(fastfetch)  ;;
+                2) tmp+=(ghostty)    ;;
+                3) tmp+=(kitty)      ;;
+                4) tmp+=(zsh)        ;;
+                5) tmp+=(protonvpn)  ;;
                 *) valid=false; break ;;
             esac
         done
@@ -341,7 +447,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–3 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–5 separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -351,10 +457,97 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     exit 0
 fi
 
-# ── Step 4: show plan + confirm ───────────────────────────────────────────────
+# ── Zsh dep sub-menu ─────────────────────────────────────────────────────────
+ZSH_DEPS=()
+for _cfg in "${SELECTED[@]}"; do
+    if [[ "$_cfg" == "zsh" ]]; then
+        info "Optional tools for ${C_ACCENT}zsh${C_RESET}..."
+        echo ""
+
+        DEP_PREVIEW='
+tool="{}"
+case "$tool" in
+  bat)      desc="cat='\''bat'\''  ·  fp preview" ;;
+  eza)      desc="ls  ll  lt  la  aliases"         ;;
+  fd)       desc="fzf file/dir search"             ;;
+  zoxide)   desc="z smart cd"                      ;;
+  thefuck)  desc="fuck command"                    ;;
+  starship) desc="shell prompt"                    ;;
+  lazygit)  desc="lg alias"                        ;;
+  *)        desc=""                                ;;
+esac
+G="\033[38;2;166;209;137m"
+Y="\033[38;2;229;200;144m"
+A="\033[38;2;145;177;240m"
+D="\033[38;2;129;122;150m"
+P="\033[38;2;202;169;224m\033[1m"
+X="\033[0m"
+echo -e "${P}  ${tool}${X}"
+echo ""
+echo -e "  ${D}${desc}${X}"
+echo ""
+if pacman -Q "$tool" &>/dev/null 2>&1; then
+  echo -e "  ${G}✔${X} already installed"
+else
+  echo -e "  ${Y}→${X} will be installed"
+fi
+'
+
+        if command -v fzf &>/dev/null; then
+            mapfile -t ZSH_DEPS < <(
+                printf '%s\n' "${ZSH_DEPS_LIST[@]}" | \
+                fzf --multi \
+                    --height=60% \
+                    --min-height=14 \
+                    --reverse \
+                    --border=rounded \
+                    --prompt="  " \
+                    --pointer="❯" \
+                    --marker="✔" \
+                    --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
+                    --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
+                    --bind='enter:toggle+down' \
+                    --bind='ctrl-j:accept' \
+                    --bind='ctrl-a:select-all' \
+                    --preview="$DEP_PREVIEW" \
+                    --preview-window='right:40%:wrap:border-left'
+            )
+        else
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat    ${C_DIM}(cat alias, fp preview)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza    ${C_DIM}(ls ll lt la)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd     ${C_DIM}(fzf file search)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide ${C_DIM}(z smart cd)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck${C_DIM}(fuck command)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship${C_DIM}(shell prompt)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}lazygit${C_DIM}(lg alias)${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All   ${C_DIM}· Enter to skip${C_RESET}"
+            echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
+            read -rp "" DEP_RAW
+            if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
+                ZSH_DEPS=("${ZSH_DEPS_LIST[@]}")
+            elif [[ -n "$DEP_RAW" ]]; then
+                for token in $DEP_RAW; do
+                    case "$token" in
+                        1) ZSH_DEPS+=(bat)      ;;
+                        2) ZSH_DEPS+=(eza)      ;;
+                        3) ZSH_DEPS+=(fd)       ;;
+                        4) ZSH_DEPS+=(zoxide)   ;;
+                        5) ZSH_DEPS+=(thefuck)  ;;
+                        6) ZSH_DEPS+=(starship) ;;
+                        7) ZSH_DEPS+=(lazygit)  ;;
+                    esac
+                done
+            fi
+        fi
+        echo ""
+        break
+    fi
+done
+
+# ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
 
-# ── Step 5: install selected configs ─────────────────────────────────────────
+# ── Step 5: install ───────────────────────────────────────────────────────────
 FONT_DONE=0
 STOWED_WALLPAPER=0
 INSTALLED=()
@@ -364,42 +557,99 @@ for cfg in "${SELECTED[@]}"; do
     info "Installing ${C_ACCENT}${cfg}${C_RESET}..."
     pkg="${PKG_MAP[$cfg]}"
 
-    # package
-    if pkg_installed "$pkg"; then
-        substep "${C_ACCENT}${pkg}${C_RESET} already installed"
-    else
-        substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
-        if ! pacman_install "$pkg"; then
-            error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
+    case "$cfg" in
+
+      # ── fastfetch / ghostty / kitty ──────────────────────────────────────
+      fastfetch|ghostty|kitty)
+        if pkg_installed "$pkg"; then
+            substep "${C_ACCENT}${pkg}${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
+            if ! pacman_install "$pkg"; then
+                error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
+                FAILED+=("$cfg")
+                continue
+            fi
+        fi
+
+        if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
+            if ! pkg_installed "$FONT_PKG"; then
+                substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
+                pacman_install "$FONT_PKG" || error "Failed to install font — continuing"
+            fi
+            FONT_DONE=1
+        fi
+
+        if ! backup_and_stow "$cfg"; then
             FAILED+=("$cfg")
             continue
         fi
-    fi
 
-    # font (once, ghostty/kitty only)
-    if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
-        if ! pkg_installed "$FONT_PKG"; then
-            substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-            if ! pacman_install "$FONT_PKG"; then
-                error "Failed to install font — continuing without it"
+        if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
+            if [ -d "$DOTFILES_DIR/wallpapers" ]; then
+                backup_and_stow "wallpapers"
+                STOWED_WALLPAPER=1
             fi
         fi
-        FONT_DONE=1
-    fi
+        ;;
 
-    # backup + stow config
-    if ! backup_and_stow "$cfg"; then
-        FAILED+=("$cfg")
-        continue
-    fi
-
-    # stow wallpapers (once, ghostty/kitty only)
-    if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
-        if [ -d "$DOTFILES_DIR/wallpapers" ]; then
-            backup_and_stow "wallpapers"
-            STOWED_WALLPAPER=1
+      # ── zsh ──────────────────────────────────────────────────────────────
+      zsh)
+        if pkg_installed zsh; then
+            substep "${C_ACCENT}zsh${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}zsh${C_RESET}..."
+            if ! pacman_install zsh; then
+                error "Failed to install zsh — skipping"
+                FAILED+=(zsh)
+                continue
+            fi
         fi
-    fi
+
+        if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
+            substep "Installing dep tools: ${C_ACCENT}${ZSH_DEPS[*]}${C_RESET}"
+            for dep in "${ZSH_DEPS[@]}"; do
+                dep_pkg="${ZSH_DEP_PKG[$dep]}"
+                if pkg_installed "$dep_pkg"; then
+                    substep "  ${C_DIM}${dep} already installed${C_RESET}"
+                else
+                    substep "  Installing ${C_ACCENT}${dep}${C_RESET}..."
+                    pacman_install "$dep_pkg" || error "  Failed to install ${dep} — skipping"
+                fi
+            done
+        else
+            substep "${C_DIM}No dep tools selected — aliases will silently fail if tools missing${C_RESET}"
+        fi
+
+        backup_file "$HOME/.zshrc"
+        if ! stow_home "home"; then
+            FAILED+=(zsh)
+            continue
+        fi
+        ;;
+
+      # ── protonvpn ────────────────────────────────────────────────────────
+      protonvpn)
+        if pkg_installed proton-vpn-cli; then
+            substep "${C_ACCENT}proton-vpn-cli${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}proton-vpn-cli${C_RESET}..."
+            if ! pacman_install proton-vpn-cli; then
+                error "Failed to install proton-vpn-cli — skipping"
+                FAILED+=(protonvpn)
+                continue
+            fi
+        fi
+
+        mkdir -p "$HOME/scripts/pvpn"
+        backup_file "$HOME/scripts/pvpn/pvpn.zsh"
+        if ! stow_home "scripts"; then
+            FAILED+=(protonvpn)
+            continue
+        fi
+        ;;
+
+    esac
 
     success "${C_ACCENT}${cfg}${C_RESET} installed"
     INSTALLED+=("$cfg")
@@ -411,7 +661,6 @@ echo -e "${C_MAIN}${C_BOLD} ╭─ 󰄴 Summary${C_RESET}"
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} │  ${C_GREEN}✔ ${C_RESET}Installed: ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
 fi
-
 if [ "${#FAILED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} │  ${C_RED}✘ ${C_RESET}Failed:    ${C_RED}${FAILED[*]}${C_RESET}"
 fi
