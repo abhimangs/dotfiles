@@ -33,10 +33,10 @@ header() {
     clear
     echo ""
     echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
-    echo -e "  ${C_ACCENT}${C_BOLD} 󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
+    echo -e "        ${C_ACCENT}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
     echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
     echo ""
-    echo -e "  ${C_DIM} Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
     echo ""
 }
 
@@ -495,19 +495,51 @@ header
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
 BACKUP_MODE="backup"
-echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} │  ${C_GREEN}●${C_RESET}  backup  ${C_DIM}·  move to .bak, safe and reversible${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}○  delete  ·  wipe cleanly, no backup kept${C_RESET}"
-echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}[b/d, Enter=backup]: ${C_RESET}"
-read -n 1 -rs _bm
-if [[ "$_bm" == "d" || "$_bm" == "D" ]]; then
+_bm_sel=0
+
+_bm_draw() {
+    if [ "$1" -eq 0 ]; then
+        printf " ${C_MAIN}${C_BOLD}│${C_RESET}  ${C_GREEN}❯${C_RESET}  backup  ${C_DIM}·  move to .bak, safe and reversible   ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}│${C_RESET}     delete  ${C_DIM}·  wipe cleanly, no backup kept         ${C_RESET}\n"
+    else
+        printf " ${C_MAIN}${C_BOLD}│${C_RESET}     backup  ${C_DIM}·  move to .bak, safe and reversible   ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}│${C_RESET}  ${C_RED}❯${C_RESET}  delete  ${C_DIM}·  wipe cleanly, no backup kept         ${C_RESET}\n"
+    fi
+}
+
+echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs  ${C_DIM}↑↓ navigate  ·  Enter confirm${C_RESET}"
+_bm_draw $_bm_sel
+
+while true; do
+    printf "\033[2A"
+    IFS= read -n 1 -rs _bm_key
+    case "$_bm_key" in
+        $'\n'|$'\r'|'')
+            _bm_draw $_bm_sel
+            break
+            ;;
+        'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
+        'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
+        $'\033')
+            IFS= read -n 2 -rs -t 0.1 _bm_esc || true
+            case "$_bm_esc" in
+                '[A'|'[D') _bm_sel=0 ;;
+                '[B'|'[C') _bm_sel=1 ;;
+            esac
+            _bm_draw $_bm_sel
+            ;;
+        *) _bm_draw $_bm_sel ;;
+    esac
+done
+
+if [ "$_bm_sel" -eq 1 ]; then
     BACKUP_MODE="delete"
-    echo -e "${C_RED}delete${C_RESET}"
+    echo -e " ${C_MAIN}${C_BOLD}╰─ ${C_RED}✔${C_RESET} delete\n"
 else
-    echo -e "${C_GREEN}backup${C_RESET}"
+    echo -e " ${C_MAIN}${C_BOLD}╰─ ${C_GREEN}✔${C_RESET} backup\n"
 fi
-unset _bm
-echo ""
+unset -f _bm_draw
+unset _bm_sel _bm_key _bm_esc
 
 # ── Sudo cache ────────────────────────────────────────────────────────────────
 info "Authentication..."
