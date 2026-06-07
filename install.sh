@@ -248,6 +248,10 @@ DEP_PKG[btop]="btop"
 DEP_PKG[tree]="tree"
 DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 
+# AUR-only dep tools — must use paru, not pacman
+declare -A DEP_TYPE
+DEP_TYPE[thefuck]="paru"
+
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
 
@@ -561,6 +565,11 @@ if command -v paru &>/dev/null; then
     success "AUR helper ready"
 else
     substep "paru not found — installing..."
+    substep "Checking internet connection..."
+    if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
+        error "No internet connection — paru requires internet to install."
+        exit 1
+    fi
     substep "Installing build dependencies..."
     if ! sudo pacman -S --needed --noconfirm base-devel git; then
         error "Failed to install base-devel/git. Check your internet or sudo access."
@@ -763,6 +772,21 @@ else
     fi
 fi
 
+# Warn if alias-heavy dep tools selected without zsh
+if [ "${#DEPS[@]}" -gt 0 ] && ! printf '%s\n' "${SELECTED[@]}" | grep -qx "zsh"; then
+    _alias_deps=(bat eza zoxide thefuck)
+    for _d in "${DEPS[@]}"; do
+        for _a in "${_alias_deps[@]}"; do
+            if [[ "$_d" == "$_a" ]]; then
+                echo -e " ${C_YELLOW}  Note: bat/eza/zoxide/thefuck aliases live in .zshrc — consider also selecting zsh${C_RESET}"
+                echo ""
+                break 2
+            fi
+        done
+    done
+    unset _alias_deps _d _a
+fi
+
 # ── App menu ─────────────────────────────────────────────────────────────────
 APPS=()
 info "Optional applications..."
@@ -841,7 +865,13 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
         else
             substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
-            if ! pacman_install "$dep_pkg"; then
+            if [[ "${DEP_TYPE[$dep]:-pacman}" == "paru" ]]; then
+                if ! paru_install "$dep_pkg"; then
+                    error "Failed to install ${dep} — skipping"
+                    FAILED+=("$dep")
+                    continue
+                fi
+            elif ! pacman_install "$dep_pkg"; then
                 error "Failed to install ${dep} — skipping"
                 FAILED+=("$dep")
                 continue

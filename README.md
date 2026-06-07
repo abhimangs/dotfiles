@@ -23,6 +23,7 @@ bash install.sh
 | `fastfetch/` | `~/.config/fastfetch/` | `fastfetch` |
 | `ghostty/` | `~/.config/ghostty/` | `ghostty` |
 | `kitty/` | `~/.config/kitty/` | `kitty` |
+| `rofi/` | `~/.config/rofi/` | `rofi` |
 | `starship/` | `~/.config/starship.toml` | `starship` |
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* |
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* |
@@ -46,7 +47,7 @@ bash install.sh
 
 [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop.
 
-Font: `ttf-jetbrains-mono-nerd` (auto-installed with ghostty or kitty).
+Font: `ttf-jetbrains-mono-nerd` (auto-installed with ghostty, kitty, or rofi).
 
 ## Stow manually
 
@@ -55,6 +56,7 @@ Font: `ttf-jetbrains-mono-nerd` (auto-installed with ghostty or kitty).
 stow --target ~/.config/fastfetch  fastfetch
 stow --target ~/.config/ghostty    ghostty
 stow --target ~/.config/kitty      kitty
+stow --target ~/.config/rofi       rofi
 stow --target ~/.config/bat        bat
 stow --target ~/.config/btop       btop
 stow --target ~/.config/wallpapers wallpapers

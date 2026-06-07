@@ -1,3 +1,7 @@
+# Installer backups
+*.bak
+*.old.bak
+
 # OS
 .DS_Store
 Thumbs.db
