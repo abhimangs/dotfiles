@@ -205,7 +205,17 @@ show_plan() {
             else
                 steps+=("${C_GREEN}stow ~/.zshrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
-            steps+=("${C_DIM}optional dep tools shown next${C_RESET}")
+            if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
+                for _d in "${ZSH_DEPS[@]}"; do
+                    if pkg_installed "${ZSH_DEP_PKG[$_d]}"; then
+                        steps+=("${C_DIM}dep: $_d already installed${C_RESET}")
+                    else
+                        steps+=("${C_YELLOW}install dep: $_d${C_RESET}")
+                    fi
+                done
+            else
+                steps+=("${C_DIM}no dep tools selected${C_RESET}")
+            fi
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
@@ -549,6 +559,24 @@ fi
                 done
             fi
         fi
+
+        # ── Dep confirmation plan ─────────────────────────────────────────────
+        if [ "${#ZSH_DEPS[@]}" -gt 0 ]; then
+            echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Zsh dep tools plan${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+            for _dep in "${ZSH_DEPS[@]}"; do
+                _dep_pkg="${ZSH_DEP_PKG[$_dep]}"
+                if pkg_installed "$_dep_pkg"; then
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+                else
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_ACCENT}${_dep}${C_RESET} ${C_YELLOW}will be installed${C_RESET}"
+                fi
+            done
+            echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+            echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Install these dep tools? [Y/n]: ${C_RESET}"
+            read -rp "" DEP_CONFIRM
+            [[ "$DEP_CONFIRM" =~ ^[Nn]$ ]] && ZSH_DEPS=()
+        fi
         echo ""
         break
     fi
@@ -652,7 +680,7 @@ for cfg in "${SELECTED[@]}"; do
         fi
 
         # Unlink stow-folded dirs from a previous run before backup
-        local pvpn_dir="$HOME/scripts/pvpn"
+        pvpn_dir="$HOME/scripts/pvpn"
         if [ -L "$pvpn_dir" ]; then
             rm "$pvpn_dir"
         fi
