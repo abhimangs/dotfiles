@@ -31,14 +31,13 @@ _FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,p
 # ── UI helpers ────────────────────────────────────────────────────────────────
 header() {
     clear
-    echo -e "${C_MAIN}${C_BOLD}"
-    echo " ╭──────────────────────────────────────────────────────╮"
-    echo " │                                                      │"
-    echo " │    󰄴  DOTFILES INSTALLER                            │"
-    echo " │       Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha  │"
-    echo " │                                                      │"
-    echo " ╰──────────────────────────────────────────────────────╯"
-    echo -e "${C_RESET}"
+    echo ""
+    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo -e "  ${C_ACCENT}${C_BOLD} 󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
+    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo ""
+    echo -e "  ${C_DIM} Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    echo ""
 }
 
 info()    { echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 $1${C_RESET}"; }
@@ -493,31 +492,18 @@ header
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
 BACKUP_MODE="backup"
-if command -v fzf &>/dev/null; then
-    _bm=$(printf '%s\n' \
-        "backup   ·  move existing config to .bak  (safe, reversible)" \
-        "delete   ·  wipe existing config cleanly  (no backup kept)" | \
-        fzf --no-multi \
-            --height=9 \
-            --min-height=9 \
-            --reverse \
-            --border=rounded \
-            --prompt="  " \
-            --pointer="❯" \
-            --color="${_FZF_CLR}" \
-            --header=$'What to do with existing configs before replacing?\n' \
-            --bind='ctrl-j:accept' 2>/dev/null | awk '{print $1}')
-    [[ "$_bm" == "delete" ]] && BACKUP_MODE="delete"
-    unset _bm
+echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} │  ${C_GREEN}●${C_RESET}  backup  ${C_DIM}·  move to .bak, safe and reversible${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}○  delete  ·  wipe cleanly, no backup kept${C_RESET}"
+echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}[b/d, Enter=backup]: ${C_RESET}"
+read -n 1 -rs _bm
+if [[ "$_bm" == "d" || "$_bm" == "D" ]]; then
+    BACKUP_MODE="delete"
+    echo -e "${C_RED}delete${C_RESET}"
 else
-    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}Backup  ${C_DIM}·  move to .bak before replacing${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}Delete  ${C_DIM}·  wipe cleanly, no backup kept${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice [1/2, default=1]: ${C_RESET}"
-    read -rp "" _bm
-    [[ "$_bm" == "2" ]] && BACKUP_MODE="delete"
-    unset _bm
+    echo -e "${C_GREEN}backup${C_RESET}"
 fi
+unset _bm
 echo ""
 
 # ── Sudo cache ────────────────────────────────────────────────────────────────
