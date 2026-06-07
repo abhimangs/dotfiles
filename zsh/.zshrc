@@ -81,15 +81,19 @@ alias c='clear'
 alias x='exit'
 
 # ── Aliases: eza ──────────────────────────────────────────────
-alias ls='eza --icons=always --group-directories-first'
-alias ll='eza -lah --icons=always --git --group-directories-first --time-style=relative'
-alias lt='eza --tree --icons=always --level=2'
-alias la='eza -a --icons=always --group-directories-first'
+if command -v eza &>/dev/null; then
+    alias ls='eza --icons=always --group-directories-first'
+    alias ll='eza -lah --icons=always --git --group-directories-first --time-style=relative'
+    alias lt='eza --tree --icons=always --level=2'
+    alias la='eza -a --icons=always --group-directories-first'
+fi
 
 # ── Aliases: Tools ────────────────────────────────────────────
-alias cat='bat'
+if command -v bat &>/dev/null; then
+    alias cat='bat'
+    alias fp='fzf --preview "bat --color=always --style=numbers {}"'
+fi
 alias grep='grep --color=auto'
-alias fp='fzf --preview "bat --color=always --style=numbers {}"'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
 
 # ── Aliases: System ───────────────────────────────────────────

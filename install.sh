@@ -363,157 +363,23 @@ info "Select configs to install..."
 CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher)
 declare -a SELECTED=()
 
-PREVIEW='
-cfg="{}"
-case "$cfg" in
-  fastfetch)   pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
-  ghostty)     pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
-  kitty)       pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
-  zsh)         pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
-  protonvpn)   pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ; is_starship=0 ; is_ul=0 ;;
-  starship)    pkg="starship"       ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=1 ; is_ul=0 ;;
-  ulauncher)   pkg="ulauncher"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=1 ;;
-  *)           pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
-esac
-P="\033[38;2;202;169;224m\033[1m"
-A="\033[38;2;145;177;240m"
-G="\033[38;2;166;209;137m"
-Y="\033[38;2;229;200;144m"
-D="\033[38;2;129;122;150m"
-X="\033[0m"
-echo -e "${P}  Package${X}"
-if pacman -Q "$pkg" &>/dev/null; then
-  echo -e "  ${G}✔${X} ${A}$pkg${X} ${D}already installed${X}"
-else
-  echo -e "  ${Y}→${X} ${A}$pkg${X} ${D}will be installed${X}"
-fi
-echo ""
-if [ "$is_zsh" = "1" ]; then
-  echo -e "${P}  Config${X}"
-  rc="$HOME/.zshrc"
-  if [ -L "$rc" ]; then
-    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-  elif [ -e "$rc" ]; then
-    echo -e "  ${Y}→${X} ${D}.zshrc → .zshrc.bak${X}"
-    echo -e "  ${G}+${X} stow ${D}dotfiles/home/.zshrc${X}"
-  else
-    echo -e "  ${G}+${X} fresh stow ${D}(no existing .zshrc)${X}"
-  fi
-  echo ""
-  echo -e "${P}  Optional dep tools${X}"
-  installed=0
-  for d in bat eza fd zoxide thefuck starship lazygit; do
-    if pacman -Q "$d" &>/dev/null 2>&1; then
-      echo -e "  ${G}✔${X} $d"
-      (( installed++ ))
-    else
-      echo -e "  ${D}· $d${X}"
-    fi
-  done
-  echo -e "\n  ${D}${installed}/7 already installed — sub-menu shown after confirm${X}"
-elif [ "$is_pvpn" = "1" ]; then
-  echo -e "${P}  Script${X}"
-  sc="$HOME/scripts/pvpn/pvpn.zsh"
-  if [ -L "$sc" ]; then
-    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-  elif [ -e "$sc" ]; then
-    echo -e "  ${Y}→${X} ${D}pvpn.zsh → pvpn.zsh.bak${X}"
-    echo -e "  ${G}+${X} stow ${D}dotfiles/scripts/pvpn/pvpn.zsh${X}"
-  else
-    echo -e "  ${G}+${X} fresh stow ${D}(no existing script)${X}"
-  fi
-elif [ "$is_starship" = "1" ]; then
-  echo -e "${P}  Config${X}"
-  sc="$HOME/.config/starship.toml"
-  if [ -L "$sc" ]; then
-    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-  elif [ -e "$sc" ]; then
-    echo -e "  ${Y}→${X} ${D}starship.toml → starship.toml.bak${X}"
-    echo -e "  ${G}+${X} stow ${D}dotfiles/starship/starship.toml${X}"
-  else
-    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
-  fi
-  echo ""
-  echo -e "${P}  Prompt${X}"
-  echo -e "  ${D}Catppuccin Mocha powerline theme${X}"
-  echo -e "  ${D}OS · user · dir · git · langs · time${X}"
-elif [ "$is_ul" = "1" ]; then
-  echo -e "${P}  Config${X}"
-  ul="$HOME/.config/ulauncher"
-  if [ -L "$ul" ]; then
-    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-  elif [ -e "$ul" ]; then
-    echo -e "  ${Y}→${X} ${D}ulauncher → ulauncher.bak${X}"
-    echo -e "  ${G}+${X} stow ${D}dotfiles/ulauncher/${X}"
-  else
-    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
-  fi
-  echo ""
-  echo -e "${P}  Autostart${X}"
-  as_file="$HOME/.config/autostart/ulauncher.desktop"
-  if [ -f "$as_file" ]; then
-    echo -e "  ${G}✔${X} autostart already configured"
-  else
-    echo -e "  ${Y}→${X} autostart will be enabled"
-  fi
-  echo ""
-  echo -e "${P}  Theme${X}"
-  echo -e "  ${D}Essential Dark (black · #106eea selection)${X}"
-  echo -e "  ${D}Hotkey: Ctrl+Shift+Alt+Super+j${X}"
-  echo ""
-  echo -e "${P}  AUR package — installed via paru${X}"
-else
-  echo -e "${P}  Config${X}"
-  target="$HOME/.config/$cfg"
-  bak="${target}.bak"
-  if [ -L "$target" ]; then
-    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
-  elif [ -d "$target" ] || [ -f "$target" ]; then
-    [ -e "$bak" ] && echo -e "  ${Y}→${X} ${D}$cfg.bak → $cfg.old.bak${X}"
-    echo -e "  ${Y}→${X} ${D}$cfg → $cfg.bak${X}"
-    echo -e "  ${G}+${X} stow ${D}dotfiles/$cfg/${X}"
-  else
-    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
-  fi
-  if [ "$nf" = "1" ]; then
-    echo ""
-    echo -e "${P}  Font${X}"
-    if pacman -Q ttf-jetbrains-mono-nerd &>/dev/null; then
-      echo -e "  ${G}✔${X} JetBrainsMono Nerd Font ${D}installed${X}"
-    else
-      echo -e "  ${Y}→${X} JetBrainsMono Nerd Font ${D}will be installed${X}"
-    fi
-    echo ""
-    echo -e "${P}  Wallpaper${X}"
-    wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
-    if [ -f "$wp" ]; then
-      echo -e "  ${G}✔${X} wallpaper already in place"
-    else
-      echo -e "  ${Y}→${X} stow ${D}dotfiles/wallpapers/${X}"
-    fi
-  fi
-fi
-'
-
 if command -v fzf &>/dev/null; then
     echo ""
     mapfile -t SELECTED < <(
         printf '%s\n' "${CONFIGS[@]}" | \
         fzf --multi \
-            --height=70% \
-            --min-height=16 \
+            --height=40% \
+            --min-height=12 \
             --reverse \
             --border=rounded \
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
+            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
             --header=$'Enter=select  Ctrl-J=install  Ctrl-A=select all\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all' \
-            --preview="$PREVIEW" \
-            --preview-window='right:45%:wrap:border-left'
+            --bind='ctrl-a:select-all'
     )
     echo ""
 else
@@ -577,54 +443,22 @@ DEPS=()
 info "Optional dep tools..."
 echo ""
 
-DEP_PREVIEW='
-tool="{}"
-case "$tool" in
-  bat)      desc="cat alias · syntax highlight · Catppuccin Mocha theme · fp preview" ;;
-  eza)      desc="ls  ll  lt  la  aliases"                                            ;;
-  fd)       desc="fzf file/dir search backend"                                        ;;
-  zoxide)   desc="z  smart cd"                                                        ;;
-  thefuck)  desc="fuck  correct last command"                                         ;;
-  lazygit)  desc="lg  git TUI"                                                        ;;
-  btop)     desc="btop  resource monitor · Catppuccin Mocha theme"                   ;;
-  tree)     desc="tree  directory listing as a tree"                                 ;;
-  *)        desc=""                                                                   ;;
-esac
-G="\033[38;2;166;209;137m"
-Y="\033[38;2;229;200;144m"
-A="\033[38;2;145;177;240m"
-D="\033[38;2;129;122;150m"
-P="\033[38;2;202;169;224m\033[1m"
-X="\033[0m"
-echo -e "${P}  ${tool}${X}"
-echo ""
-echo -e "  ${D}${desc}${X}"
-echo ""
-if pacman -Q "$tool" &>/dev/null 2>&1; then
-  echo -e "  ${G}✔${X} already installed"
-else
-  echo -e "  ${Y}→${X} will be installed"
-fi
-'
-
 if command -v fzf &>/dev/null; then
     mapfile -t DEPS < <(
         printf '%s\n' "${DEPS_LIST[@]}" | \
         fzf --multi \
-            --height=60% \
-            --min-height=14 \
+            --height=35% \
+            --min-height=12 \
             --reverse \
             --border=rounded \
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
+            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all' \
-            --preview="$DEP_PREVIEW" \
-            --preview-window='right:40%:wrap:border-left'
+            --bind='ctrl-a:select-all'
     )
 else
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat     ${C_DIM}(cat alias, Catppuccin theme)${C_RESET}"
