@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# ── Arch Linux check ──────────────────────────────────────────────────────────
+if [ ! -f /etc/arch-release ]; then
+    echo "This installer is for Arch Linux only." >&2
+    exit 1
+fi
+
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 trap 'echo -ne "\033[0m"' EXIT
@@ -183,17 +189,26 @@ else
     success "paru installed"
 fi
 
-# ── Step 2: stow ─────────────────────────────────────────────────────────────
-info "Checking stow..."
-if ! command -v stow &>/dev/null; then
-    substep "Installing stow..."
-    if ! pacman_install stow; then
-        error "Failed to install stow."
+# ── Step 2: tools (stow + fzf) ───────────────────────────────────────────────
+info "Checking tools..."
+MISSING_TOOLS=()
+command -v stow &>/dev/null || MISSING_TOOLS+=(stow)
+command -v fzf  &>/dev/null || MISSING_TOOLS+=(fzf)
+
+if [ "${#MISSING_TOOLS[@]}" -gt 0 ]; then
+    substep "Installing: ${C_ACCENT}${MISSING_TOOLS[*]}${C_RESET}..."
+    substep "${C_DIM}You may be prompted for your sudo password once${C_RESET}"
+    sudo -v
+    if ! sudo pacman -S --needed --noconfirm "${MISSING_TOOLS[@]}" &>/dev/null 2>&1; then
+        error "Failed to install ${MISSING_TOOLS[*]}."
         exit 1
     fi
+else
+    substep "${C_DIM}sudo -v to cache credentials${C_RESET}"
+    sudo -v
 fi
-substep "stow ready"
-success "Dependencies verified"
+substep "stow + fzf ready"
+success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
@@ -270,10 +285,9 @@ fi
             --pointer="❯" \
             --marker="✔" \
             --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
-            --header=$'Enter=select  Ctrl-Enter=install  Ctrl-a=select all\n' \
+            --header=$'Enter=select  Ctrl-J=install  Ctrl-A=select all\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
-            --bind='ctrl-enter:accept' \
             --bind='ctrl-a:select-all' \
             --preview="$PREVIEW" \
             --preview-window='right:45%:wrap:border-left'
