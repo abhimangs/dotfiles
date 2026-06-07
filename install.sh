@@ -757,7 +757,11 @@ for cfg in "${SELECTED[@]}"; do
             fi
         fi
 
-        if ! backup_and_stow "starship"; then
+        # starship is a single file, not a directory — handle differently
+        stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
+        backup_file "$HOME/.config/starship.toml"
+        if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+            error "Stow failed for starship — check for conflicts in ~/.config/"
             FAILED+=(starship)
             continue
         fi
