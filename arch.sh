@@ -17,6 +17,7 @@ unset _arg
 C_MAUVE='\033[38;2;202;158;230m'    # mauve
 C_BLUE='\033[38;2;140;170;238m'     # blue
 C_LAVENDER='\033[38;2;186;187;241m' # lavender
+C_TEAL='\033[38;2;148;226;213m'     # teal
 C_GREEN='\033[38;2;166;209;137m'    # green
 C_YELLOW='\033[38;2;229;200;144m'   # yellow
 C_RED='\033[38;2;231;130;132m'      # red
@@ -32,14 +33,11 @@ trap 'echo -ne "\033[0m"' EXIT
 _banner() {
     clear
     echo
-    echo -e "${C_MAUVE}${C_BOLD}  ╭─────────────────────────────────────────────────╮${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │                                                 │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │   ${C_LAVENDER}  dotfiles${C_MAUVE} / ${C_BLUE}arch bootstrap${C_MAUVE}                    │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │                                                 │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │  ${C_DIM}Arch Linux · GNU Stow · Catppuccin Mocha${C_MAUVE}      │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │  ${C_DIM}github.com/abhimangs/dotfiles${C_MAUVE}                 │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  │                                                 │${C_RESET}"
-    echo -e "${C_MAUVE}${C_BOLD}  ╰─────────────────────────────────────────────────╯${C_RESET}"
+    echo -e "${C_MAUVE}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo -e "        ${C_BLUE}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}A R C H  B O O T S T R A P${C_RESET}"
+    echo -e "${C_MAUVE}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo
+    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
     echo
 }
 

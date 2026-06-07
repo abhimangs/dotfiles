@@ -32,14 +32,11 @@ _FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,p
 header() {
     clear
     echo ""
-    echo -e "${C_MAIN}${C_BOLD}  ╭─────────────────────────────────────────────────╮${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_ACCENT}${C_BOLD}󰄴  DOTFILES${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}INSTALLER${C_RESET}                   ${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha ${C_RESET}${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_DIM}github.com/abhimangs/dotfiles${C_RESET}             ${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD}  ╰─────────────────────────────────────────────────╯${C_RESET}"
+    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo -e "        ${C_ACCENT}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
+    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo ""
+    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
     echo ""
 }
 
