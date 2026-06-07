@@ -7,14 +7,10 @@ Thumbs.db
 *.secret
 *_secret*
 
-# Kitty session state
-kitty/last_session*
-
-# Backup files created by install.sh
-*.bak
-*.old.bak
-
 # Editor
 *.swp
 *.swo
 *~
+
+# Claude
+CLAUDE.md
