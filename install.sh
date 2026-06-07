@@ -32,11 +32,14 @@ _FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,p
 header() {
     clear
     echo ""
-    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
-    echo -e "        ${C_ACCENT}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
-    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
-    echo ""
-    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  ╭─────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_ACCENT}${C_BOLD}󰄴  DOTFILES${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}INSTALLER${C_RESET}                   ${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha ${C_RESET}${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}    ${C_DIM}github.com/abhimangs/dotfiles${C_RESET}             ${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  │${C_RESET}                                                 ${C_MAIN}${C_BOLD}│${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD}  ╰─────────────────────────────────────────────────╯${C_RESET}"
     echo ""
 }
 
@@ -489,7 +492,7 @@ show_plan() {
         exit 0
     fi
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
-    read -rp "" CONFIRM
+    read -r CONFIRM </dev/tty
     [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
     echo ""
 }
@@ -516,7 +519,7 @@ _bm_draw $_bm_sel
 
 while true; do
     printf "\033[2A"
-    IFS= read -n 1 -rs _bm_key
+    IFS= read -n 1 -rs _bm_key </dev/tty
     case "$_bm_key" in
         $'\n'|$'\r'|'')
             _bm_draw $_bm_sel
@@ -525,7 +528,7 @@ while true; do
         'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
         'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
         $'\033')
-            IFS= read -n 2 -rs -t 0.1 _bm_esc || true
+            IFS= read -n 2 -rs -t 0.1 _bm_esc </dev/tty || true
             case "$_bm_esc" in
                 '[A'|'[D') _bm_sel=0 ;;
                 '[B'|'[C') _bm_sel=1 ;;
