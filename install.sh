@@ -217,14 +217,23 @@ PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
 PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
+PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
-NEEDS_FONT=(ghostty kitty)
+NEEDS_FONT=(ghostty kitty rofi)
 
 needs_font() {
     local cfg="$1"
     for n in "${NEEDS_FONT[@]}"; do [[ "$cfg" == "$n" ]] && return 0; done
+    return 1
+}
+
+# Wallpapers are only for terminal emulators, not all font-using configs
+NEEDS_WALLPAPER=(ghostty kitty)
+needs_wallpaper() {
+    local cfg="$1"
+    for n in "${NEEDS_WALLPAPER[@]}"; do [[ "$cfg" == "$n" ]] && return 0; done
     return 1
 }
 
@@ -333,7 +342,7 @@ show_plan() {
                 wallpaper_stowed=1
             fi
             ;;
-          fastfetch)
+          fastfetch|rofi)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -349,6 +358,7 @@ show_plan() {
             else
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
+            [[ "$cfg" == "rofi" ]] && steps+=("${C_DIM}launch: rofi -show drun${C_RESET}")
             ;;
           zsh)
             local rc="$HOME/.zshrc"
@@ -568,7 +578,7 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher)
+CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher)
 declare -a SELECTED=()
 
 if command -v fzf &>/dev/null; then
@@ -581,6 +591,7 @@ if command -v fzf &>/dev/null; then
             "zsh"        "shell + Zinit plugins" \
             "protonvpn"  "ProtonVPN wrapper script" \
             "starship"   "cross-shell prompt" \
+            "rofi"       "keyboard-driven launcher   ·  JetBrains Nerd Font" \
             "ulauncher"  "app launcher              ·  AUR" | \
         fzf --multi \
             --height=40% \
@@ -609,7 +620,8 @@ else
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh         ${C_DIM}·  shell + Zinit plugins${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn   ${C_DIM}·  ProtonVPN wrapper script${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship    ${C_DIM}·  cross-shell prompt${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}ulauncher   ${C_DIM}·  app launcher (AUR)${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}rofi        ${C_DIM}·  keyboard-driven launcher${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}ulauncher   ${C_DIM}·  app launcher (AUR)${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
@@ -629,7 +641,8 @@ else
                 4) tmp+=(zsh)        ;;
                 5) tmp+=(protonvpn)  ;;
                 6) tmp+=(starship)   ;;
-                7) tmp+=(ulauncher)  ;;
+                7) tmp+=(rofi)       ;;
+                8) tmp+=(ulauncher)  ;;
                 *) valid=false; break ;;
             esac
         done
@@ -644,7 +657,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–7 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–8 separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -815,8 +828,8 @@ for cfg in "${SELECTED[@]}"; do
 
     case "$cfg" in
 
-      # ── fastfetch / ghostty / kitty ──────────────────────────────────────
-      fastfetch|ghostty|kitty)
+      # ── fastfetch / ghostty / kitty / rofi ──────────────────────────────
+      fastfetch|ghostty|kitty|rofi)
         if pkg_installed "$pkg"; then
             substep "${C_ACCENT}${pkg}${C_RESET} already installed"
         else
@@ -843,11 +856,15 @@ for cfg in "${SELECTED[@]}"; do
             continue
         fi
 
-        if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
+        if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_wallpaper "$cfg"; then
             if [ -d "$DOTFILES_DIR/wallpapers" ]; then
                 stow_config "wallpapers"
                 STOWED_WALLPAPER=1
             fi
+        fi
+
+        if [[ "$cfg" == "rofi" ]]; then
+            substep "${C_DIM}Launch rofi with: ${C_ACCENT}rofi -show drun${C_RESET}"
         fi
         ;;
 
