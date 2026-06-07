@@ -5,7 +5,7 @@ Arch Linux dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
 ## Quick start — fresh Arch install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh | sh
+curl -fsSL https://abhiman.io/arch.sh | sh
 ```
 
 Or clone manually:
@@ -51,15 +51,17 @@ Font: `ttf-jetbrains-mono-nerd` (auto-installed with ghostty or kitty).
 ## Stow manually
 
 ```bash
-# ~/.config targets
-stow --target ~/.config fastfetch
-stow --target ~/.config ghostty
-stow --target ~/.config kitty
+# direct ~/.config/<name> targets (flat repo structure)
+stow --target ~/.config/fastfetch  fastfetch
+stow --target ~/.config/ghostty    ghostty
+stow --target ~/.config/kitty      kitty
+stow --target ~/.config/bat        bat
+stow --target ~/.config/btop       btop
+stow --target ~/.config/wallpapers wallpapers
+stow --target ~/.config/ulauncher  ulauncher
+
+# starship is a single file — stows directly into ~/.config/
 stow --target ~/.config starship
-stow --target ~/.config ulauncher
-stow --target ~/.config bat
-stow --target ~/.config btop
-stow --target ~/.config wallpapers
 
 # ~ target
 stow --target ~ zsh
