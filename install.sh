@@ -859,10 +859,26 @@ for cfg in "${SELECTED[@]}"; do
             fi
         fi
 
-        if ! backup_and_stow "ulauncher"; then
+        # Stow directly into ~/.config/ulauncher (package has flat structure, no subdir)
+        ul_target="$HOME/.config/ulauncher"
+        ul_bak="${ul_target}.bak"
+        ul_oldbak="${ul_target}.old.bak"
+        if [ -L "$ul_target" ]; then
+            stow --target "$ul_target" --dir "$DOTFILES_DIR" -D "ulauncher" &>/dev/null 2>&1 || rm "$ul_target"
+        elif [ -e "$ul_target" ]; then
+            if [ -e "$ul_bak" ]; then
+                [ -e "$ul_oldbak" ] && rm -rf "$ul_oldbak"
+                mv "$ul_bak" "$ul_oldbak"
+                substep "Rotated ${C_DIM}ulauncher.bak → ulauncher.old.bak${C_RESET}"
+            fi
+            mv "$ul_target" "$ul_bak"
+            substep "Backed up ${C_ACCENT}ulauncher${C_RESET} → ${C_DIM}ulauncher.bak${C_RESET}"
+        fi
+        if ! stow_to "$ul_target" "ulauncher"; then
             FAILED+=(ulauncher)
             continue
         fi
+        unset ul_target ul_bak ul_oldbak
 
         # Autostart — create desktop entry if missing
         autostart_dir="$HOME/.config/autostart"
@@ -885,8 +901,7 @@ AUTOSTART
             substep "${C_DIM}Autostart already configured${C_RESET}"
         fi
 
-        substep "${C_DIM}Hotkey: Ctrl+Shift+Alt+Super+j  ·  or set your own in ulauncher Preferences${C_RESET}"
-        substep "${C_DIM}Toggle command: ${C_ACCENT}ulauncher-toggle${C_DIM} (bind this to your WM shortcut)${C_RESET}"
+        substep "${C_DIM}Toggle command: ${C_ACCENT}ulauncher-toggle${C_RESET}"
         ;;
 
     esac
