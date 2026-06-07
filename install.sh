@@ -46,9 +46,76 @@ pacman_install() {
     sudo pacman -S --needed --noconfirm "$1" &>/dev/null 2>&1
 }
 
-paru_install() {
-    paru -S --needed --noconfirm "$1" &>/dev/null 2>&1
+_paru_run_robust() {
+    local sync_flag="${1:-}"   # "" | "y" | "yy"
+    local pkg="$2"
+    local tmplog; tmplog=$(mktemp /tmp/paru_XXXXXX.log)
+
+    # ── preflight: stale pacman lock ─────────────────────────────────────────
+    if [ -f /var/lib/pacman/db.lck ]; then
+        substep "${C_YELLOW}Stale pacman lock — removing${C_RESET}"
+        sudo rm -f /var/lib/pacman/db.lck
+    fi
+
+    local _flags=( paru -S"${sync_flag}" --needed --noconfirm --removemake --cleanafter )
+
+    # ── attempt 1: normal install ─────────────────────────────────────────────
+    if "${_flags[@]}" "$pkg" >"$tmplog" 2>&1; then
+        rm -f "$tmplog"; return 0
+    fi
+    local err; err=$(<"$tmplog")
+
+    # ── attempt 2: PGP / signature problem ───────────────────────────────────
+    if grep -qiE 'pgp|key|signature|invalid or corrupted|unknown trust|not trusted' <<< "$err"; then
+        substep "${C_YELLOW}PGP key issue — refreshing keyring and retrying${C_RESET}"
+        sudo pacman -S --needed --noconfirm archlinux-keyring &>/dev/null 2>&1 || true
+        sudo pacman-key --populate archlinux &>/dev/null 2>&1 || true
+        if "${_flags[@]}" --mflags "--skippgpcheck" "$pkg" >"$tmplog" 2>&1; then
+            rm -f "$tmplog"; return 0
+        fi
+        err=$(<"$tmplog")
+    fi
+
+    # ── attempt 3: file conflict ─────────────────────────────────────────────
+    if grep -qiE 'exists in filesystem|file conflict|conflicting files' <<< "$err"; then
+        substep "${C_YELLOW}File conflict — retrying with --overwrite${C_RESET}"
+        if "${_flags[@]}" --overwrite '*' "$pkg" >"$tmplog" 2>&1; then
+            rm -f "$tmplog"; return 0
+        fi
+        err=$(<"$tmplog")
+    fi
+
+    # ── attempt 4: corrupt cache or database ─────────────────────────────────
+    if grep -qiE 'corrupted|invalid.*database|unexpected EOF|error.*opening.*database' <<< "$err"; then
+        substep "${C_YELLOW}Corrupt cache/database — cleaning and force-resyncing${C_RESET}"
+        sudo pacman -Sc --noconfirm &>/dev/null 2>&1 || true
+        paru -Sc --noconfirm &>/dev/null 2>&1 || true
+        if paru -Syy --needed --noconfirm --removemake --cleanafter "$pkg" >"$tmplog" 2>&1; then
+            rm -f "$tmplog"; return 0
+        fi
+        err=$(<"$tmplog")
+    fi
+
+    # ── attempt 5: stale AUR clone ───────────────────────────────────────────
+    if grep -qiE 'git.*error|could not.*fetch|unable to.*clone|not a git repo' <<< "$err"; then
+        substep "${C_YELLOW}Stale AUR clone — clearing cache and retrying${C_RESET}"
+        local _clone="${XDG_CACHE_HOME:-$HOME/.cache}/paru/clone/${pkg}"
+        [ -d "$_clone" ] && rm -rf "$_clone"
+        if "${_flags[@]}" "$pkg" >"$tmplog" 2>&1; then
+            rm -f "$tmplog"; return 0
+        fi
+        err=$(<"$tmplog")
+    fi
+
+    # ── all attempts failed ───────────────────────────────────────────────────
+    substep "${C_RED}All install attempts failed — last output:${C_RESET}"
+    tail -6 "$tmplog" | while IFS= read -r _el; do substep "${C_DIM}${_el}${C_RESET}"; done
+    rm -f "$tmplog"
+    return 1
 }
+
+paru_install()   { _paru_run_robust ""  "$1"; }
+paru_install_y() { _paru_run_robust "y" "$1"; }
 
 # ── Backup + stow to ~/.config ────────────────────────────────────────────────
 backup_and_stow() {
@@ -876,9 +943,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
             fi
             if [[ "$_type" == "paru-y" ]]; then
-                paru -Sy --needed --noconfirm "$_pkg" &>/dev/null 2>&1
+                paru_install_y "$_pkg"
             else
-                paru -S --needed --noconfirm "$_pkg" &>/dev/null 2>&1
+                paru_install "$_pkg"
             fi
             if pkg_installed "$_pkg"; then
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
