@@ -73,6 +73,77 @@ PKG_MAP[kitty]="kitty"
 FONT_PKG="ttf-jetbrains-mono-nerd"
 NEEDS_FONT=(ghostty kitty)
 
+needs_font() {
+    local cfg="$1"
+    for n in "${NEEDS_FONT[@]}"; do [[ "$cfg" == "$n" ]] && return 0; done
+    return 1
+}
+
+# ── Pre-install plan (shown after selection, before running) ──────────────────
+show_plan() {
+    local cfgs=("$@")
+    local wallpaper_stowed=0
+
+    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Installation plan${C_RESET}"
+
+    for cfg in "${cfgs[@]}"; do
+        local pkg="${PKG_MAP[$cfg]}"
+        local target="$HOME/.config/$cfg"
+        local bak="${target}.bak"
+        local oldbak="${target}.old.bak"
+        local steps=()
+
+        # package
+        if pkg_installed "$pkg"; then
+            steps+=("${C_DIM}$pkg already installed${C_RESET}")
+        else
+            steps+=("${C_YELLOW}install $pkg${C_RESET}")
+        fi
+
+        # font
+        if needs_font "$cfg" && ! pkg_installed "$FONT_PKG"; then
+            steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+        fi
+
+        # config backup
+        if [ -L "$target" ]; then
+            steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+        elif [ -e "$target" ]; then
+            if [ -e "$bak" ]; then
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak, $cfg → $cfg.bak${C_RESET}")
+            else
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+            fi
+            steps+=("${C_GREEN}stow config${C_RESET}")
+        else
+            steps+=("${C_GREEN}stow config${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+        fi
+
+        # wallpaper (once)
+        if needs_font "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
+            local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
+            if [ ! -f "$wp" ]; then
+                steps+=("${C_GREEN}stow wallpapers${C_RESET}")
+            else
+                steps+=("${C_DIM}wallpaper already in place${C_RESET}")
+            fi
+            wallpaper_stowed=1
+        fi
+
+        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}${cfg}${C_RESET}"
+        for step in "${steps[@]}"; do
+            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${step}"
+        done
+    done
+
+    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
+    read -rp "" CONFIRM
+    [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
+    echo ""
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 header
 
@@ -130,20 +201,82 @@ CONFIGS=(fastfetch ghostty kitty)
 declare -a SELECTED=()
 
 if command -v fzf &>/dev/null; then
-    substep "Use ${C_ACCENT}Tab${C_RESET} to toggle, ${C_ACCENT}Enter${C_RESET} to confirm, ${C_ACCENT}Ctrl-a${C_RESET} to select all"
     echo ""
+
+    # Preview script: runs per highlighted item, shows live status
+    PREVIEW='
+cfg="{}"
+case "$cfg" in
+  fastfetch) pkg="fastfetch" ; nf=0 ;;
+  ghostty)   pkg="ghostty"   ; nf=1 ;;
+  kitty)     pkg="kitty"     ; nf=1 ;;
+  *)         pkg="$cfg"      ; nf=0 ;;
+esac
+P="\033[38;2;202;169;224m\033[1m"
+A="\033[38;2;145;177;240m"
+G="\033[38;2;166;209;137m"
+R="\033[38;2;231;130;132m"
+Y="\033[38;2;229;200;144m"
+D="\033[38;2;129;122;150m"
+X="\033[0m"
+echo -e "${P}  Package${X}"
+if pacman -Q "$pkg" &>/dev/null; then
+  echo -e "  ${G}✔${X} ${A}$pkg${X} ${D}already installed${X}"
+else
+  echo -e "  ${Y}→${X} ${A}$pkg${X} ${D}will be installed${X}"
+fi
+echo ""
+echo -e "${P}  Config${X}"
+target="$HOME/.config/$cfg"
+bak="${target}.bak"
+if [ -L "$target" ]; then
+  echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+elif [ -d "$target" ] || [ -f "$target" ]; then
+  if [ -e "$bak" ]; then
+    echo -e "  ${Y}→${X} ${D}$cfg.bak → $cfg.old.bak${X}"
+  fi
+  echo -e "  ${Y}→${X} ${D}$cfg → $cfg.bak${X}"
+  echo -e "  ${G}+${X} stow ${D}dotfiles/$cfg/${X}"
+else
+  echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
+fi
+if [ "$nf" = "1" ]; then
+  echo ""
+  echo -e "${P}  Font${X}"
+  if pacman -Q ttf-jetbrains-mono-nerd &>/dev/null; then
+    echo -e "  ${G}✔${X} JetBrainsMono Nerd Font ${D}installed${X}"
+  else
+    echo -e "  ${Y}→${X} JetBrainsMono Nerd Font ${D}will be installed${X}"
+  fi
+  echo ""
+  echo -e "${P}  Wallpaper${X}"
+  wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
+  if [ -f "$wp" ]; then
+    echo -e "  ${G}✔${X} wallpaper already in place"
+  else
+    echo -e "  ${Y}→${X} stow ${D}dotfiles/wallpapers/${X}"
+  fi
+fi
+'
+
     mapfile -t SELECTED < <(
         printf '%s\n' "${CONFIGS[@]}" | \
         fzf --multi \
-            --height=8 \
+            --height=70% \
+            --min-height=16 \
             --reverse \
             --border=rounded \
             --prompt="  " \
             --pointer="❯" \
             --marker="✔" \
-            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0" \
-            --header="Tab=toggle  Enter=confirm  Ctrl-a=select all" \
-            --bind='ctrl-a:select-all'
+            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0,preview-border:#91b1f0" \
+            --header=$'Enter=select  Ctrl-Enter=install  Ctrl-a=select all\n' \
+            --bind='enter:toggle+down' \
+            --bind='ctrl-j:accept' \
+            --bind='ctrl-enter:accept' \
+            --bind='ctrl-a:select-all' \
+            --preview="$PREVIEW" \
+            --preview-window='right:45%:wrap:border-left'
     )
     echo ""
 else
@@ -194,7 +327,10 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     exit 0
 fi
 
-# ── Step 4: install selected configs ─────────────────────────────────────────
+# ── Step 4: show plan + confirm ───────────────────────────────────────────────
+show_plan "${SELECTED[@]}"
+
+# ── Step 5: install selected configs ─────────────────────────────────────────
 FONT_DONE=0
 STOWED_WALLPAPER=0
 INSTALLED=()
@@ -204,7 +340,7 @@ for cfg in "${SELECTED[@]}"; do
     info "Installing ${C_ACCENT}${cfg}${C_RESET}..."
     pkg="${PKG_MAP[$cfg]}"
 
-    # 4a — app package
+    # package
     if pkg_installed "$pkg"; then
         substep "${C_ACCENT}${pkg}${C_RESET} already installed"
     else
@@ -216,46 +352,36 @@ for cfg in "${SELECTED[@]}"; do
         fi
     fi
 
-    # 4b — font (once, only for ghostty/kitty)
-    if [ "$FONT_DONE" -eq 0 ]; then
-        for needs in "${NEEDS_FONT[@]}"; do
-            if [[ "$cfg" == "$needs" ]]; then
-                if ! pkg_installed "$FONT_PKG"; then
-                    substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                    if ! pacman_install "$FONT_PKG"; then
-                        error "Failed to install font — continuing without it"
-                    fi
-                fi
-                FONT_DONE=1
-                break
+    # font (once, ghostty/kitty only)
+    if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
+        if ! pkg_installed "$FONT_PKG"; then
+            substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
+            if ! pacman_install "$FONT_PKG"; then
+                error "Failed to install font — continuing without it"
             fi
-        done
+        fi
+        FONT_DONE=1
     fi
 
-    # 4c+d — backup existing config and stow
+    # backup + stow config
     if ! backup_and_stow "$cfg"; then
         FAILED+=("$cfg")
         continue
     fi
 
-    # 4e — stow wallpapers once (needed by ghostty/kitty)
-    if [ "$STOWED_WALLPAPER" -eq 0 ]; then
-        for needs in "${NEEDS_FONT[@]}"; do
-            if [[ "$cfg" == "$needs" ]]; then
-                if [ -d "$DOTFILES_DIR/wallpapers" ]; then
-                    backup_and_stow "wallpapers" >/dev/null 2>&1 || true
-                    STOWED_WALLPAPER=1
-                fi
-                break
-            fi
-        done
+    # stow wallpapers (once, ghostty/kitty only)
+    if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_font "$cfg"; then
+        if [ -d "$DOTFILES_DIR/wallpapers" ]; then
+            backup_and_stow "wallpapers" &>/dev/null || true
+            STOWED_WALLPAPER=1
+        fi
     fi
 
     success "${C_ACCENT}${cfg}${C_RESET} installed"
     INSTALLED+=("$cfg")
 done
 
-# ── Step 5: summary ───────────────────────────────────────────────────────────
+# ── Step 6: summary ───────────────────────────────────────────────────────────
 echo -e "${C_MAIN}${C_BOLD} ╭─ 󰄴 Summary${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
