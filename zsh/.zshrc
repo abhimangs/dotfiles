@@ -29,7 +29,6 @@ if [[ -f "$_zinit_zsh" ]]; then
     zinit ice wait"0" lucid atload"_zsh_autosuggest_start"
     zinit light zsh-users/zsh-autosuggestions
 
-    zinit ice wait"0" lucid
     zinit light zdharma-continuum/fast-syntax-highlighting
 
     zinit ice wait"0" lucid
