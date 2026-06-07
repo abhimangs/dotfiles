@@ -153,6 +153,41 @@ DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
 
+# ── Applications ──────────────────────────────────────────────────────────────
+APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli notion)
+
+declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
+
+APP_LABEL[brave-beta]="Brave Origin Beta"
+APP_LABEL[brave-stable]="Brave Origin Stable"
+APP_LABEL[vscode]="Visual Studio Code"
+APP_LABEL[antigravity-ide]="Antigravity IDE"
+APP_LABEL[claude-code]="Claude Code CLI"
+APP_LABEL[antigravity]="Antigravity 2.0"
+APP_LABEL[antigravity-cli]="Antigravity CLI"
+APP_LABEL[codex-cli]="Codex CLI"
+APP_LABEL[notion]="Notion"
+
+APP_TYPE[brave-beta]="paru-y"
+APP_TYPE[brave-stable]="paru-y"
+APP_TYPE[vscode]="paru"
+APP_TYPE[antigravity-ide]="paru"
+APP_TYPE[claude-code]="curl"
+APP_TYPE[antigravity]="paru"
+APP_TYPE[antigravity-cli]="curl"
+APP_TYPE[codex-cli]="curl"
+APP_TYPE[notion]="paru"
+
+APP_PKG[brave-beta]="brave-origin-beta-bin"
+APP_PKG[brave-stable]="brave-origin-bin"
+APP_PKG[vscode]="visual-studio-code-bin"
+APP_PKG[antigravity-ide]="antigravity-ide"
+APP_PKG[antigravity]="antigravity"
+APP_PKG[notion]="notion-app-electron"
+
+APP_BIN[claude-code]="claude"
+APP_BIN[codex-cli]="codex"
+
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 show_plan() {
     local cfgs=("$@")
@@ -274,6 +309,31 @@ show_plan() {
                 echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
+            fi
+        done
+    fi
+
+    # Applications section
+    if [ "${#APPS[@]}" -gt 0 ]; then
+        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
+        for _a in "${APPS[@]}"; do
+            local _lbl="${APP_LABEL[$_a]}"
+            local _type="${APP_TYPE[$_a]}"
+            if [[ "$_type" == "curl" ]]; then
+                local _bin="${APP_BIN[$_a]:-}"
+                if [[ -n "$_bin" ]] && command -v "$_bin" &>/dev/null; then
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed${C_RESET}"
+                else
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
+                fi
+            else
+                local _pkg="${APP_PKG[$_a]}"
+                if pkg_installed "$_pkg"; then
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed — will update${C_RESET}"
+                else
+                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
+                fi
             fi
         done
     fi
@@ -489,6 +549,63 @@ else
         done
     fi
 fi
+
+# ── App menu ─────────────────────────────────────────────────────────────────
+APPS=()
+info "Optional applications..."
+echo ""
+
+_app_labels=()
+for _k in "${APPS_LIST[@]}"; do
+    _app_labels+=("${APP_LABEL[$_k]}")
+done
+
+if command -v fzf &>/dev/null; then
+    _sel_labels=()
+    mapfile -t _sel_labels < <(
+        printf '%s\n' "${_app_labels[@]}" | \
+        fzf --multi \
+            --height=40% \
+            --min-height=12 \
+            --reverse \
+            --border=rounded \
+            --prompt="  " \
+            --pointer="❯" \
+            --marker="✔" \
+            --color="prompt:#c0392b,pointer:#c0392b,marker:#a6e3a1,border:#91b1f0,header:#91b1f0" \
+            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
+            --bind='enter:toggle+down' \
+            --bind='ctrl-j:accept' \
+            --bind='ctrl-a:select-all'
+    )
+    for _lbl in "${_sel_labels[@]}"; do
+        for _k in "${APPS_LIST[@]}"; do
+            [[ "${APP_LABEL[$_k]}" == "$_lbl" ]] && APPS+=("$_k") && break
+        done
+    done
+    unset _sel_labels _lbl _k
+    echo ""
+else
+    _app_i=1
+    for _lbl in "${_app_labels[@]}"; do
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${_app_i} ${C_DIM}❯ ${C_RESET}${_lbl}"
+        (( _app_i++ ))
+    done
+    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}· Enter to skip${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
+    read -rp "" APP_RAW
+    if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
+        APPS=("${APPS_LIST[@]}")
+    elif [[ -n "$APP_RAW" ]]; then
+        for token in $APP_RAW; do
+            [[ "$token" =~ ^[0-9]+$ ]] && \
+            (( token >= 1 && token <= ${#APPS_LIST[@]} )) && \
+            APPS+=("${APPS_LIST[$((token-1))]}")
+        done
+    fi
+    unset _app_i _lbl APP_RAW token
+fi
+unset _app_labels _k
 
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
@@ -720,6 +837,60 @@ AUTOSTART
     success "${C_ACCENT}${cfg}${C_RESET} installed"
     INSTALLED+=("$cfg")
 done
+
+# ── Step 5c: install applications ────────────────────────────────────────────
+if [ "${#APPS[@]}" -gt 0 ]; then
+    info "Installing applications..."
+    for app in "${APPS[@]}"; do
+        _lbl="${APP_LABEL[$app]}"
+        _type="${APP_TYPE[$app]}"
+        info "  ${C_ACCENT}${_lbl}${C_RESET}..."
+
+        if [[ "$_type" == "curl" ]]; then
+            _bin="${APP_BIN[$app]:-}"
+            if [[ -n "$_bin" ]] && command -v "$_bin" &>/dev/null; then
+                substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
+                success "${C_ACCENT}${_lbl}${C_RESET} done"
+                INSTALLED+=("$_lbl")
+            else
+                substep "Running installer for ${C_ACCENT}${_lbl}${C_RESET}..."
+                case "$app" in
+                    claude-code)    curl -fsSL https://claude.ai/install.sh | bash ;;
+                    antigravity-cli) curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
+                    codex-cli)      curl -fsSL https://chatgpt.com/codex/install.sh | sh ;;
+                esac
+                _exit=$?
+                if [ "$_exit" -eq 0 ]; then
+                    success "${C_ACCENT}${_lbl}${C_RESET} installed"
+                    INSTALLED+=("$_lbl")
+                else
+                    error "Failed to install ${C_ACCENT}${_lbl}${C_RESET}"
+                    FAILED+=("$_lbl")
+                fi
+            fi
+        else
+            _pkg="${APP_PKG[$app]}"
+            if pkg_installed "$_pkg"; then
+                substep "${C_ACCENT}${_lbl}${C_RESET} already installed — updating..."
+            else
+                substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
+            fi
+            if [[ "$_type" == "paru-y" ]]; then
+                paru -Sy --needed --noconfirm "$_pkg" &>/dev/null 2>&1
+            else
+                paru -S --needed --noconfirm "$_pkg" &>/dev/null 2>&1
+            fi
+            if pkg_installed "$_pkg"; then
+                success "${C_ACCENT}${_lbl}${C_RESET} done"
+                INSTALLED+=("$_lbl")
+            else
+                error "Failed to install ${C_ACCENT}${_lbl}${C_RESET}"
+                FAILED+=("$_lbl")
+            fi
+        fi
+    done
+    unset app _lbl _type _pkg _bin _exit
+fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
 echo -e "${C_MAIN}${C_BOLD} ╭─ 󰄴 Summary${C_RESET}"
