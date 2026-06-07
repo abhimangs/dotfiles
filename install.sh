@@ -125,11 +125,16 @@ stow_config() {
     local oldbak="${target}.old.bak"
 
     if [ -L "$target" ]; then
-        # Old wrong stow left a dir-level symlink — remove it
+        # Dir-level symlink (old wrong stow) — always remove
         rm "$target"
+
     elif [ -d "$target" ]; then
-        # If the dir already has symlinks pointing to dotfiles, it's already managed — skip backup
-        if ! find "$target" -maxdepth 1 -type l 2>/dev/null | grep -q .; then
+        # Check for real files (not symlinks, not dirs) anywhere inside.
+        # Symlinks — dotfiles or foreign — don't count: stow -D cleans ours,
+        # and foreign ones either coexist or cause a reported stow conflict.
+        # Only real files need a backup because stow cannot overwrite them.
+        if find "$target" -mindepth 1 -maxdepth 3 \
+                ! -type l ! -type d 2>/dev/null | grep -q .; then
             if [ -e "$bak" ]; then
                 [ -e "$oldbak" ] && rm -rf "$oldbak"
                 mv "$bak" "$oldbak"
@@ -137,8 +142,12 @@ stow_config() {
             mv "$target" "$bak"
             substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
         fi
+        # Only symlinks / empty dir: skip backup — stow_to -D will clean ours
     fi
 
+    # Explicitly create the target dir before stowing.
+    # Needed when: (a) it never existed, (b) it was just moved to .bak above.
+    mkdir -p "$target"
     stow_to "$target" "$name"
 }
 
