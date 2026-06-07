@@ -1,14 +1,67 @@
+# ── Startup ──────────────────────────────────────────────────────────────────
+maximize = true
+window-save-state = always
+
+# ── Cursor ───────────────────────────────────────────────────────────────────
+cursor-style = bar
+cursor-style-blink = true
+cursor-color = #c0392b
+
+# ── Font ─────────────────────────────────────────────────────────────────────
+font-family = JetBrainsMono Nerd Font
+font-size = 15
+font-feature = calt
+font-feature = liga
+
+# ── Background image (5% image, 95% black — matches kitty) ───────────────────
+background = 000000
+background-opacity = 1.0
+background-image = ~/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg
+background-image-fit = cover
+background-image-opacity = 0.05
+
+# ── Theme (color scheme for text/ui — kept separate from background) ──────────
+theme = Catppuccin Mocha
+
+# ── Window ───────────────────────────────────────────────────────────────────
+gtk-titlebar = false
+window-theme = dark
+window-padding-x = 12
+window-padding-y = 8
+window-padding-balance = true
+resize-overlay = never
+
+# Tab bar: hidden when only 1 tab, appears at 2+
+window-show-tab-bar = auto
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+copy-on-select = true
+mouse-hide-while-typing = true
+confirm-close-surface = false
+focus-follows-mouse = true
 clipboard-paste-protection = true
 window-inherit-font-size = true
-theme = catppuccin-mocha
-copy-on-select = true
+scrollback-limit = 10000
 
-# theme = GruvboxDark
-# font-family = Meslo LGS Nerd Font Mono
-# font-family = CaskaydiaMono Nerd Font
-font-family = CaskaydiaCove Nerd Font
-font-size = 10
-background-opacity = 0.95
-gtk-titlebar = false
+# Shell integration: add cwd so new tabs open in current directory
+shell-integration-features = cursor,sudo,title,cwd
 
-background = 000000
+# ── Keybindings ──────────────────────────────────────────────────────────────
+# Tabs
+keybind = ctrl+t=new_tab
+keybind = ctrl+w=close_surface
+keybind = ctrl+tab=next_tab
+keybind = ctrl+shift+tab=previous_tab
+keybind = ctrl+shift+t=prompt_tab_title
+keybind = ctrl+shift+n=new_tab
+
+# Word movement: ctrl+arrow
+keybind = ctrl+left=csi:1;5D
+keybind = ctrl+right=csi:1;5C
+
+# Word selection: ctrl+shift+arrow
+keybind = ctrl+shift+left=csi:1;6D
+keybind = ctrl+shift+right=csi:1;6C
+
+# Delete word backward: ctrl+backspace
+keybind = ctrl+backspace=text:\x17
