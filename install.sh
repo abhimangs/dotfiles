@@ -46,6 +46,10 @@ pacman_install() {
     sudo pacman -S --needed --noconfirm "$1" &>/dev/null 2>&1
 }
 
+paru_install() {
+    paru -S --needed --noconfirm "$1" &>/dev/null 2>&1
+}
+
 # ── Backup + stow to ~/.config ────────────────────────────────────────────────
 backup_and_stow() {
     local name="$1"
@@ -123,6 +127,7 @@ PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
 PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
+PKG_MAP[ulauncher]="ulauncher"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 NEEDS_FONT=(ghostty kitty)
@@ -234,6 +239,23 @@ show_plan() {
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             ;;
+          ulauncher)
+            target="$HOME/.config/$cfg"; bak="${target}.bak"
+            if [ -L "$target" ]; then
+                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$target" ]; then
+                [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
+            if [ ! -f "$HOME/.config/autostart/ulauncher.desktop" ]; then
+                steps+=("${C_GREEN}enable autostart${C_RESET}")
+            else
+                steps+=("${C_DIM}autostart already configured${C_RESET}")
+            fi
+            ;;
         esac
 
         echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
@@ -338,19 +360,20 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship)
+CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher)
 declare -a SELECTED=()
 
 PREVIEW='
 cfg="{}"
 case "$cfg" in
-  fastfetch)  pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
-  ghostty)    pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
-  kitty)      pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
-  zsh)        pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ; is_starship=0 ;;
-  protonvpn)  pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ; is_starship=0 ;;
-  starship)   pkg="starship"       ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=1 ;;
-  *)          pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ;;
+  fastfetch)   pkg="fastfetch"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
+  ghostty)     pkg="ghostty"        ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
+  kitty)       pkg="kitty"          ; nf=1 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
+  zsh)         pkg="zsh"            ; nf=0 ; is_zsh=1 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
+  protonvpn)   pkg="proton-vpn-cli" ; nf=0 ; is_zsh=0 ; is_pvpn=1 ; is_starship=0 ; is_ul=0 ;;
+  starship)    pkg="starship"       ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=1 ; is_ul=0 ;;
+  ulauncher)   pkg="ulauncher"      ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=1 ;;
+  *)           pkg="$cfg"           ; nf=0 ; is_zsh=0 ; is_pvpn=0 ; is_starship=0 ; is_ul=0 ;;
 esac
 P="\033[38;2;202;169;224m\033[1m"
 A="\033[38;2;145;177;240m"
@@ -414,6 +437,31 @@ elif [ "$is_starship" = "1" ]; then
   echo -e "${P}  Prompt${X}"
   echo -e "  ${D}Catppuccin Mocha powerline theme${X}"
   echo -e "  ${D}OS · user · dir · git · langs · time${X}"
+elif [ "$is_ul" = "1" ]; then
+  echo -e "${P}  Config${X}"
+  ul="$HOME/.config/ulauncher"
+  if [ -L "$ul" ]; then
+    echo -e "  ${A}~${X} already stowed ${D}(will re-stow)${X}"
+  elif [ -e "$ul" ]; then
+    echo -e "  ${Y}→${X} ${D}ulauncher → ulauncher.bak${X}"
+    echo -e "  ${G}+${X} stow ${D}dotfiles/ulauncher/${X}"
+  else
+    echo -e "  ${G}+${X} fresh stow ${D}(no existing config)${X}"
+  fi
+  echo ""
+  echo -e "${P}  Autostart${X}"
+  as_file="$HOME/.config/autostart/ulauncher.desktop"
+  if [ -f "$as_file" ]; then
+    echo -e "  ${G}✔${X} autostart already configured"
+  else
+    echo -e "  ${Y}→${X} autostart will be enabled"
+  fi
+  echo ""
+  echo -e "${P}  Theme${X}"
+  echo -e "  ${D}Essential Dark (black · #106eea selection)${X}"
+  echo -e "  ${D}Hotkey: Ctrl+Shift+Alt+Super+j${X}"
+  echo ""
+  echo -e "${P}  AUR package — installed via paru${X}"
 else
   echo -e "${P}  Config${X}"
   target="$HOME/.config/$cfg"
@@ -479,6 +527,7 @@ else
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship"
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}ulauncher"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}Select All"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
@@ -498,6 +547,7 @@ else
                 4) tmp+=(zsh)        ;;
                 5) tmp+=(protonvpn)  ;;
                 6) tmp+=(starship)   ;;
+                7) tmp+=(ulauncher)  ;;
                 *) valid=false; break ;;
             esac
         done
@@ -794,6 +844,49 @@ for cfg in "${SELECTED[@]}"; do
             FAILED+=(starship)
             continue
         fi
+        ;;
+
+      # ── ulauncher ────────────────────────────────────────────────────────
+      ulauncher)
+        if pkg_installed ulauncher; then
+            substep "${C_ACCENT}ulauncher${C_RESET} already installed"
+        else
+            substep "Installing ${C_ACCENT}ulauncher${C_RESET} via paru (AUR)..."
+            if ! paru_install ulauncher; then
+                error "Failed to install ulauncher — skipping"
+                FAILED+=(ulauncher)
+                continue
+            fi
+        fi
+
+        if ! backup_and_stow "ulauncher"; then
+            FAILED+=(ulauncher)
+            continue
+        fi
+
+        # Autostart — create desktop entry if missing
+        autostart_dir="$HOME/.config/autostart"
+        autostart_file="$autostart_dir/ulauncher.desktop"
+        mkdir -p "$autostart_dir"
+        if [ ! -f "$autostart_file" ]; then
+            substep "Enabling autostart..."
+            cat > "$autostart_file" << 'AUTOSTART'
+[Desktop Entry]
+Name=Ulauncher
+Comment=Application Launcher
+Exec=ulauncher --hide-window
+Icon=ulauncher
+Terminal=false
+Type=Application
+X-GNOME-Autostart-enabled=true
+AUTOSTART
+            substep "${C_GREEN}Autostart enabled${C_RESET}"
+        else
+            substep "${C_DIM}Autostart already configured${C_RESET}"
+        fi
+
+        substep "${C_DIM}Hotkey: Ctrl+Shift+Alt+Super+j  ·  or set your own in ulauncher Preferences${C_RESET}"
+        substep "${C_DIM}Toggle command: ${C_ACCENT}ulauncher-toggle${C_DIM} (bind this to your WM shortcut)${C_RESET}"
         ;;
 
     esac

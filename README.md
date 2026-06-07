@@ -24,6 +24,7 @@ bash install.sh
 | `ghostty/` | `~/.config/ghostty/` | `ghostty` |
 | `kitty/` | `~/.config/kitty/` | `kitty` |
 | `starship/` | `~/.config/starship.toml` | `starship` |
+| `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* |
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* |
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* |
 | `wallpapers/` | `~/.config/wallpapers/` | — |
@@ -54,6 +55,7 @@ stow --target ~/.config fastfetch
 stow --target ~/.config ghostty
 stow --target ~/.config kitty
 stow --target ~/.config starship
+stow --target ~/.config ulauncher
 stow --target ~/.config bat
 stow --target ~/.config btop
 stow --target ~/.config wallpapers
