@@ -216,7 +216,7 @@ PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
 PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
-PKG_MAP[rofi]="rofi"
+PKG_MAP[rofi]="rofi-wayland"
 PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 
@@ -955,7 +955,6 @@ for cfg in "${SELECTED[@]}"; do
 
         if [[ "$cfg" == "rofi" ]]; then
             substep "${C_DIM}Launch rofi with: ${C_ACCENT}rofi -show drun${C_RESET}"
-            substep "${C_DIM}Note: on KDE+Wayland use ${C_ACCENT}rofi-wayland${C_RESET}${C_DIM} (AUR) for native Wayland support${C_RESET}"
         fi
         ;;
 
