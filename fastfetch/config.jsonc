@@ -16,104 +16,118 @@
   "modules": [
     {
       "type": "custom",
-      "format": "\u001b[38;2;203;166;247m┌──────────── Software Information ────────────┤\u001b[0m"
-    },
+      "format": "\u001b[38;2;203;166;247m┌──────────── Software Information ───────────┐\u001b[0m"
+    },    
     {
       "type": "title",
-      "key": "  ",
+      "key": "  ",
       "format": "{6}@{8}"
     },
     {
       "type": "os",
-      "key": "   OS",
+      "key": "  󰣇 OS",
       "format": "{3}",
       "keyColor": "red"
     },
     {
       "type": "kernel",
-      "key": "   Kernel",
+      "key": "   Kernel",
       "format": "{2}",
       "keyColor": "red"
     },
     {
       "type": "de",
-      "key": "   DE",
+      "key": "  󰧨 DE",
       "keyColor": "green"
     },
     {
       "type": "packages",
-      "key": "  󰀗 Packages",
+      "key": "  󰏗 Packages",
       "format": "{1}",
       "keyColor": "green"
     },
     {
       "type": "terminal",
-      "key": "   Terminal",
       "format": "{1}",
+      "key": "   Terminal",
       "keyColor": "yellow"
     },
     {
       "type": "wm",
-      "key": "  󰳃 WM",
+      "key": "  󱗃 WM",
       "keyColor": "yellow"
     },
     {
       "type": "custom",
-      "format": "\u001b[38;2;203;166;247m├──────────── Hardware Information ────────────┤\u001b[0m"
+      "format": "\u001b[38;2;203;166;247m├──────────── Hardware Information ───────────┤\u001b[0m"
     },
     {
       "type": "host",
-      "key": "   Host",
+      "key": "   Host",
       "keyColor": "blue"
     },
     {
       "type": "cpu",
-      "key": "   CPU",
       "format": "{1}",
+      "key": "   CPU",
       "keyColor": "blue"
-    },
+    },    
     {
       "type": "gpu",
-      "key": "  󰀴 GPU",
-      "format": "{1} ({vram})",
+      "format": "{1} {2}",
+      "key": "  󰊴 GPU",
       "keyColor": "green"
     },
     {
       "type": "display",
-      "key": "  󰁹 Display",
+      "key": "  󰍹 Display",
       "format": "{1}x{2} @ {3}Hz",
       "keyColor": "green"
     },
+    // {
+    //   "type": "cpuusage",
+    //   "format": "{2}",
+    //   "key": "   CPU Usage",
+    //   "keyColor": "blue"
+    // },
     {
       "type": "disk",
-      "key": "   Disk",
       "format": "{1} / {2} ({3})",
+      "key": "   Disk",
       "keyColor": "magenta"
     },
     {
       "type": "memory",
-      "key": "    Memory",
+      "key": "    Memory",
       "keyColor": "magenta"
     },
     {
       "type": "custom",
-      "format": "\u001b[38;2;203;166;247m├──────────────── Uptime / Age ─────────────────\u001b[0m"
+      "format": "\u001b[38;2;203;166;247m├──────────────── Uptime / Age ───────────────┤\u001b[0m"
     },
     {
       "type": "command",
-      "key": "  󰺟 OS Age ",
+      "key": "  󱦟 OS Age ",
       "keyColor": "red",
       "text": "birth_install=$(stat -c %W /); current=$(date +%s); time_progression=$((current - birth_install)); days_difference=$((time_progression / 86400)); echo $days_difference days"
     },
     {
       "type": "uptime",
-      "key": "  󰳐 Uptime ",
+      "key": "  󱫐 Uptime ",
       "keyColor": "red"
     },
     {
       "type": "custom",
       "format": "\u001b[38;2;203;166;247m└─────────────────────────────────────────────┘\u001b[0m"
     },
+
+
+
+    // Remove this if you want to remove the os warning
+    // ┌─────────────────────────────────────────────┐
+    //           Warning - I use arch btw
+    // └─────────────────────────────────────────────┘
+
     {
       "type": "custom",
       "format": "\u001b[38;2;243;139;168m┌─────────────────────────────────────────────┐\u001b[0m"
@@ -128,9 +142,14 @@
       "type": "custom",
       "format": "\u001b[38;2;243;139;168m└─────────────────────────────────────────────┘\u001b[0m"
     },
+
+
+
+
+
     {
       "type": "custom",
-      "format": "\u001b[90m  \u001b[31m  \u001b[32m  \u001b[33m  \u001b[34m  \u001b[35m  \u001b[36m  \u001b[37m  \u001b[90m  \u001b[31m  \u001b[32m  \u001b[33m  \u001b[34m  \u001b[35m  \u001b[36m  \u001b[37m"
-    }
+      "format": "\u001b[90m  \u001b[31m  \u001b[32m  \u001b[33m  \u001b[34m  \u001b[35m  \u001b[36m  \u001b[37m  \u001b[90m  \u001b[31m  \u001b[32m  \u001b[33m  \u001b[34m  \u001b[35m  \u001b[36m  \u001b[37m"
+    },
   ]
 }
