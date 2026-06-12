@@ -1,6 +1,8 @@
 --theme="Catppuccin Mocha"
---style=numbers,changes,header
+--style=numbers,changes,header,grid,rule,snip
 --map-syntax '*.conf:ini'
 --map-syntax '*.rasi:css'
 --map-syntax '*.zsh:bash'
 --italic-text=always
+--pager="less -RF"
+--tabs=4
