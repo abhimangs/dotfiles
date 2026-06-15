@@ -26,13 +26,13 @@ _PVPN_TS="$_PVPN_DIR/ts"
 mkdir -p "$_PVPN_DIR"
 
 _pvpn_set_level()   { printf '%s' "$1" > "$_PVPN_LVL"; }
-_pvpn_get_level()   { [[ -f "$_PVPN_LVL" ]] && cat "$_PVPN_LVL" || printf '—'; }
+_pvpn_get_level()   { [[ -f "$_PVPN_LVL" ]] && printf '%s' "$(<"$_PVPN_LVL")" || printf '—'; }
 _pvpn_set_time()    { date +%s > "$_PVPN_TS"; }
 _pvpn_clear_state() { printf '—' > "$_PVPN_LVL"; rm -f "$_PVPN_TS"; }
 
 _pvpn_uptime() {
     [[ ! -f "$_PVPN_TS" ]] && { printf '—'; return; }
-    local e=$(( $(date +%s) - $(cat "$_PVPN_TS") ))
+    local e=$(( $(date +%s) - $(<"$_PVPN_TS") ))
     local h=$(( e/3600 )) m=$(( (e%3600)/60 )) s=$(( e%60 ))
     (( h > 0 )) && printf '%dh %02dm' $h $m || printf '%dm %02ds' $m $s
 }
@@ -41,17 +41,17 @@ _pvpn_uptime() {
 _pvpn_get_ips() {
     local t4a t4b t6; t4a=$(mktemp); t4b=$(mktemp); t6=$(mktemp)
     # Both IPv4 endpoints race in parallel — whichever responds first wins
-    curl -s --max-time 3 -4 https://api.ipify.org  2>/dev/null | tr -d '[:space:]' > "$t4a" &
+    curl -s --max-time 8 -4 https://api.ipify.org  2>/dev/null | tr -d '[:space:]' > "$t4a" &
     local pa=$!
-    curl -s --max-time 3 -4 https://ifconfig.me    2>/dev/null | tr -d '[:space:]' > "$t4b" &
+    curl -s --max-time 8 -4 https://ifconfig.me    2>/dev/null | tr -d '[:space:]' > "$t4b" &
     local pb=$!
-    curl -s --max-time 3 -6 https://api6.ipify.org 2>/dev/null | tr -d '[:space:]' > "$t6"  &
+    curl -s --max-time 8 -6 https://api6.ipify.org 2>/dev/null | tr -d '[:space:]' > "$t6"  &
     local p6=$!
     wait $pa $pb $p6
     # Pick first non-empty IPv4 result
-    local ip4; ip4=$(cat "$t4a")
-    [[ -z "$ip4" ]] && ip4=$(cat "$t4b")
-    local ip6; ip6=$(cat "$t6")
+    local ip4; ip4=$(<"$t4a")
+    [[ -z "$ip4" ]] && ip4=$(<"$t4b")
+    local ip6; ip6=$(<"$t6")
     rm -f "$t4a" "$t4b" "$t6"
     printf '%s\t%s' "${ip4:-—}" "${ip6:-—}"
 }
@@ -109,7 +109,6 @@ _pvpn_cval_col() {
 _pvpn_level_col() {
     case "$1" in
         ghost)   printf '%s' "${_mc_mauve}${_B}"  ;;
-        stealth) printf '%s' "${_mc_blue}${_B}"   ;;
         home)    printf '%s' "${_mc_sapp}${_B}"   ;;
         fast)    printf '%s' "${_mc_green}${_B}"  ;;
         tor)     printf '%s' "${_mc_peach}${_B}"  ;;
@@ -155,7 +154,6 @@ _pvpn_do_connect() {
         if protonvpn connect "$@"; then
             _pvpn_set_level "$level"
             _pvpn_set_time
-            sleep 1
             return 0
         fi
         if (( attempt < 3 )); then
@@ -172,6 +170,11 @@ _pvpn_line() {
     printf "  ${_mc_sub}%-10s${_R}  ${col}%s${_R}\n" "$label" "$val"
 }
 
+# ── Compact connect success message ─────────────────────────────
+_pvpn_connect_ok() {
+    printf "\n  ${_mc_teal}✓${_R}  %s  ${_mc_ov}connected · run ${_mc_lav}pvpn${_R}${_mc_ov} for full status${_R}\n\n" "$1"
+}
+
 # ── Dashboard ────────────────────────────────────────────────────
 
 _pvpn_dashboard() {
@@ -182,7 +185,7 @@ _pvpn_dashboard() {
 
     local server load protocol ip4 ip6 uptime cfg ks ns cfg_ipv6 accel pf nat cdns
     if (( connected )); then
-        server=$(echo   "$raw" | grep -i '^server'   | cut -d: -f2- | xargs)
+        server=$(echo   "$raw" | grep -i '^server:'  | cut -d: -f2- | xargs)
         load=$(echo     "$raw" | grep -i '^load'     | cut -d: -f2- | xargs)
         protocol=$(echo "$raw" | grep -i '^protocol' | cut -d: -f2- | xargs)
         uptime=$(_pvpn_uptime)
@@ -267,7 +270,6 @@ _pvpn_dashboard() {
     }
     _lbar tor     "$_mc_peach"
     _lbar ghost   "$_mc_mauve"
-    _lbar stealth "$_mc_blue"
     _lbar home    "$_mc_sapp"
     _lbar fast    "$_mc_green"
     if [[ "$level" == "—" || "$level" == "" ]]; then
@@ -278,7 +280,7 @@ _pvpn_dashboard() {
 
     printf "\n"
     _pvpn_div
-    printf "  ${_mc_ov}pvpn --help  ·  pvpn config  ·  pvpn connect <CC> [-ghost|-stealth|-p2p|-random]${_R}\n\n"
+    printf "  ${_mc_ov}pvpn --help  ·  pvpn config  ·  pvpn connect <CC> [-ghost|-p2p|-random]${_R}\n\n"
 }
 
 # ── Help ─────────────────────────────────────────────────────────
@@ -294,25 +296,22 @@ _pvpn_help() {
     printf "  ${_mc_mauve}${_B}ghost${_R}    you → CH/IS hardened server → exit server → internet\n"
     printf "           ${_mc_ov}ks:standard · netshield:malware-ads-trackers · ipv6:off · accel:on · pfw:off · nat:off · dns:off${_R}\n"
     printf "           ${_mc_ov}even a compromised exit server cannot reveal your real IP${_R}\n\n"
-    printf "  ${_mc_blue}${_B}stealth${_R}  same route as ghost, balanced\n"
-    printf "           ${_mc_ov}ks:standard · netshield:malware-ads-trackers · ipv6:off · accel:on · pfw:off · nat:off · dns:off${_R}\n\n"
     printf "  ${_mc_sapp}${_B}home${_R}     India · Mumbai · lowest latency for IN services\n"
     printf "           ${_mc_ov}ks:standard · netshield:malware-ads-trackers · ipv6:off · accel:on · pfw:off · nat:off · dns:off${_R}\n\n"
     printf "  ${_mc_green}${_B}fast${_R}     Singapore · speed-first\n"
     printf "           ${_mc_ov}ks:standard · netshield:malware-only · ipv6:on · accel:on · pfw:off · nat:off · dns:off${_R}\n\n"
     printf "  ${_mc_red}off${_R}      Disconnect · restores full internet · kill-switch lifts\n\n"
     printf "  ${_mc_ov}  connect <CC> (no flag) — uses your existing pvpn config as-is, only enforces kill-switch standard${_R}\n"
-    printf "  ${_mc_ov}  connect <CC> -ghost/-stealth/-random — max-security config (same as ghost preset)${_R}\n"
+    printf "  ${_mc_ov}  connect <CC> -ghost/-random — max-security config (same as ghost preset)${_R}\n"
     printf "  ${_mc_ov}  connect <CC> -p2p — max-security + port-forwarding:on + moderate-nat:on${_R}\n\n"
 
     _pvpn_div
     printf "  ${_mc_lav}${_B}COMMANDS${_R}\n\n"
     printf "  ${_mc_teal}pvpn${_R}                          Dashboard\n"
-    printf "  ${_mc_teal}pvpn <level>${_R}                  Connect at level — tor ghost stealth home fast\n"
+    printf "  ${_mc_teal}pvpn <level>${_R}                  Connect at level — tor ghost home fast\n"
     printf "  ${_mc_teal}pvpn off${_R}                      Disconnect\n"
     printf "  ${_mc_teal}pvpn connect <CC>${_R}             Fastest server in country\n"
     printf "  ${_mc_teal}pvpn connect <CC> -ghost${_R}      Secure Core into that country\n"
-    printf "  ${_mc_teal}pvpn connect <CC> -stealth${_R}    Secure Core, balanced\n"
     printf "  ${_mc_teal}pvpn connect <CC> -p2p${_R}        P2P-optimized server in that country\n"
     printf "  ${_mc_teal}pvpn connect <CC> -random${_R}     Random server in that country\n"
     printf "  ${_mc_teal}pvpn countries${_R}                List all country codes with flags\n"
@@ -330,7 +329,7 @@ _pvpn_help() {
 
     _pvpn_div
     printf "  ${_mc_lav}${_B}NETSHIELD${_R}  ${_mc_ov}DNS-level — blocks before traffic leaves your device${_R}\n\n"
-    printf "  ${_mc_green}malware-ads-trackers${_R}  ${_mc_ov}(ghost / stealth / home / tor)${_R}\n"
+    printf "  ${_mc_green}malware-ads-trackers${_R}  ${_mc_ov}(ghost / home / tor)${_R}\n"
     printf "    Blocks malware domains — stops ransomware, spyware, phishing at DNS level\n"
     printf "    Blocks ad networks — no ad JS, no ad images, no ad tracking pixels\n"
     printf "    Blocks tracker domains — Google Analytics, Meta Pixel, etc. blocked entirely\n\n"
@@ -374,7 +373,7 @@ _pvpn_help() {
     printf "  ${_mc_ov}                         Send anonymous crash reports to Proton.${_R}\n\n"
 
     _pvpn_div
-    printf "  ${_mc_lav}${_B}SECURE CORE${_R}  ${_mc_ov}used by ghost + stealth + connect -ghost/-stealth${_R}\n\n"
+    printf "  ${_mc_lav}${_B}SECURE CORE${_R}  ${_mc_ov}used by ghost + connect -ghost${_R}\n\n"
     printf "  your device → ProtonVPN server in ${_mc_mauve}CH or IS${_R} → exit server → internet\n"
     printf "  ${_mc_ov}  The CH/IS servers are in jurisdictions with strong privacy laws,\n"
     printf "    physically secured, and owned+operated by Proton.\n"
@@ -636,7 +635,7 @@ _pvpn_countries() {
 _pvpn_connect_country() {
     local cc="${1:u}" mode="$2"
     if [[ -z "$cc" ]]; then
-        printf "  ${_mc_red}✗  usage: pvpn connect <CC> [-ghost|-stealth|-p2p|-random]${_R}\n"
+        printf "  ${_mc_red}✗  usage: pvpn connect <CC> [-ghost|-p2p|-random]${_R}\n"
         printf "  ${_mc_ov}e.g.  pvpn connect JP  ·  pvpn connect US -ghost${_R}\n"
         return 1
     fi
@@ -655,12 +654,6 @@ _pvpn_connect_country() {
             extra_args=(--securecore)
             mode_label="Secure Core"
             mode_col="$_mc_mauve"
-            _pvpn_apply standard malware-ads-trackers off on off off off
-            ;;
-        -stealth)
-            extra_args=(--securecore)
-            mode_label="Secure Core · balanced"
-            mode_col="$_mc_blue"
             _pvpn_apply standard malware-ads-trackers off on off off off
             ;;
         -p2p)
@@ -689,7 +682,7 @@ _pvpn_connect_country() {
             ;;
         *)
             printf "  ${_mc_red}✗  unknown flag: %s${_R}\n" "$mode"
-            printf "  ${_mc_ov}valid flags: -ghost  -stealth  -p2p  -random${_R}\n"
+            printf "  ${_mc_ov}valid flags: -ghost  -p2p  -random${_R}\n"
             return 1
             ;;
     esac
@@ -700,7 +693,7 @@ _pvpn_connect_country() {
     printf "\n  ${mode_col}${_B}connect${_R}  ${_mc_ov}%s %s · %s${_R}\n" "$flag" "$cc" "$mode_label"
     printf "  ${_mc_ov}connecting...${_R}\n"
     _pvpn_do_connect "$level_label" --country "$cc" "${extra_args[@]}" || return 1
-    _pvpn_dashboard
+    _pvpn_connect_ok "${mode_col}${_B}${level_label}${_R}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────
@@ -714,7 +707,7 @@ pvpn() {
             _pvpn_apply standard malware-ads-trackers off on off off off
             printf "  ${_mc_ov}connecting via Tor...${_R}\n"
             _pvpn_do_connect tor --tor || return 1
-            _pvpn_dashboard
+            _pvpn_connect_ok "${_mc_peach}${_B}tor${_R}"
             ;;
 
         ghost)
@@ -722,15 +715,7 @@ pvpn() {
             _pvpn_apply standard malware-ads-trackers off on off off off
             printf "  ${_mc_ov}connecting via Secure Core...${_R}\n"
             _pvpn_do_connect ghost --securecore || return 1
-            _pvpn_dashboard
-            ;;
-
-        stealth)
-            printf "\n  ${_mc_blue}${_B}stealth${_R}  ${_mc_ov}Secure Core · full shields · speed balanced${_R}\n"
-            _pvpn_apply standard malware-ads-trackers off on off off off
-            printf "  ${_mc_ov}connecting via Secure Core...${_R}\n"
-            _pvpn_do_connect stealth --securecore || return 1
-            _pvpn_dashboard
+            _pvpn_connect_ok "${_mc_mauve}${_B}ghost${_R}"
             ;;
 
         home)
@@ -738,7 +723,7 @@ pvpn() {
             _pvpn_apply standard malware-ads-trackers off on off off off
             printf "  ${_mc_ov}connecting to India...${_R}\n"
             _pvpn_do_connect home --country IN || return 1
-            _pvpn_dashboard
+            _pvpn_connect_ok "${_mc_sapp}${_B}home${_R}"
             ;;
 
         fast)
@@ -746,7 +731,7 @@ pvpn() {
             _pvpn_apply standard malware-only on on off off off
             printf "  ${_mc_ov}connecting to Singapore...${_R}\n"
             _pvpn_do_connect fast --country SG || return 1
-            _pvpn_dashboard
+            _pvpn_connect_ok "${_mc_green}${_B}fast${_R}"
             ;;
 
         off|disconnect)
