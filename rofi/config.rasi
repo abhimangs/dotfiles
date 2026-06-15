@@ -35,7 +35,7 @@ element {
   padding:          9 16;
   background-color: transparent;
   text-color:       @fg-dim;
-  border-radius:    6px;
+  border-radius:    0;
 }
 
 element selected {
