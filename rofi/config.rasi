@@ -1,6 +1,6 @@
 configuration {
-  display-drun:        "Applications:";
-  display-window:      "Windows:";
+  display-drun:        "Apps:";
+  display-window:      "Win:";
   drun-display-format: "{icon} {name}";
   font:                "JetBrainsMono Nerd Font Medium 11";
   modi:                "drun,window";
@@ -12,21 +12,14 @@ configuration {
 @theme "/dev/null"
 
 * {
-  /* Catppuccin Mocha */
-  base:     #1e1e2e;
-  mantle:   #181825;
-  crust:    #11111b;
-  surface2: #585b70;
-  overlay1: #7f849c;
-  text:     #cdd6f4;
-  mauve:    #cba6f7;
-
-  bg:          @base;
-  bg-alt:      @mantle;
-  bg-selected: @mauve;
-  fg:          @text;
-  fg-alt:      @overlay1;
-  fg-selected: @crust;
+  bg:        #0a0a0f;
+  bg-deep:   #050508;
+  fg:        #e2d9f3;
+  fg-dim:    #a8a3be;
+  fg-muted:  #5c5870;
+  accent:    #c4a0f8;
+  on-accent: #0a0a0f;
+  handle:    #3a3750;
 
   border: 0; margin: 0; padding: 0; spacing: 0;
 }
@@ -34,21 +27,20 @@ configuration {
 window {
   width:            30%;
   background-color: @bg;
-  border:           2px;
-  border-color:     @surface2;
-  border-radius:    10px;
+  border:           0;
+  border-radius:    12px;
 }
 
 element {
-  padding:          8 14;
+  padding:          9 16;
   background-color: transparent;
-  text-color:       @fg-alt;
+  text-color:       @fg-dim;
   border-radius:    6px;
 }
 
 element selected {
-  text-color:       @fg-selected;
-  background-color: @bg-selected;
+  text-color:       @on-accent;
+  background-color: @accent;
 }
 
 element-text {
@@ -58,30 +50,30 @@ element-text {
 }
 
 element-icon {
-  size:             28;
+  size:             26;
   padding:          0 10 0 0;
   background-color: transparent;
 }
 
 entry {
-  padding:           12;
-  background-color:  @bg-alt;
+  padding:           13 14;
+  background-color:  @bg-deep;
   text-color:        @fg;
   placeholder:       "Search...";
-  placeholder-color: @fg-alt;
+  placeholder-color: @fg-muted;
 }
 
 inputbar {
   children:         [prompt, entry];
-  background-color: @bg;
-  border-radius:    10px 10px 0 0;
+  background-color: @bg-deep;
+  border-radius:    12px 12px 0 0;
 }
 
 listview {
   background-color: @bg;
   columns:          1;
   lines:            8;
-  padding:          4 0;
+  padding:          6 0;
 }
 
 mainbox {
@@ -91,16 +83,16 @@ mainbox {
 
 prompt {
   enabled:          true;
-  padding:          12 0 0 14;
-  background-color: @bg-alt;
-  text-color:       @mauve;
+  padding:          13 4 0 14;
+  background-color: @bg-deep;
+  text-color:       @accent;
 }
 
 scrollbar {
-  width:        4px;
+  width:        3px;
   border:       0;
-  handle-color: @surface2;
-  handle-width: 4px;
+  handle-color: @handle;
+  handle-width: 3px;
   padding:      0;
 }
 
