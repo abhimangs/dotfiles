@@ -28,7 +28,7 @@ window {
   width:            30%;
   background-color: @bg;
   border:           0;
-  border-radius:    12px;
+  border-radius:    4px;
 }
 
 element {
@@ -66,7 +66,7 @@ entry {
 inputbar {
   children:         [prompt, entry];
   background-color: @bg-deep;
-  border-radius:    12px 12px 0 0;
+  border-radius:    4px 4px 0 0;
 }
 
 listview {
