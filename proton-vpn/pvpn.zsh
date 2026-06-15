@@ -172,7 +172,7 @@ _pvpn_line() {
 
 # ── Compact connect success message ─────────────────────────────
 _pvpn_connect_ok() {
-    printf "\n  ${_mc_teal}✓${_R}  %s  ${_mc_ov}connected · run ${_mc_lav}pvpn${_R}${_mc_ov} for full status${_R}\n\n" "$1"
+    printf "\n  ${_mc_teal}✓${_R}  %b  ${_mc_ov}connected · run ${_mc_lav}pvpn${_R}${_mc_ov} for full status${_R}\n\n" "$1"
 }
 
 # ── Dashboard ────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ _pvpn_help() {
     printf "  ${_mc_peach}${_B}tor${_R}      you → VPN → Tor → internet\n"
     printf "           ${_mc_ov}ks:standard · netshield:malware-ads-trackers · ipv6:off · accel:on · pfw:off · nat:off · dns:off${_R}\n"
     printf "           ${_mc_ov}slowest — use for maximum anonymity only${_R}\n\n"
-    printf "  ${_mc_mauve}${_B}ghost${_R}    you → CH/IS hardened server → exit server → internet\n"
+    printf "  ${_mc_mauve}${_B}ghost${_R}    you → Secure Core hub → fastest exit server → internet\n"
     printf "           ${_mc_ov}ks:standard · netshield:malware-ads-trackers · ipv6:off · accel:on · pfw:off · nat:off · dns:off${_R}\n"
     printf "           ${_mc_ov}even a compromised exit server cannot reveal your real IP${_R}\n\n"
     printf "  ${_mc_sapp}${_B}home${_R}     India · Mumbai · lowest latency for IN services\n"
@@ -374,11 +374,11 @@ _pvpn_help() {
 
     _pvpn_div
     printf "  ${_mc_lav}${_B}SECURE CORE${_R}  ${_mc_ov}used by ghost + connect -ghost${_R}\n\n"
-    printf "  your device → ProtonVPN server in ${_mc_mauve}CH or IS${_R} → exit server → internet\n"
-    printf "  ${_mc_ov}  The CH/IS servers are in jurisdictions with strong privacy laws,\n"
-    printf "    physically secured, and owned+operated by Proton.\n"
-    printf "    Even if the exit server is wiretapped or seized, traffic is\n"
-    printf "    already encrypted from the Secure Core hop — origin unreachable.${_R}\n\n"
+    printf "  your device → ${_mc_mauve}Secure Core hub${_R} (CH, IS, SE, or IC) → exit server → internet\n"
+    printf "  ${_mc_ov}  Hub servers are in privacy-friendly jurisdictions, physically\n"
+    printf "    secured, and owned+operated by Proton. Even if the exit server\n"
+    printf "    is wiretapped or seized, traffic is already encrypted from the\n"
+    printf "    Secure Core hop — your origin IP is unreachable.${_R}\n\n"
 
     _pvpn_div
     printf "  ${_mc_lav}${_B}TOR OVER VPN${_R}  ${_mc_ov}used by tor level only — no country selection possible${_R}\n\n"
