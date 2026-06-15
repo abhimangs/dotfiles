@@ -22,11 +22,15 @@ _mc_pink='\033[38;2;245;194;231m'
 # ── State ────────────────────────────────────────────────────────
 _PVPN_DIR="${XDG_RUNTIME_DIR:-/tmp}/pvpn"
 _PVPN_LVL="$_PVPN_DIR/level"
+_PVPN_LAST="$_PVPN_DIR/last"
 _PVPN_TS="$_PVPN_DIR/ts"
 mkdir -p "$_PVPN_DIR"
 
-_pvpn_set_level()   { printf '%s' "$1" > "$_PVPN_LVL"; }
+# Active level lives in _PVPN_LVL (cleared on intentional `pvpn off`).
+# _PVPN_LAST persists across off/drops so `pvpn reconnect` can always restore.
+_pvpn_set_level()   { printf '%s' "$1" > "$_PVPN_LVL"; printf '%s' "$1" > "$_PVPN_LAST"; }
 _pvpn_get_level()   { [[ -f "$_PVPN_LVL" ]] && printf '%s' "$(<"$_PVPN_LVL")" || printf '—'; }
+_pvpn_get_last()    { [[ -f "$_PVPN_LAST" ]] && printf '%s' "$(<"$_PVPN_LAST")" || printf '—'; }
 _pvpn_set_time()    { date +%s > "$_PVPN_TS"; }
 _pvpn_clear_state() { printf '—' > "$_PVPN_LVL"; rm -f "$_PVPN_TS"; }
 
@@ -280,7 +284,7 @@ _pvpn_dashboard() {
 
     printf "\n"
     _pvpn_div
-    printf "  ${_mc_ov}pvpn --help  ·  pvpn config  ·  pvpn connect <CC> [-ghost|-p2p|-random]${_R}\n\n"
+    printf "  ${_mc_ov}pvpn --help  ·  pvpn config  ·  pvpn reconnect  ·  pvpn connect <CC> [-ghost|-p2p|-random]${_R}\n\n"
 }
 
 # ── Help ─────────────────────────────────────────────────────────
@@ -310,6 +314,7 @@ _pvpn_help() {
     printf "  ${_mc_teal}pvpn${_R}                          Dashboard\n"
     printf "  ${_mc_teal}pvpn <level>${_R}                  Connect at level — tor ghost home fast\n"
     printf "  ${_mc_teal}pvpn off${_R}                      Disconnect\n"
+    printf "  ${_mc_teal}pvpn reconnect${_R} ${_mc_ov}(${_mc_teal}r${_mc_ov})${_R}         Restore last level — after WiFi switch / sleep / drop\n"
     printf "  ${_mc_teal}pvpn connect <CC>${_R}             Fastest server in country\n"
     printf "  ${_mc_teal}pvpn connect <CC> -ghost${_R}      Secure Core into that country\n"
     printf "  ${_mc_teal}pvpn connect <CC> -p2p${_R}        P2P-optimized server in that country\n"
@@ -325,7 +330,11 @@ _pvpn_help() {
     printf "  Blocks all internet the moment the VPN tunnel drops — before any packet leaks.\n"
     printf "  Restores automatically when you run ${_mc_teal}pvpn off${_R} (intentional disconnect).\n"
     printf "  ${_mc_ov}  Values: ${_mc_text}standard${_R}${_mc_ov} (active) · ${_mc_red}off${_R}${_mc_ov} (unprotected)${_R}\n"
-    printf "  ${_mc_yellow}  ⚠  All pvpn levels use standard — switching between them is zero-drop.${_R}\n\n"
+    printf "  ${_mc_yellow}  ⚠  All pvpn levels use standard — switching between them is zero-drop.${_R}\n"
+    printf "  ${_mc_ov}  After a drop (WiFi switch / sleep) the CLI does ${_mc_text}not${_mc_ov} auto-reconnect — it just\n"
+    printf "    keeps blocking. Your real IP stays hidden. Run ${_mc_teal}pvpn reconnect${_R}${_mc_ov} to restore.${_R}\n"
+    printf "  ${_mc_ov}  ${_mc_text}advanced${_mc_ov} kill switch (blocks even before first connect, survives reboot) is\n"
+    printf "    GUI-only — the Linux CLI exposes ${_mc_text}standard${_mc_ov} only.${_R}\n\n"
 
     _pvpn_div
     printf "  ${_mc_lav}${_B}NETSHIELD${_R}  ${_mc_ov}DNS-level — blocks before traffic leaves your device${_R}\n\n"
@@ -696,6 +705,33 @@ _pvpn_connect_country() {
     _pvpn_connect_ok "${mode_col}${_B}${level_label}${_R}"
 }
 
+# ── Reconnect ─────────────────────────────────────────────────────
+# The official CLI does NOT auto-reconnect on drop (WiFi switch, sleep,
+# server hiccup) — it only blocks via kill-switch and waits. This restores
+# whatever level you were last on. Falls back to _PVPN_LAST so it works
+# even after an intentional `pvpn off`.
+_pvpn_reconnect() {
+    local last; last=$(_pvpn_get_level)
+    [[ "$last" == "—" || -z "$last" ]] && last=$(_pvpn_get_last)
+    if [[ "$last" == "—" || -z "$last" ]]; then
+        printf "\n  ${_mc_red}✗  nothing to reconnect to${_R}\n"
+        printf "  ${_mc_ov}pick a level first: ${_mc_lav}pvpn ghost${_R}${_mc_ov} · ${_mc_lav}pvpn fast${_R}${_mc_ov} · ${_mc_lav}pvpn home${_R}\n\n"
+        return 1
+    fi
+    printf "\n  ${_mc_teal}${_B}reconnect${_R}  ${_mc_ov}restoring last level: ${_mc_text}%s${_R}\n" "$last"
+    case "$last" in
+        tor|ghost|home|fast)
+            pvpn "$last"
+            ;;
+        *)
+            # country label: "JP" or "JP -ghost"
+            local cc="${last%% *}" mode=""
+            [[ "$last" == *" "* ]] && mode="${last#* }"
+            pvpn connect "$cc" "$mode"
+            ;;
+    esac
+}
+
 # ── Main ─────────────────────────────────────────────────────────
 pvpn() {
     local cmd="${1:-status}"
@@ -755,6 +791,10 @@ pvpn() {
 
         connect)
             _pvpn_connect_country "$2" "$3"
+            ;;
+
+        reconnect|r)
+            _pvpn_reconnect
             ;;
 
         countries|contries|country)
