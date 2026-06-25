@@ -137,3 +137,6 @@ alias ccc='claude --dangerously-skip-permissions --continue'
 
 export PATH="$HOME/.local/bin:$PATH"
 alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=4080x3072 --video-codec=h265 --video-bit-rate=25M --max-fps=30 --v4l2-sink=/dev/video2 --no-playback'
+
+# ── Fastfetch ─────────────────────────────────────────────────
+command -v fastfetch &>/dev/null && fastfetch
