@@ -12,7 +12,10 @@
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/main/doc/json_schema.json",
   "logo": {
     "type": "file",
-    "source": "~/.config/fastfetch/rose.txt"
+    "source": "~/.config/fastfetch/rose.txt",
+    "padding": {
+      "right": 4
+    }
   },
   "display": {
     "separator": " : "
@@ -46,21 +49,9 @@
     },
     {
       "type": "command",
-      "key": "  󰏗 Pacman",
+      "key": "  󰏗 Packages",
       "keyColor": "green",
-      "text": "pacman -Qn | wc -l"
-    },
-    {
-      "type": "command",
-      "key": "  󰏗 AUR",
-      "keyColor": "green",
-      "text": "pacman -Qm | wc -l"
-    },
-    {
-      "type": "command",
-      "key": "  󰏗 Flatpak",
-      "keyColor": "green",
-      "text": "flatpak list --app | wc -l"
+      "text": "echo \"pacman ($(pacman -Qn | wc -l)), aur ($(pacman -Qm | wc -l)), flatpak ($(flatpak list --app | wc -l))\""
     },
     {
       "type": "terminal",
