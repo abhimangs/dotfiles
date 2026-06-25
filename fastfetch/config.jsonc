@@ -57,12 +57,6 @@
       "text": "pacman -Qm | wc -l"
     },
     {
-      "type": "command",
-      "key": "  󰏗 Flatpak",
-      "keyColor": "green",
-      "text": "flatpak list --app --columns=name | wc -l"
-    },
-    {
       "type": "terminal",
       "format": "{1}",
       "key": "   Terminal",
