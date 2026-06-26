@@ -45,16 +45,10 @@
       "keyColor": "green"
     },
     {
-      "type": "command",
-      "key": "  󰏗 Pacman",
-      "keyColor": "green",
-      "text": "pacman -Qn | wc -l"
-    },
-    {
-      "type": "command",
-      "key": "  󰏗 AUR",
-      "keyColor": "green",
-      "text": "pacman -Qm | wc -l"
+      "type": "packages",
+      "key": "  󰏗 Packages",
+      "format": "{1}",
+      "keyColor": "green"
     },
     {
       "type": "terminal",
