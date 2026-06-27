@@ -35,8 +35,8 @@ zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
 # ── History ───────────────────────────────────────────────────
 HISTFILE=~/.zsh_history
-HISTSIZE=10000
-SAVEHIST=10000
+HISTSIZE=50000
+SAVEHIST=50000
 setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
