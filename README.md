@@ -30,13 +30,14 @@ bash install.sh
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* |
 | `wallpapers/` | `~/.config/wallpapers/` | — |
 | `zsh/` | `~/.zshrc` | `zsh` |
+| `git/` | `~/.gitconfig` | `git` |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` |
 
 ## Installer features
 
 - **fzf TUI** — multi-select configs with a live preview pane
 - **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree
-- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Antigravity IDE, Claude Code CLI, Antigravity 2.0, Antigravity CLI, Codex CLI, Notion
+- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Antigravity IDE, Claude Code CLI, Antigravity 2.0, Antigravity CLI, Codex CLI, Notion, VLC, Flatpak
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing
@@ -67,6 +68,7 @@ stow --target ~/.config starship
 
 # ~ target
 stow --target ~ zsh
+stow --target ~ git
 
 # custom target
 stow --target ~/scripts/pvpn proton-vpn
