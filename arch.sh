@@ -34,10 +34,10 @@ _banner() {
     clear
     echo
     echo -e "${C_MAUVE}  ──────────────────────────────────────────────────────${C_RESET}"
-    echo -e "        ${C_BLUE}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}A R C H  B O O T S T R A P${C_RESET}"
+    echo -e "        ${C_BLUE}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}B O O T S T R A P${C_RESET}"
     echo -e "${C_MAUVE}  ──────────────────────────────────────────────────────${C_RESET}"
     echo
-    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    echo -e "      ${C_DIM}Arch Linux  ·  Debian  ·  Ubuntu  ·  GNU Stow${C_RESET}"
     echo
 }
 
@@ -58,19 +58,43 @@ _divider() {
     echo -e "  ${C_SURFACE}───────────────────────────────────────────────────${C_RESET}"
 }
 
-# ── Step 0: Arch check ────────────────────────────────────────────────────────
+# ── Step 0: distro check ──────────────────────────────────────────────────────
 _banner
 
-if [ ! -f /etc/arch-release ]; then
-    echo -e "  ${C_RED}${C_BOLD}✘  Not running on Arch Linux.${C_RESET}"
+DISTRO=""
+IS_UBUNTU=0
+if [ -f /etc/arch-release ]; then
+    DISTRO="arch"
+else
+    _os_id="" _os_id_like=""
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        _os_id="${ID:-}"
+        _os_id_like="${ID_LIKE:-}"
+    fi
+    if [[ "$_os_id" == "arch" || "$_os_id_like" == *arch* ]]; then
+        DISTRO="arch"
+    elif [[ "$_os_id" == "ubuntu" || "$_os_id_like" == *ubuntu* ]]; then
+        DISTRO="debian"; IS_UBUNTU=1
+    elif [[ "$_os_id" == "debian" || "$_os_id_like" == *debian* ]]; then
+        DISTRO="debian"
+    fi
+    unset _os_id _os_id_like
+fi
+
+if [ -z "$DISTRO" ]; then
+    echo -e "  ${C_RED}${C_BOLD}✘  Unsupported distro.${C_RESET}"
     echo
-    echo -e "  ${C_DIM}This script requires Arch Linux (checks /etc/arch-release).${C_RESET}"
-    echo -e "  ${C_DIM}Use your distro's package manager to install the tools manually.${C_RESET}"
+    echo -e "  ${C_DIM}This script supports Arch Linux, Debian, and Ubuntu only.${C_RESET}"
     echo
     exit 1
 fi
 
-echo -e "  ${C_DIM}Running on Arch Linux — proceeding.${C_RESET}"
+case "$DISTRO" in
+    arch)   _distro_label="Arch Linux" ;;
+    debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
+esac
+echo -e "  ${C_DIM}Running on ${_distro_label} — proceeding.${C_RESET}"
 echo
 _divider
 echo
@@ -88,9 +112,16 @@ _step 2 "Checking for git"
 if command -v git &>/dev/null; then
     _ok "git ${C_DIM}$(git --version | awk '{print $3}')${C_RESET} already installed"
 else
-    _sub "Installing ${C_PEACH}git${C_RESET} via pacman..."
-    if ! sudo pacman -S --needed --noconfirm git &>/dev/null 2>&1; then
-        _die "Failed to install git — check pacman output and try again."
+    _sub "Installing ${C_PEACH}git${C_RESET}..."
+    _git_ok=1
+    if [[ "$DISTRO" == "arch" ]]; then
+        sudo pacman -S --needed --noconfirm git &>/dev/null 2>&1 || _git_ok=0
+    else
+        sudo apt-get update -qq &>/dev/null 2>&1
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git &>/dev/null 2>&1 || _git_ok=0
+    fi
+    if [ "$_git_ok" -eq 0 ]; then
+        _die "Failed to install git — check package manager output and try again."
     fi
     _ok "${C_PEACH}git${C_RESET} installed"
 fi

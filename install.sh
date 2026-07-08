@@ -1,8 +1,30 @@
 #!/usr/bin/env bash
 
-# ── Arch Linux check ──────────────────────────────────────────────────────────
-if [ ! -f /etc/arch-release ]; then
-    echo "This installer is for Arch Linux only." >&2
+# ── Distro detection ──────────────────────────────────────────────────────────
+DISTRO=""
+IS_UBUNTU=0
+
+if [ -f /etc/arch-release ]; then
+    DISTRO="arch"
+else
+    _os_id="" _os_id_like=""
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        _os_id="${ID:-}"
+        _os_id_like="${ID_LIKE:-}"
+    fi
+    if [[ "$_os_id" == "arch" || "$_os_id_like" == *arch* ]]; then
+        DISTRO="arch"
+    elif [[ "$_os_id" == "ubuntu" || "$_os_id_like" == *ubuntu* ]]; then
+        DISTRO="debian"; IS_UBUNTU=1
+    elif [[ "$_os_id" == "debian" || "$_os_id_like" == *debian* ]]; then
+        DISTRO="debian"
+    fi
+    unset _os_id _os_id_like
+fi
+
+if [ -z "$DISTRO" ]; then
+    echo "This installer supports Arch Linux, Debian, and Ubuntu only." >&2
     exit 1
 fi
 
@@ -36,7 +58,12 @@ header() {
     echo -e "        ${C_ACCENT}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
     echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
     echo ""
-    echo -e "      ${C_DIM}Arch Linux  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    local _distro_label
+    case "$DISTRO" in
+        arch)   _distro_label="Arch Linux" ;;
+        debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
+    esac
+    echo -e "      ${C_DIM}${_distro_label}  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
     echo ""
 }
 
@@ -46,7 +73,13 @@ success() { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_GREEN}✔ ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_RED}✘ ${C_RESET}$1\n"; }
 
 # ── Package helpers ───────────────────────────────────────────────────────────
-pkg_installed() { pacman -Q "$1" &>/dev/null; }
+pkg_installed() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        pacman -Q "$1" &>/dev/null
+    else
+        apt_pkg_installed "$1"
+    fi
+}
 
 pacman_install() {
     if [ -f /var/lib/pacman/db.lck ]; then
@@ -125,6 +158,277 @@ _paru_run_robust() {
 
 paru_install()   { _paru_run_robust ""  "$1"; }
 paru_install_y() { _paru_run_robust "y" "$1"; }
+
+# ── Debian/Ubuntu (apt) package helpers ──────────────────────────────────────
+apt_pkg_installed() { dpkg -s "$1" &>/dev/null; }
+
+APT_UPDATED=0
+apt_update_once() {
+    [ "$APT_UPDATED" -eq 1 ] && return 0
+    sudo apt-get update -qq &>/dev/null 2>&1
+    APT_UPDATED=1
+}
+
+apt_install() {
+    apt_update_once
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$1" &>/dev/null 2>&1
+}
+
+# Bootstraps utilities repo-add steps commonly need
+ensure_apt_deps() {
+    local need=()
+    command -v curl &>/dev/null || need+=(curl)
+    command -v gpg  &>/dev/null || need+=(gnupg)
+    if [ "$IS_UBUNTU" -eq 1 ] && ! command -v add-apt-repository &>/dev/null; then
+        need+=(software-properties-common)
+    fi
+    if [ "${#need[@]}" -gt 0 ]; then
+        apt_update_once
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${need[@]}" &>/dev/null 2>&1
+    fi
+}
+
+add_ppa() {
+    local ppa="$1"
+    ensure_apt_deps
+    sudo add-apt-repository -y "$ppa" &>/dev/null 2>&1
+    APT_UPDATED=0
+    apt_update_once
+}
+
+deb_arch() { dpkg --print-architecture; }
+
+# GitHub "latest release" asset lookup — no jq dependency
+github_latest_asset_url() {
+    local repo="$1" pattern="$2"
+    curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
+        | grep -oP '"browser_download_url":\s*"\K[^"]+' \
+        | grep -E "$pattern" | head -1
+}
+
+# ── ghostty (Debian/Ubuntu) ───────────────────────────────────────────────────
+# mkasberg/ghostty-ubuntu's installer self-detects Ubuntu (PPA) vs Debian
+# Trixie/Forky (signed repo) and grabs the right .deb either way.
+ensure_ghostty_deb() {
+    command -v ghostty &>/dev/null && return 0
+    ensure_apt_deps
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" &>/dev/null 2>&1
+    command -v ghostty &>/dev/null
+}
+
+# ── fastfetch (Debian/Ubuntu) ─────────────────────────────────────────────────
+ensure_fastfetch_deb() {
+    apt_pkg_installed fastfetch && return 0
+    apt_install fastfetch
+    apt_pkg_installed fastfetch && return 0
+
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        add_ppa ppa:zhangsongcui3371/fastfetch
+        apt_install fastfetch
+    else
+        local apat url
+        case "$(deb_arch)" in amd64) apat='amd64|x86_64' ;; arm64) apat='arm64|aarch64' ;; *) apat="$(deb_arch)" ;; esac
+        url=$(github_latest_asset_url "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$")
+        if [ -n "$url" ]; then
+            local tmp; tmp=$(mktemp /tmp/fastfetch_XXXXXX.deb)
+            curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
+            rm -f "$tmp"
+        fi
+    fi
+    apt_pkg_installed fastfetch
+}
+
+# ── ulauncher (Debian/Ubuntu) ─────────────────────────────────────────────────
+ensure_ulauncher_deb() {
+    apt_pkg_installed ulauncher && return 0
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        add_ppa ppa:agornostal/ulauncher
+        apt_install ulauncher
+    else
+        local url; url=$(github_latest_asset_url "Ulauncher/Ulauncher" '_all\.deb$')
+        if [ -n "$url" ]; then
+            local tmp; tmp=$(mktemp /tmp/ulauncher_XXXXXX.deb)
+            curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
+            rm -f "$tmp"
+        fi
+    fi
+    apt_pkg_installed ulauncher
+}
+
+# ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
+ensure_lazygit_deb() {
+    apt_pkg_installed lazygit && return 0
+    apt_install lazygit
+    apt_pkg_installed lazygit && return 0
+
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        add_ppa ppa:lazygit-team/release
+        apt_install lazygit
+        apt_pkg_installed lazygit && return 0
+    fi
+
+    local apat url tmp
+    case "$(deb_arch)" in amd64) apat='x86_64' ;; arm64) apat='arm64' ;; *) apat="$(uname -m)" ;; esac
+    url=$(github_latest_asset_url "jesseduffield/lazygit" "Linux_${apat}\.tar\.gz$")
+    if [ -n "$url" ]; then
+        tmp=$(mktemp -d /tmp/lazygit_XXXXXX)
+        if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null && tar -xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null; then
+            sudo install -m755 "$tmp/lazygit" /usr/local/bin/lazygit
+        fi
+        rm -rf "$tmp"
+    fi
+    command -v lazygit &>/dev/null
+}
+
+# ── starship (Debian/Ubuntu) ──────────────────────────────────────────────────
+ensure_starship_deb() {
+    if apt_pkg_installed starship || command -v starship &>/dev/null; then return 0; fi
+    apt_install starship
+    command -v starship &>/dev/null && return 0
+    curl -sS https://starship.rs/install.sh | sh -s -- -y &>/dev/null 2>&1
+    command -v starship &>/dev/null
+}
+
+# ── eza (Debian/Ubuntu) ───────────────────────────────────────────────────────
+ensure_eza_deb() {
+    apt_pkg_installed eza && return 0
+    apt_install eza
+    apt_pkg_installed eza && return 0
+
+    ensure_apt_deps
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc 2>/dev/null \
+        | gpg --dearmor | sudo tee /etc/apt/keyrings/gierens.gpg >/dev/null
+    echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
+        | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
+    sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+    APT_UPDATED=0
+    apt_update_once
+    apt_install eza
+    apt_pkg_installed eza
+}
+
+# ── proton-vpn-cli (Debian/Ubuntu) ────────────────────────────────────────────
+# Official ProtonVPN repo bootstrapper — same repo.protonvpn.com/debian path
+# serves both Debian and Ubuntu.
+ensure_protonvpn_cli_deb() {
+    apt_pkg_installed proton-vpn-cli && return 0
+
+    if ! dpkg -s protonvpn-stable-release &>/dev/null; then
+        ensure_apt_deps
+        local listing_url="https://repo.protonvpn.com/debian/dists/stable/main/binary-all/"
+        local listing deb_name tmp
+        listing=$(curl -fsSL "$listing_url" 2>/dev/null)
+        deb_name=$(grep -oP "protonvpn-stable-release[^\"'>]+\.deb" <<< "$listing" | head -1)
+        if [ -n "$deb_name" ]; then
+            tmp=$(mktemp /tmp/protonvpn_XXXXXX.deb)
+            if curl -fsSL "${listing_url}${deb_name}" -o "$tmp" 2>/dev/null; then
+                sudo dpkg -i "$tmp" &>/dev/null 2>&1
+            fi
+            rm -f "$tmp"
+        fi
+        APT_UPDATED=0
+        apt_update_once
+    fi
+
+    apt_install proton-vpn-cli
+    apt_pkg_installed proton-vpn-cli
+}
+
+# ── Brave (Debian/Ubuntu) ─────────────────────────────────────────────────────
+# Confirmed official channel names: brave-origin (stable), brave-origin-beta (beta)
+ensure_brave_deb() {
+    local channel="$1" pkg="$2"
+    apt_pkg_installed "$pkg" && return 0
+    ensure_apt_deps
+
+    local host key_url key_file sources_file
+    if [[ "$channel" == "beta" ]]; then
+        host="brave-browser-apt-beta.s3.brave.com"
+        key_url="https://${host}/brave-browser-beta-archive-keyring.gpg"
+        key_file="/usr/share/keyrings/brave-browser-beta-archive-keyring.gpg"
+        sources_file="/etc/apt/sources.list.d/brave-browser-beta.sources"
+    else
+        host="brave-browser-apt-release.s3.brave.com"
+        key_url="https://${host}/brave-browser-archive-keyring.gpg"
+        key_file="/usr/share/keyrings/brave-browser-archive-keyring.gpg"
+        sources_file="/etc/apt/sources.list.d/brave-browser-release.sources"
+    fi
+
+    sudo curl -fsSLo "$key_file" "$key_url" &>/dev/null 2>&1
+    sudo curl -fsSLo "$sources_file" "https://${host}/brave-browser.sources" &>/dev/null 2>&1
+    APT_UPDATED=0
+    apt_update_once
+    apt_install "$pkg"
+    apt_pkg_installed "$pkg"
+}
+
+# ── VS Code (Debian/Ubuntu) ───────────────────────────────────────────────────
+ensure_vscode_deb() {
+    apt_pkg_installed code && return 0
+    ensure_apt_deps
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null \
+        | gpg --dearmor | sudo tee /etc/apt/keyrings/packages.microsoft.gpg >/dev/null
+    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+        | sudo tee /etc/apt/sources.list.d/vscode.sources >/dev/null
+    APT_UPDATED=0
+    apt_update_once
+    apt_install code
+    apt_pkg_installed code
+}
+
+# ── JetBrainsMono Nerd Font (Debian/Ubuntu — no apt package) ─────────────────
+FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
+
+font_installed_deb() {
+    [ -d "$FONT_DIR_DEB" ] && find "$FONT_DIR_DEB" -name '*.ttf' -print -quit 2>/dev/null | grep -q .
+}
+
+ensure_nerd_font_deb() {
+    font_installed_deb && return 0
+    ensure_apt_deps
+    command -v unzip &>/dev/null || apt_install unzip
+    local tmp; tmp=$(mktemp -d /tmp/jbmono_XXXXXX)
+    if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" -o "$tmp/font.zip" 2>/dev/null; then
+        mkdir -p "$FONT_DIR_DEB"
+        unzip -oq "$tmp/font.zip" -d "$FONT_DIR_DEB" '*.ttf' &>/dev/null 2>&1
+        fc-cache -f "$FONT_DIR_DEB" &>/dev/null 2>&1
+    fi
+    rm -rf "$tmp"
+    font_installed_deb
+}
+
+font_installed() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        pkg_installed "$FONT_PKG"
+    else
+        font_installed_deb
+    fi
+}
+
+install_font() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        pacman_install "$FONT_PKG"
+    else
+        ensure_nerd_font_deb
+    fi
+}
+
+# ── bat/fd binary-name shims (Debian/Ubuntu ship batcat/fdfind) ──────────────
+ensure_bat_shim() {
+    command -v bat &>/dev/null && return 0
+    command -v batcat &>/dev/null || return 1
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+}
+
+ensure_fd_shim() {
+    command -v fd &>/dev/null && return 0
+    command -v fdfind &>/dev/null || return 1
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+}
 
 # ── Stow package directly into ~/.config/<name>/ (flat repo structure) ────────
 stow_config() {
@@ -249,15 +553,33 @@ DEP_PKG[btop]="btop"
 DEP_PKG[tree]="tree"
 DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 
-# AUR-only dep tools — must use paru, not pacman
+# AUR-only dep tools — must use paru, not pacman (Arch only)
 declare -A DEP_TYPE
 DEP_TYPE[thefuck]="paru"
+
+# Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
+declare -A DEP_PKG_DEB
+DEP_PKG_DEB[fd]="fd-find"
 
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
 
+dep_pkg_name() {
+    local dep="$1"
+    if [[ "$DISTRO" == "arch" ]]; then
+        echo "${DEP_PKG[$dep]}"
+    else
+        echo "${DEP_PKG_DEB[$dep]:-${DEP_PKG[$dep]}}"
+    fi
+}
+
 # ── Applications ──────────────────────────────────────────────────────────────
 APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli notion vlc flatpak)
+if [[ "$DISTRO" == "debian" ]]; then
+    # Notion (no official Linux build) and the Antigravity desktop/IDE (upstream
+    # packaging still a moving target on apt) are Arch-only for now.
+    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli vlc flatpak)
+fi
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
 
@@ -297,6 +619,65 @@ APP_PKG[flatpak]="flatpak"
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
 
+# Debian/Ubuntu overrides — package names and install mechanism differ
+declare -A APP_PKG_DEB
+APP_PKG_DEB[brave-stable]="brave-origin"
+APP_PKG_DEB[brave-beta]="brave-origin-beta"
+APP_PKG_DEB[vscode]="code"
+
+declare -A APP_TYPE_DEB
+APP_TYPE_DEB[brave-stable]="brave"
+APP_TYPE_DEB[brave-beta]="brave"
+APP_TYPE_DEB[vscode]="vscode"
+APP_TYPE_DEB[claude-code]="curl"
+APP_TYPE_DEB[antigravity-cli]="curl"
+APP_TYPE_DEB[codex-cli]="curl"
+# vlc/flatpak fall through to the "apt" default below
+
+app_pkg_name() {
+    local app="$1"
+    if [[ "$DISTRO" == "arch" ]]; then
+        echo "${APP_PKG[$app]}"
+    else
+        echo "${APP_PKG_DEB[$app]:-${APP_PKG[$app]}}"
+    fi
+}
+
+app_type_resolved() {
+    local app="$1"
+    if [[ "$DISTRO" == "arch" ]]; then
+        echo "${APP_TYPE[$app]}"
+    else
+        echo "${APP_TYPE_DEB[$app]:-apt}"
+    fi
+}
+
+# ── Menu descriptions ─────────────────────────────────────────────────────────
+declare -A CONFIG_DESC
+CONFIG_DESC[fastfetch]="system info display at login"
+CONFIG_DESC[ghostty]="GPU-accelerated terminal   ·  JetBrains Nerd Font"
+CONFIG_DESC[kitty]="cross-platform terminal    ·  JetBrains Nerd Font"
+CONFIG_DESC[zsh]="shell + Zinit plugins"
+CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
+CONFIG_DESC[starship]="cross-shell prompt"
+CONFIG_DESC[rofi]="keyboard-driven launcher   ·  JetBrains Nerd Font"
+CONFIG_DESC[git]="git config  →  ~/.gitconfig"
+if [[ "$DISTRO" == "arch" ]]; then
+    CONFIG_DESC[ulauncher]="app launcher              ·  AUR"
+else
+    CONFIG_DESC[ulauncher]="app launcher              ·  PPA/deb"
+fi
+
+declare -A DEP_DESC
+DEP_DESC[bat]="cat with syntax highlighting  ·  Catppuccin theme"
+DEP_DESC[eza]="modern ls  →  ls  ll  lt  la aliases"
+DEP_DESC[fd]="fast find replacement  →  fzf integration"
+DEP_DESC[zoxide]="smart cd  →  z command"
+DEP_DESC[thefuck]="corrects last command  →  fuck alias"
+DEP_DESC[lazygit]="git TUI  →  lg alias"
+DEP_DESC[btop]="resource monitor  ·  Catppuccin theme"
+DEP_DESC[tree]="directory tree listing"
+
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 show_plan() {
     local cfgs=("$@")
@@ -322,7 +703,7 @@ show_plan() {
 
         case "$cfg" in
           ghostty|kitty)
-            if [ "$_font_planned" -eq 0 ] && ! pkg_installed "$FONT_PKG"; then
+            if [ "$_font_planned" -eq 0 ] && ! font_installed; then
                 steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
                 _font_planned=1
             fi
@@ -352,7 +733,7 @@ show_plan() {
             fi
             ;;
           fastfetch|rofi)
-            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ] && ! pkg_installed "$FONT_PKG"; then
+            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ] && ! font_installed; then
                 steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
                 _font_planned=1
             fi
@@ -467,7 +848,7 @@ show_plan() {
         echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
         for _d in "${DEPS[@]}"; do
-            if pkg_installed "${DEP_PKG[$_d]}"; then
+            if pkg_installed "$(dep_pkg_name "$_d")"; then
                 echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
@@ -481,7 +862,7 @@ show_plan() {
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
         for _a in "${APPS[@]}"; do
             local _lbl="${APP_LABEL[$_a]}"
-            local _type="${APP_TYPE[$_a]}"
+            local _type; _type="$(app_type_resolved "$_a")"
             if [[ "$_type" == "curl" ]]; then
                 local _bin="${APP_BIN[$_a]:-}"
                 if [[ -n "$_bin" ]] && command -v "$_bin" &>/dev/null; then
@@ -490,7 +871,7 @@ show_plan() {
                     echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
                 fi
             else
-                local _pkg="${APP_PKG[$_a]}"
+                local _pkg; _pkg="$(app_pkg_name "$_a")"
                 if pkg_installed "$_pkg"; then
                     echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed — will update${C_RESET}"
                 else
@@ -575,45 +956,59 @@ success "Authenticated"
 _SUDO_KEEPALIVE=$!
 trap 'kill "$_SUDO_KEEPALIVE" 2>/dev/null; echo -ne "\033[0m"' EXIT
 
-# ── Step 1: paru ─────────────────────────────────────────────────────────────
-info "Checking AUR helper..."
-if command -v paru &>/dev/null; then
-    substep "paru already installed"
-    success "AUR helper ready"
+# ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
+if [[ "$DISTRO" == "arch" ]]; then
+    info "Checking AUR helper..."
+    if command -v paru &>/dev/null; then
+        substep "paru already installed"
+        success "AUR helper ready"
+    else
+        substep "paru not found — installing..."
+        substep "Checking internet connection..."
+        if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
+            error "No internet connection — paru requires internet to install."
+            exit 1
+        fi
+        substep "Installing build dependencies..."
+        if ! sudo pacman -S --needed --noconfirm base-devel git; then
+            error "Failed to install base-devel/git. Check your internet or sudo access."
+            exit 1
+        fi
+
+        substep "Cloning paru from AUR..."
+        rm -rf /tmp/paru-build
+        if ! git clone https://aur.archlinux.org/paru.git /tmp/paru-build &>/dev/null 2>&1; then
+            error "Failed to clone paru. Check your internet connection."
+            exit 1
+        fi
+
+        echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
+        if ! (cd /tmp/paru-build && makepkg -si --noconfirm); then
+            error "paru build failed."
+            exit 1
+        fi
+        echo ""
+
+        rm -rf /tmp/paru-build
+
+        if ! command -v paru &>/dev/null; then
+            error "paru installation failed — binary not found after build."
+            exit 1
+        fi
+        success "paru installed"
+    fi
 else
-    substep "paru not found — installing..."
+    info "Preparing apt..."
     substep "Checking internet connection..."
-    if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
-        error "No internet connection — paru requires internet to install."
+    if ! curl -fsSL --connect-timeout 5 --max-time 8 https://deb.debian.org -o /dev/null 2>/dev/null \
+        && ! curl -fsSL --connect-timeout 5 --max-time 8 https://archive.ubuntu.com -o /dev/null 2>/dev/null; then
+        error "No internet connection — apt requires internet to install packages."
         exit 1
     fi
-    substep "Installing build dependencies..."
-    if ! sudo pacman -S --needed --noconfirm base-devel git; then
-        error "Failed to install base-devel/git. Check your internet or sudo access."
-        exit 1
-    fi
-
-    substep "Cloning paru from AUR..."
-    rm -rf /tmp/paru-build
-    if ! git clone https://aur.archlinux.org/paru.git /tmp/paru-build &>/dev/null 2>&1; then
-        error "Failed to clone paru. Check your internet connection."
-        exit 1
-    fi
-
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
-    if ! (cd /tmp/paru-build && makepkg -si --noconfirm); then
-        error "paru build failed."
-        exit 1
-    fi
-    echo ""
-
-    rm -rf /tmp/paru-build
-
-    if ! command -v paru &>/dev/null; then
-        error "paru installation failed — binary not found after build."
-        exit 1
-    fi
-    success "paru installed"
+    substep "Updating package index..."
+    apt_update_once
+    ensure_apt_deps
+    success "apt ready"
 fi
 
 # ── Step 2: tools (stow + fzf) ───────────────────────────────────────────────
@@ -631,30 +1026,36 @@ done
 [ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:         ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
 [ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
 
-if ! sudo pacman -S --needed --noconfirm stow fzf &>/dev/null 2>&1; then
-    error "Failed to install/update stow and fzf."
-    exit 1
+if [[ "$DISTRO" == "arch" ]]; then
+    if ! sudo pacman -S --needed --noconfirm stow fzf &>/dev/null 2>&1; then
+        error "Failed to install/update stow and fzf."
+        exit 1
+    fi
+else
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y stow fzf &>/dev/null 2>&1; then
+        error "Failed to install/update stow and fzf."
+        exit 1
+    fi
 fi
 success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
 CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher git)
+if [[ "$DISTRO" == "debian" ]]; then
+    # rofi-wayland has no reliable prebuilt path across Debian/Ubuntu versions — Arch only
+    CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher git)
+fi
 declare -a SELECTED=()
 
 if command -v fzf &>/dev/null; then
     echo ""
+    _cfg_lines=()
+    for _c in "${CONFIGS[@]}"; do
+        _cfg_lines+=("$(printf '%-11s  ·  %s' "$_c" "${CONFIG_DESC[$_c]}")")
+    done
     mapfile -t SELECTED < <(
-        printf '%-11s  ·  %s\n' \
-            "fastfetch"  "system info display at login" \
-            "ghostty"    "GPU-accelerated terminal   ·  JetBrains Nerd Font" \
-            "kitty"      "cross-platform terminal    ·  JetBrains Nerd Font" \
-            "zsh"        "shell + Zinit plugins" \
-            "protonvpn"  "ProtonVPN wrapper script" \
-            "starship"   "cross-shell prompt" \
-            "rofi"       "keyboard-driven launcher   ·  JetBrains Nerd Font" \
-            "ulauncher"  "app launcher              ·  AUR" \
-            "git"        "git config  →  ~/.gitconfig" | \
+        printf '%s\n' "${_cfg_lines[@]}" | \
         fzf --multi \
             --height=40% \
             --min-height=12 \
@@ -670,21 +1071,17 @@ if command -v fzf &>/dev/null; then
             --bind='ctrl-a:select-all' | \
         awk '{print $1}'
     )
+    unset _cfg_lines _c
     echo ""
 else
     substep "${C_DIM}fzf unavailable — using basic menu${C_RESET}"
     echo ""
     attempts=0
     while true; do
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}fastfetch   ${C_DIM}·  system info display${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}ghostty     ${C_DIM}·  GPU-accelerated terminal${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}kitty       ${C_DIM}·  cross-platform terminal${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zsh         ${C_DIM}·  shell + Zinit plugins${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}protonvpn   ${C_DIM}·  ProtonVPN wrapper script${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}starship    ${C_DIM}·  cross-shell prompt${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}rofi        ${C_DIM}·  keyboard-driven launcher${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}ulauncher   ${C_DIM}·  app launcher (AUR)${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}9 ${C_DIM}❯ ${C_RESET}git         ${C_DIM}·  git config  →  ~/.gitconfig${C_RESET}"
+        for _i in "${!CONFIGS[@]}"; do
+            _c="${CONFIGS[$_i]}"
+            printf "${C_MAIN}${C_BOLD} │  ${C_ACCENT}%d ${C_DIM}❯ ${C_RESET}%-11s ${C_DIM}·  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
+        done
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -rp "" RAW
@@ -697,18 +1094,11 @@ else
         valid=true
         tmp=()
         for token in $RAW; do
-            case "$token" in
-                1) tmp+=(fastfetch)  ;;
-                2) tmp+=(ghostty)    ;;
-                3) tmp+=(kitty)      ;;
-                4) tmp+=(zsh)        ;;
-                5) tmp+=(protonvpn)  ;;
-                6) tmp+=(starship)   ;;
-                7) tmp+=(rofi)       ;;
-                8) tmp+=(ulauncher)  ;;
-                9) tmp+=(git)        ;;
-                *) valid=false; break ;;
-            esac
+            if [[ "$token" =~ ^[0-9]+$ ]] && (( token >= 1 && token <= ${#CONFIGS[@]} )); then
+                tmp+=("${CONFIGS[$((token-1))]}")
+            else
+                valid=false; break
+            fi
         done
 
         if $valid && [ "${#tmp[@]}" -gt 0 ]; then
@@ -721,7 +1111,7 @@ else
             error "Too many invalid attempts. Exiting."
             exit 1
         fi
-        error "Invalid input — enter numbers 1–9 separated by spaces, or 'a' for all"
+        error "Invalid input — enter numbers 1–${#CONFIGS[@]} separated by spaces, or 'a' for all"
         echo ""
     done
 fi
@@ -737,16 +1127,12 @@ info "Optional dep tools..."
 echo ""
 
 if command -v fzf &>/dev/null; then
+    _dep_lines=()
+    for _dd in "${DEPS_LIST[@]}"; do
+        _dep_lines+=("$(printf '%-10s  ·  %s' "$_dd" "${DEP_DESC[$_dd]}")")
+    done
     mapfile -t DEPS < <(
-        printf '%-10s  ·  %s\n' \
-            "bat"      "cat with syntax highlighting  ·  Catppuccin theme" \
-            "eza"      "modern ls  →  ls  ll  lt  la aliases" \
-            "fd"       "fast find replacement  →  fzf integration" \
-            "zoxide"   "smart cd  →  z command" \
-            "thefuck"  "corrects last command  →  fuck alias" \
-            "lazygit"  "git TUI  →  lg alias" \
-            "btop"     "resource monitor  ·  Catppuccin theme" \
-            "tree"     "directory tree listing" | \
+        printf '%s\n' "${_dep_lines[@]}" | \
         fzf --multi \
             --height=40% \
             --min-height=12 \
@@ -762,15 +1148,12 @@ if command -v fzf &>/dev/null; then
             --bind='ctrl-a:select-all' | \
         awk '{print $1}'
     )
+    unset _dep_lines _dd
 else
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}1 ${C_DIM}❯ ${C_RESET}bat       ${C_DIM}·  cat with syntax highlighting${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}2 ${C_DIM}❯ ${C_RESET}eza       ${C_DIM}·  modern ls  →  ls ll lt la${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}3 ${C_DIM}❯ ${C_RESET}fd        ${C_DIM}·  fast find  →  fzf integration${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}4 ${C_DIM}❯ ${C_RESET}zoxide    ${C_DIM}·  smart cd   →  z command${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}5 ${C_DIM}❯ ${C_RESET}thefuck   ${C_DIM}·  corrects last command  →  fuck alias${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}6 ${C_DIM}❯ ${C_RESET}lazygit   ${C_DIM}·  git TUI  →  lg alias${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}7 ${C_DIM}❯ ${C_RESET}btop      ${C_DIM}·  resource monitor  ·  Catppuccin theme${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}8 ${C_DIM}❯ ${C_RESET}tree      ${C_DIM}·  directory tree listing${C_RESET}"
+    for _i in "${!DEPS_LIST[@]}"; do
+        _dd="${DEPS_LIST[$_i]}"
+        printf "${C_MAIN}${C_BOLD} │  ${C_ACCENT}%d ${C_DIM}❯ ${C_RESET}%-9s ${C_DIM}·  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
+    done
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
     read -rp "" DEP_RAW
@@ -778,16 +1161,9 @@ else
         DEPS=("${DEPS_LIST[@]}")
     elif [[ -n "$DEP_RAW" ]]; then
         for token in $DEP_RAW; do
-            case "$token" in
-                1) DEPS+=(bat)      ;;
-                2) DEPS+=(eza)      ;;
-                3) DEPS+=(fd)       ;;
-                4) DEPS+=(zoxide)   ;;
-                5) DEPS+=(thefuck)  ;;
-                6) DEPS+=(lazygit)  ;;
-                7) DEPS+=(btop)     ;;
-                8) DEPS+=(tree)     ;;
-            esac
+            [[ "$token" =~ ^[0-9]+$ ]] && \
+            (( token >= 1 && token <= ${#DEPS_LIST[@]} )) && \
+            DEPS+=("${DEPS_LIST[$((token-1))]}")
         done
     fi
 fi
@@ -815,14 +1191,17 @@ echo ""
 # Build tab-delimited lines: key<TAB>display — fzf shows only the display column
 _app_lines=()
 for _k in "${APPS_LIST[@]}"; do
-    case "${APP_TYPE[$_k]}" in
+    _rt="$(app_type_resolved "$_k")"
+    case "$_rt" in
         paru-y|paru) _tl="paru"   ;;
         pacman)      _tl="pacman" ;;
         curl)        _tl="curl"   ;;
-        *)           _tl="${APP_TYPE[$_k]}" ;;
+        apt|brave|vscode) _tl="apt" ;;
+        *)           _tl="$_rt" ;;
     esac
     _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ·  %s' "${APP_LABEL[$_k]}" "$_tl")")
 done
+unset _rt
 
 if command -v fzf &>/dev/null; then
     mapfile -t APPS < <(
@@ -880,24 +1259,37 @@ FAILED=()
 if [ "${#DEPS[@]}" -gt 0 ]; then
     info "Installing dep tools..."
     for dep in "${DEPS[@]}"; do
-        dep_pkg="${DEP_PKG[$dep]}"
+        dep_pkg="$(dep_pkg_name "$dep")"
         if pkg_installed "$dep_pkg"; then
             substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
         else
             substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
-            if [[ "${DEP_TYPE[$dep]:-pacman}" == "paru" ]]; then
-                if ! paru_install "$dep_pkg"; then
-                    error "Failed to install ${dep} — skipping"
-                    FAILED+=("$dep")
-                    continue
+            _dep_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                if [[ "${DEP_TYPE[$dep]:-pacman}" == "paru" ]]; then
+                    paru_install "$dep_pkg" || _dep_ok=0
+                else
+                    pacman_install "$dep_pkg" || _dep_ok=0
                 fi
-            elif ! pacman_install "$dep_pkg"; then
+            else
+                case "$dep" in
+                    eza)     ensure_eza_deb     || _dep_ok=0 ;;
+                    lazygit) ensure_lazygit_deb || _dep_ok=0 ;;
+                    *)       apt_install "$dep_pkg" || _dep_ok=0 ;;
+                esac
+            fi
+            if [ "$_dep_ok" -eq 0 ]; then
                 error "Failed to install ${dep} — skipping"
                 FAILED+=("$dep")
                 continue
             fi
         fi
         INSTALLED+=("$dep")
+
+        if [[ "$DISTRO" == "debian" ]]; then
+            [[ "$dep" == "bat" ]] && ensure_bat_shim
+            [[ "$dep" == "fd"  ]] && ensure_fd_shim
+        fi
 
         # Stow config for deps that have one
         for _dc in "${DEP_HAS_CONFIG[@]}"; do
@@ -924,7 +1316,17 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}${pkg}${C_RESET} already installed"
         else
             substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
-            if ! pacman_install "$pkg"; then
+            _install_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                pacman_install "$pkg" || _install_ok=0
+            else
+                case "$cfg" in
+                    ghostty)   ensure_ghostty_deb   || _install_ok=0 ;;
+                    fastfetch) ensure_fastfetch_deb || _install_ok=0 ;;
+                    *)         apt_install "$pkg"   || _install_ok=0 ;;
+                esac
+            fi
+            if [ "$_install_ok" -eq 0 ]; then
                 error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
                 FAILED+=("$cfg")
                 continue
@@ -932,9 +1334,9 @@ for cfg in "${SELECTED[@]}"; do
         fi
 
         if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
-            if ! pkg_installed "$FONT_PKG"; then
+            if ! font_installed; then
                 substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                pacman_install "$FONT_PKG" || error "Failed to install font — continuing"
+                install_font || error "Failed to install font — continuing"
             fi
             substep "Rebuilding font cache..."
             fc-cache -fv &>/dev/null 2>&1 || true
@@ -964,7 +1366,13 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}zsh${C_RESET} already installed"
         else
             substep "Installing ${C_ACCENT}zsh${C_RESET}..."
-            if ! pacman_install zsh; then
+            _install_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                pacman_install zsh || _install_ok=0
+            else
+                apt_install zsh || _install_ok=0
+            fi
+            if [ "$_install_ok" -eq 0 ]; then
                 error "Failed to install zsh — skipping"
                 FAILED+=(zsh)
                 continue
@@ -1002,7 +1410,13 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}proton-vpn-cli${C_RESET} already installed"
         else
             substep "Installing ${C_ACCENT}proton-vpn-cli${C_RESET}..."
-            if ! pacman_install proton-vpn-cli; then
+            _install_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                pacman_install proton-vpn-cli || _install_ok=0
+            else
+                ensure_protonvpn_cli_deb || _install_ok=0
+            fi
+            if [ "$_install_ok" -eq 0 ]; then
                 error "Failed to install proton-vpn-cli — skipping"
                 FAILED+=(protonvpn)
                 continue
@@ -1033,7 +1447,13 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}starship${C_RESET} already installed"
         else
             substep "Installing ${C_ACCENT}starship${C_RESET}..."
-            if ! pacman_install starship; then
+            _install_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                pacman_install starship || _install_ok=0
+            else
+                ensure_starship_deb || _install_ok=0
+            fi
+            if [ "$_install_ok" -eq 0 ]; then
                 error "Failed to install starship — skipping"
                 FAILED+=(starship)
                 continue
@@ -1056,7 +1476,13 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}git${C_RESET} already installed"
         else
             substep "Installing ${C_ACCENT}git${C_RESET}..."
-            if ! pacman_install git; then
+            _install_ok=1
+            if [[ "$DISTRO" == "arch" ]]; then
+                pacman_install git || _install_ok=0
+            else
+                apt_install git || _install_ok=0
+            fi
+            if [ "$_install_ok" -eq 0 ]; then
                 error "Failed to install git — skipping"
                 FAILED+=(git)
                 continue
@@ -1075,11 +1501,20 @@ for cfg in "${SELECTED[@]}"; do
         if pkg_installed ulauncher; then
             substep "${C_ACCENT}ulauncher${C_RESET} already installed"
         else
-            substep "Installing ${C_ACCENT}ulauncher${C_RESET} via paru (AUR)..."
-            if ! paru_install ulauncher; then
-                error "Failed to install ulauncher — skipping"
-                FAILED+=(ulauncher)
-                continue
+            if [[ "$DISTRO" == "arch" ]]; then
+                substep "Installing ${C_ACCENT}ulauncher${C_RESET} via paru (AUR)..."
+                if ! paru_install ulauncher; then
+                    error "Failed to install ulauncher — skipping"
+                    FAILED+=(ulauncher)
+                    continue
+                fi
+            else
+                substep "Installing ${C_ACCENT}ulauncher${C_RESET}..."
+                if ! ensure_ulauncher_deb; then
+                    error "Failed to install ulauncher — skipping"
+                    FAILED+=(ulauncher)
+                    continue
+                fi
             fi
         fi
 
@@ -1123,7 +1558,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
     info "Installing applications..."
     for app in "${APPS[@]}"; do
         _lbl="${APP_LABEL[$app]}"
-        _type="${APP_TYPE[$app]}"
+        _type="$(app_type_resolved "$app")"
         substep "${C_ACCENT}${_lbl}${C_RESET}"
 
         if [[ "$_type" == "curl" ]]; then
@@ -1157,19 +1592,25 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 unset _tmpsh _curl_url _shell
             fi
         else
-            _pkg="${APP_PKG[$app]}"
+            _pkg="$(app_pkg_name "$app")"
             if pkg_installed "$_pkg"; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed — updating..."
             else
                 substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
             fi
-            if [[ "$_type" == "paru-y" ]]; then
-                paru_install_y "$_pkg"
-            elif [[ "$_type" == "pacman" ]]; then
-                pacman_install "$_pkg"
-            else
-                paru_install "$_pkg"
-            fi
+            case "$_type" in
+                paru-y) paru_install_y "$_pkg" ;;
+                pacman) pacman_install "$_pkg" ;;
+                paru)   paru_install "$_pkg" ;;
+                apt)    apt_install "$_pkg" ;;
+                brave)
+                    case "$app" in
+                        brave-stable) ensure_brave_deb stable "$_pkg" ;;
+                        brave-beta)   ensure_brave_deb beta   "$_pkg" ;;
+                    esac
+                    ;;
+                vscode) ensure_vscode_deb ;;
+            esac
             if pkg_installed "$_pkg"; then
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")

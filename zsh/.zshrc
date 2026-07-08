@@ -97,7 +97,11 @@ alias grep='grep --color=auto'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
 
 # ── Aliases: System ───────────────────────────────────────────
-alias update='sudo pacman -Syyu && yay -Syu && flatpak update'
+if command -v pacman &>/dev/null; then
+    alias update='sudo pacman -Syyu && paru -Syu && flatpak update'
+elif command -v apt &>/dev/null; then
+    alias update='sudo apt update && sudo apt full-upgrade -y && flatpak update'
+fi
 alias reload='source ~/.zshrc'
 alias zshrc='nano ~/.zshrc'
 alias myip='curl ifconfig.me'
