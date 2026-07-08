@@ -5,10 +5,10 @@ Arch Linux, Debian, and Ubuntu dotfiles managed with [GNU Stow](https://www.gnu.
 ## Quick start — fresh install
 
 ```bash
-curl -fsSL https://abhiman.io/arch.sh | sh
+curl -fsSL https://abhiman.io/linux.sh | sh
 ```
 
-Works on Arch Linux, Debian, and Ubuntu — the script detects your distro and hands off to `install.sh`.
+Works on Arch Linux, Debian, and Ubuntu — the script detects your distro and hands off to `install.sh`. Every run backs up any existing `~/dotfiles` and replaces it with a fresh clone, so the checkout is always clean.
 
 Or clone manually:
 

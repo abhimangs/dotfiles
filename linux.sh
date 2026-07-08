@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# Bootstrap script — clone dotfiles and run the installer on a fresh Arch Linux system.
-# Usage: bash arch.sh          — fresh clone + install
-#        bash arch.sh --pull   — update existing ~/dotfiles then run install
-#        curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/arch.sh | sh
+# Bootstrap script — clone dotfiles and run the installer on a fresh Arch
+# Linux, Debian, or Ubuntu system. Every run backs up any existing
+# ~/dotfiles and replaces it with a fresh clone before handing off to
+# install.sh, so the checkout is always clean.
+# Usage: bash linux.sh
+#        curl -fsSL https://raw.githubusercontent.com/abhimangs/dotfiles/main/linux.sh | sh
 
 set -uo pipefail
 
 REPO_URL="https://github.com/abhimangs/dotfiles.git"
 DOTFILES_DIR="$HOME/dotfiles"
-
-DO_PULL=0
-for _arg in "$@"; do [[ "$_arg" == "--pull" ]] && DO_PULL=1; done
-unset _arg
 
 # ── Palette (Catppuccin Mocha) ────────────────────────────────────────────────
 C_MAUVE='\033[38;2;202;158;230m'    # mauve
@@ -126,60 +124,46 @@ else
     _ok "${C_PEACH}git${C_RESET} installed"
 fi
 
-# ── Step 3: Get dotfiles (pull or clone) ──────────────────────────────────────
-if [ "$DO_PULL" -eq 1 ] && [ -d "$DOTFILES_DIR/.git" ]; then
-    _step 3 "Updating existing dotfiles (--pull)"
-    _sub "git pull in ${C_BLUE}~/dotfiles${C_RESET}..."
-    if ! git -C "$DOTFILES_DIR" pull 2>/tmp/arch_pull_err; then
-        err=$(head -3 /tmp/arch_pull_err 2>/dev/null)
-        _die "git pull failed.\n\n  ${C_DIM}${err}${C_RESET}"
+# ── Step 3: Back up and clear any existing ~/dotfiles ────────────────────────
+_step 3 "Backing up existing ~/dotfiles"
+
+if [ -L "$DOTFILES_DIR" ]; then
+    _sub "Found symlink at ${C_BLUE}~/dotfiles${C_RESET} — removing..."
+    rm "$DOTFILES_DIR"
+    _ok "Symlink removed"
+elif [ -d "$DOTFILES_DIR" ] || [ -f "$DOTFILES_DIR" ]; then
+    bak="${DOTFILES_DIR}.bak"
+    oldbak="${DOTFILES_DIR}.old.bak"
+
+    if [ -e "$oldbak" ] || [ -L "$oldbak" ]; then
+        _sub "Removing stale ${C_DIM}dotfiles.old.bak${C_RESET}..."
+        rm -rf "$oldbak"
     fi
-    _ok "${C_BLUE}~/dotfiles${C_RESET} updated to latest"
+    if [ -e "$bak" ] || [ -L "$bak" ]; then
+        _sub "Rotating ${C_DIM}dotfiles.bak → dotfiles.old.bak${C_RESET}..."
+        mv "$bak" "$oldbak"
+    fi
+
+    _sub "Moving ${C_BLUE}~/dotfiles${C_RESET} → ${C_DIM}dotfiles.bak${C_RESET}..."
+    mv "$DOTFILES_DIR" "${DOTFILES_DIR}.bak"
+    _ok "${C_BLUE}~/dotfiles${C_RESET} backed up to ${C_DIM}~/dotfiles.bak${C_RESET}"
 else
-    if [ "$DO_PULL" -eq 1 ]; then
-        _warn "--pull specified but ${C_BLUE}~/dotfiles${C_RESET} is not a git repo — falling back to fresh clone"
-    fi
-
-    _step 3 "Backing up existing ~/dotfiles"
-
-    if [ -L "$DOTFILES_DIR" ]; then
-        _sub "Found symlink at ${C_BLUE}~/dotfiles${C_RESET} — removing..."
-        rm "$DOTFILES_DIR"
-        _ok "Symlink removed"
-    elif [ -d "$DOTFILES_DIR" ] || [ -f "$DOTFILES_DIR" ]; then
-        bak="${DOTFILES_DIR}.bak"
-        oldbak="${DOTFILES_DIR}.old.bak"
-
-        if [ -e "$oldbak" ] || [ -L "$oldbak" ]; then
-            _sub "Removing stale ${C_DIM}dotfiles.old.bak${C_RESET}..."
-            rm -rf "$oldbak"
-        fi
-        if [ -e "$bak" ] || [ -L "$bak" ]; then
-            _sub "Rotating ${C_DIM}dotfiles.bak → dotfiles.old.bak${C_RESET}..."
-            mv "$bak" "$oldbak"
-        fi
-
-        _sub "Moving ${C_BLUE}~/dotfiles${C_RESET} → ${C_DIM}dotfiles.bak${C_RESET}..."
-        mv "$DOTFILES_DIR" "${DOTFILES_DIR}.bak"
-        _ok "${C_BLUE}~/dotfiles${C_RESET} backed up to ${C_DIM}~/dotfiles.bak${C_RESET}"
-    else
-        _ok "No existing ${C_BLUE}~/dotfiles${C_RESET} — clean slate"
-    fi
-
-    _step 4 "Cloning dotfiles"
-    _sub "${C_DIM}${REPO_URL}${C_RESET} → ${C_BLUE}~/dotfiles${C_RESET}"
-
-    if ! git clone "$REPO_URL" "$DOTFILES_DIR" 2>/tmp/arch_clone_err; then
-        err=$(head -3 /tmp/arch_clone_err 2>/dev/null)
-        _die "git clone failed — check your internet connection.\n\n  ${C_DIM}${err}${C_RESET}"
-    fi
-
-    if [ ! -f "$DOTFILES_DIR/install.sh" ]; then
-        _die "Cloned repo is missing install.sh — the clone may be corrupt."
-    fi
-
-    _ok "Cloned to ${C_BLUE}~/dotfiles${C_RESET}"
+    _ok "No existing ${C_BLUE}~/dotfiles${C_RESET} — clean slate"
 fi
+
+_step 4 "Cloning dotfiles"
+_sub "${C_DIM}${REPO_URL}${C_RESET} → ${C_BLUE}~/dotfiles${C_RESET}"
+
+if ! git clone "$REPO_URL" "$DOTFILES_DIR" 2>/tmp/linux_clone_err; then
+    err=$(head -3 /tmp/linux_clone_err 2>/dev/null)
+    _die "git clone failed — check your internet connection.\n\n  ${C_DIM}${err}${C_RESET}"
+fi
+
+if [ ! -f "$DOTFILES_DIR/install.sh" ]; then
+    _die "Cloned repo is missing install.sh — the clone may be corrupt."
+fi
+
+_ok "Cloned to ${C_BLUE}~/dotfiles${C_RESET}"
 
 # ── Step 5: Launch installer ──────────────────────────────────────────────────
 _step 5 "Launching install.sh"
