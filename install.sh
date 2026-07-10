@@ -1393,10 +1393,10 @@ for cfg in "${SELECTED[@]}"; do
             if ! grep -qx "$zsh_path" /etc/shells; then
                 echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
             fi
-            if chsh -s "$zsh_path"; then
+            if sudo chsh -s "$zsh_path" "$USER"; then
                 substep "${C_GREEN}Default shell changed — log out and back in to apply${C_RESET}"
             else
-                error "chsh failed — change shell manually: chsh -s $zsh_path"
+                error "chsh failed — change shell manually: sudo chsh -s $zsh_path $USER"
             fi
         else
             substep "${C_DIM}Default shell already zsh${C_RESET}"
