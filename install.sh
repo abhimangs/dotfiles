@@ -574,11 +574,11 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli notion vlc flatpak)
+APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode notion vlc flatpak)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build) and the Antigravity desktop/IDE (upstream
     # packaging still a moving target on apt) are Arch-only for now.
-    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli vlc flatpak)
+    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli opencode vlc flatpak)
 fi
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
@@ -591,6 +591,7 @@ APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
 APP_LABEL[antigravity-cli]="Antigravity CLI"
 APP_LABEL[codex-cli]="Codex CLI"
+APP_LABEL[opencode]="OpenCode"
 APP_LABEL[notion]="Notion"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
@@ -603,6 +604,7 @@ APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
 APP_TYPE[antigravity-cli]="curl"
 APP_TYPE[codex-cli]="curl"
+APP_TYPE[opencode]="paru"
 APP_TYPE[notion]="paru"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[flatpak]="pacman"
@@ -612,12 +614,14 @@ APP_PKG[brave-stable]="brave-origin-bin"
 APP_PKG[vscode]="visual-studio-code-bin"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
+APP_PKG[opencode]="opencode"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[vlc]="vlc"
 APP_PKG[flatpak]="flatpak"
 
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
+APP_BIN[opencode]="opencode"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -632,6 +636,7 @@ APP_TYPE_DEB[vscode]="vscode"
 APP_TYPE_DEB[claude-code]="curl"
 APP_TYPE_DEB[antigravity-cli]="curl"
 APP_TYPE_DEB[codex-cli]="curl"
+APP_TYPE_DEB[opencode]="curl"
 # vlc/flatpak fall through to the "apt" default below
 
 app_pkg_name() {
@@ -1574,6 +1579,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
                     antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
                     codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell=sh   ;;
+                    opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
