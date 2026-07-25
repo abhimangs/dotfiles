@@ -574,11 +574,11 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode notion vlc flatpak)
+APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code notion vlc flatpak)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build) and the Antigravity desktop/IDE (upstream
     # packaging still a moving target on apt) are Arch-only for now.
-    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli opencode vlc flatpak)
+    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
 fi
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
@@ -592,6 +592,7 @@ APP_LABEL[antigravity]="Antigravity 2.0"
 APP_LABEL[antigravity-cli]="Antigravity CLI"
 APP_LABEL[codex-cli]="Codex CLI"
 APP_LABEL[opencode]="OpenCode"
+APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[notion]="Notion"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
@@ -605,6 +606,7 @@ APP_TYPE[antigravity]="paru"
 APP_TYPE[antigravity-cli]="curl"
 APP_TYPE[codex-cli]="curl"
 APP_TYPE[opencode]="paru"
+APP_TYPE[kimi-code]="curl"
 APP_TYPE[notion]="paru"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[flatpak]="pacman"
@@ -622,6 +624,7 @@ APP_PKG[flatpak]="flatpak"
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
+APP_BIN[kimi-code]="kimi"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -637,6 +640,7 @@ APP_TYPE_DEB[claude-code]="curl"
 APP_TYPE_DEB[antigravity-cli]="curl"
 APP_TYPE_DEB[codex-cli]="curl"
 APP_TYPE_DEB[opencode]="curl"
+APP_TYPE_DEB[kimi-code]="curl"
 # vlc/flatpak fall through to the "apt" default below
 
 app_pkg_name() {
@@ -1580,6 +1584,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
                     codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell=sh   ;;
                     opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
+                    kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
