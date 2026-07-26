@@ -574,10 +574,11 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code notion vlc flatpak)
+APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code notion obsidian vlc flatpak)
 if [[ "$DISTRO" == "debian" ]]; then
-    # Notion (no official Linux build) and the Antigravity desktop/IDE (upstream
-    # packaging still a moving target on apt) are Arch-only for now.
+    # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
+    # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
+    # moving target on apt) are Arch-only for now.
     APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
 fi
 
@@ -594,6 +595,7 @@ APP_LABEL[codex-cli]="Codex CLI"
 APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[notion]="Notion"
+APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
 
@@ -608,6 +610,7 @@ APP_TYPE[codex-cli]="curl"
 APP_TYPE[opencode]="paru"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[notion]="paru"
+APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[flatpak]="pacman"
 
@@ -618,6 +621,7 @@ APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
 APP_PKG[notion]="notion-app-electron"
+APP_PKG[obsidian]="obsidian"
 APP_PKG[vlc]="vlc"
 APP_PKG[flatpak]="flatpak"
 
