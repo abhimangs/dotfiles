@@ -31,8 +31,50 @@ fi
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DRY_RUN=0
-for _arg in "$@"; do [[ "$_arg" == "--dry-run" ]] && DRY_RUN=1; done
+FORCE_GUI=0
+for _arg in "$@"; do
+    [[ "$_arg" == "--dry-run" ]] && DRY_RUN=1
+    [[ "$_arg" == "--gui"     ]] && FORCE_GUI=1
+done
 unset _arg
+
+# ── Headless detection ────────────────────────────────────────────────────────
+# On a cloud VPS or a container there is no display server, so terminal
+# emulators, the launchers and every GUI app are unusable — and pull hundreds of
+# MB of X/GTK libraries to sit unused. Detect it and drop them from the menus.
+# --gui forces the full desktop menus (e.g. provisioning a box before its DE).
+IS_HEADLESS=0
+detect_headless() {
+    [ -n "${DISPLAY:-}" ]         && return 1
+    [ -n "${WAYLAND_DISPLAY:-}" ] && return 1
+    # A graphical default target means a display manager is meant to run here
+    if command -v systemctl &>/dev/null; then
+        [[ "$(systemctl get-default 2>/dev/null)" == "graphical.target" ]] && return 1
+    fi
+    # Installed session files are the last positive signal of a desktop
+    local _d
+    for _d in /usr/share/xsessions /usr/share/wayland-sessions; do
+        [ -d "$_d" ] && find "$_d" -name '*.desktop' -print -quit 2>/dev/null | grep -q . && return 1
+    done
+    return 0
+}
+detect_headless && IS_HEADLESS=1
+[ "$FORCE_GUI" -eq 1 ] && IS_HEADLESS=0
+
+# Remove every listed item from the named array (headless GUI filtering)
+strip_items() {
+    local -n _target="$1"; shift
+    local _keep=() _item _drop _skip
+    for _item in "${_target[@]}"; do
+        _skip=0
+        for _drop in "$@"; do [[ "$_item" == "$_drop" ]] && { _skip=1; break; }; done
+        [ "$_skip" -eq 0 ] && _keep+=("$_item")
+    done
+    _target=("${_keep[@]}")
+}
+
+GUI_CONFIGS=(ghostty kitty rofi ulauncher)
+GUI_APPS=(brave-beta brave-stable vscode antigravity-ide antigravity notion obsidian claude-desktop vlc)
 
 trap 'echo -ne "\033[0m"' EXIT
 
@@ -78,6 +120,11 @@ header() {
         debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
     esac
     echo -e "      ${C_DIM}${_distro_label}  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    if [ "$IS_HEADLESS" -eq 1 ]; then
+        echo ""
+        echo -e "      ${C_YELLOW}headless — no display server detected${C_RESET}"
+        echo -e "      ${C_DIM}GUI configs and apps hidden  ·  pass --gui to show them${C_RESET}"
+    fi
     echo ""
 }
 
@@ -647,6 +694,8 @@ if [[ "$DISTRO" == "debian" ]]; then
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     APPS_LIST=(brave-beta brave-stable vscode claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
 fi
+# No display server → drop everything that needs one, keeping the CLI tools
+[ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
 
@@ -1129,6 +1178,7 @@ if [[ "$DISTRO" == "debian" ]]; then
     # still on the 1.7.x X11-only build, so rofi stays Arch-only.
     CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher git)
 fi
+[ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 declare -a SELECTED=()
 
 if command -v fzf &>/dev/null; then
@@ -1479,10 +1529,15 @@ for cfg in "${SELECTED[@]}"; do
             if ! grep -qx "$zsh_path" /etc/shells; then
                 echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
             fi
-            if sudo chsh -s "$zsh_path" "$target_user"; then
+            if sudo chsh -s "$zsh_path" "$target_user" &>/dev/null; then
                 substep "${C_GREEN}Default shell changed — log out and back in to apply${C_RESET}"
+            elif sudo usermod -s "$zsh_path" "$target_user" &>/dev/null; then
+                # chsh authenticates through PAM, which fails on cloud images
+                # where the account has no local password (SSH-key login only).
+                # usermod edits /etc/passwd directly and does not care.
+                substep "${C_GREEN}Default shell changed via usermod — log out and back in to apply${C_RESET}"
             else
-                error "chsh failed — change shell manually: sudo chsh -s $zsh_path $target_user"
+                error "Could not change shell — run manually: sudo usermod -s $zsh_path $target_user"
             fi
         else
             substep "${C_DIM}Default shell already zsh${C_RESET}"
