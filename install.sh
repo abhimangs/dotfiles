@@ -101,7 +101,13 @@ pacman_install() {
     if [ -f /var/lib/pacman/db.lck ]; then
         sudo rm -f /var/lib/pacman/db.lck
     fi
-    sudo pacman -S --needed --noconfirm "$1" &>/dev/null 2>&1
+    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1 && return 0
+    # A sync db older than the mirror resolves to package versions that have
+    # since been replaced — "target not found" or a 404 mid-download. Refresh
+    # the db once and retry before calling it a failure.
+    substep "${C_YELLOW}Stale package database — refreshing and retrying${C_RESET}"
+    sudo pacman -Sy --noconfirm &>/dev/null 2>&1 || true
+    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1
 }
 
 _paru_run_robust() {
@@ -194,7 +200,14 @@ apt_update_once() {
 
 apt_install() {
     apt_update_once
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$1" &>/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" &>/dev/null 2>&1 \
+        && return 0
+    # Same failure mode as pacman: an index older than the mirror 404s on a
+    # superseded version. Force a refresh and retry once.
+    substep "${C_YELLOW}Stale package index — refreshing and retrying${C_RESET}"
+    APT_UPDATED=0
+    apt_update_once
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" &>/dev/null 2>&1
 }
 
 # Bootstraps utilities repo-add steps commonly need
@@ -1082,12 +1095,12 @@ done
 [ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
 
 if [[ "$DISTRO" == "arch" ]]; then
-    if ! sudo pacman -S --needed --noconfirm stow fzf &>/dev/null 2>&1; then
+    if ! pacman_install stow fzf; then
         error "Failed to install/update stow and fzf."
         exit 1
     fi
 else
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y stow fzf &>/dev/null 2>&1; then
+    if ! apt_install stow fzf; then
         error "Failed to install/update stow and fzf."
         exit 1
     fi
