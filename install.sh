@@ -73,12 +73,28 @@ success() { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_GREEN}✔ ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_RED}✘ ${C_RESET}$1\n"; }
 
 # ── Package helpers ───────────────────────────────────────────────────────────
+# Some tools can land outside the package manager entirely — starship's own
+# install script and the lazygit tarball drop plain binaries into /usr/local/bin,
+# and ghostty may come from a vendor .deb. Map package name → binary so a
+# manually-present tool is not reinstalled on every run.
+declare -A PKG_BIN
+PKG_BIN[starship]="starship"
+PKG_BIN[lazygit]="lazygit"
+PKG_BIN[ghostty]="ghostty"
+PKG_BIN[fastfetch]="fastfetch"
+PKG_BIN[eza]="eza"
+PKG_BIN[zoxide]="zoxide"
+PKG_BIN[fd-find]="fdfind"
+
 pkg_installed() {
+    local pkg="$1"
     if [[ "$DISTRO" == "arch" ]]; then
-        pacman -Q "$1" &>/dev/null
+        pacman -Q "$pkg" &>/dev/null && return 0
     else
-        apt_pkg_installed "$1"
+        apt_pkg_installed "$pkg" && return 0
     fi
+    local bin="${PKG_BIN[$pkg]:-}"
+    [ -n "$bin" ] && command -v "$bin" &>/dev/null
 }
 
 pacman_install() {
@@ -160,7 +176,14 @@ paru_install()   { _paru_run_robust ""  "$1"; }
 paru_install_y() { _paru_run_robust "y" "$1"; }
 
 # ── Debian/Ubuntu (apt) package helpers ──────────────────────────────────────
-apt_pkg_installed() { dpkg -s "$1" &>/dev/null; }
+# 'dpkg -s' also succeeds for purged-but-config-files packages ("deinstall ok
+# config-files"), which made removed packages look installed. Check the real
+# status field instead.
+apt_pkg_installed() {
+    local st
+    st=$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null) || return 1
+    [ "$st" = "installed" ]
+}
 
 APT_UPDATED=0
 apt_update_once() {
