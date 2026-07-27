@@ -489,25 +489,46 @@ ensure_claude_desktop_deb() {
     apt_pkg_installed claude-desktop
 }
 
-# ── JetBrainsMono Nerd Font (Debian/Ubuntu — no apt package) ─────────────────
+# ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
 FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
+MAPLE_FONT_DIR_DEB="$HOME/.local/share/fonts/MapleMono"
 
-font_installed_deb() {
-    [ -d "$FONT_DIR_DEB" ] && find "$FONT_DIR_DEB" -name '*.ttf' -print -quit 2>/dev/null | grep -q .
+font_dir_has_ttf() {
+    [ -d "$1" ] && find "$1" -name '*.ttf' -print -quit 2>/dev/null | grep -q .
+}
+
+font_installed_deb()       { font_dir_has_ttf "$FONT_DIR_DEB"; }
+maple_font_installed_deb() { font_dir_has_ttf "$MAPLE_FONT_DIR_DEB"; }
+
+# Fetch a font zip from a GitHub release into ~/.local/share/fonts/<dir>.
+# fontconfig is not guaranteed on a minimal/server image — without fc-cache the
+# fonts land on disk but nothing can see them, so make sure it is there first.
+install_font_zip() {
+    local url="$1" dir="$2"
+    ensure_apt_deps
+    command -v unzip    &>/dev/null || apt_install unzip
+    command -v fc-cache &>/dev/null || apt_install fontconfig
+    local tmp; tmp=$(mktemp -d /tmp/font_XXXXXX)
+    if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
+        mkdir -p "$dir"
+        unzip -oq "$tmp/font.zip" -d "$dir" '*.ttf' &>/dev/null 2>&1
+        fc-cache -f "$dir" &>/dev/null 2>&1
+    fi
+    rm -rf "$tmp"
 }
 
 ensure_nerd_font_deb() {
     font_installed_deb && return 0
-    ensure_apt_deps
-    command -v unzip &>/dev/null || apt_install unzip
-    local tmp; tmp=$(mktemp -d /tmp/jbmono_XXXXXX)
-    if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" -o "$tmp/font.zip" 2>/dev/null; then
-        mkdir -p "$FONT_DIR_DEB"
-        unzip -oq "$tmp/font.zip" -d "$FONT_DIR_DEB" '*.ttf' &>/dev/null 2>&1
-        fc-cache -f "$FONT_DIR_DEB" &>/dev/null 2>&1
-    fi
-    rm -rf "$tmp"
+    install_font_zip "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" \
+                     "$FONT_DIR_DEB"
     font_installed_deb
+}
+
+ensure_maple_font_deb() {
+    maple_font_installed_deb && return 0
+    install_font_zip "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF.zip" \
+                     "$MAPLE_FONT_DIR_DEB"
+    maple_font_installed_deb
 }
 
 font_installed() {
@@ -523,6 +544,23 @@ install_font() {
         pacman_install "$FONT_PKG"
     else
         ensure_nerd_font_deb
+    fi
+}
+
+maple_font_installed() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        pkg_installed "$MAPLE_FONT_PKG"
+    else
+        maple_font_installed_deb
+    fi
+}
+
+install_maple_font() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        # AUR-only on Arch — pacman cannot resolve it
+        paru_install "$MAPLE_FONT_PKG"
+    else
+        ensure_maple_font_deb
     fi
 }
 
@@ -636,6 +674,7 @@ PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
+MAPLE_FONT_PKG="maplemono-nf"   # AUR — Maple Mono with Nerd Font glyphs
 NEEDS_FONT=(ghostty kitty rofi)
 
 needs_font() {
@@ -834,8 +873,9 @@ show_plan() {
 
         case "$cfg" in
           ghostty|kitty)
-            if [ "$_font_planned" -eq 0 ] && ! font_installed; then
-                steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+            if [ "$_font_planned" -eq 0 ]; then
+                font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono NF${C_RESET}")
                 _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -864,8 +904,9 @@ show_plan() {
             fi
             ;;
           fastfetch|rofi)
-            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ] && ! font_installed; then
-                steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ]; then
+                font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono NF${C_RESET}")
                 _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -1469,7 +1510,11 @@ for cfg in "${SELECTED[@]}"; do
         if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
             if ! font_installed; then
                 substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                install_font || error "Failed to install font — continuing"
+                install_font || error "Failed to install JetBrainsMono — continuing"
+            fi
+            if ! maple_font_installed; then
+                substep "Installing ${C_ACCENT}Maple Mono NF${C_RESET}..."
+                install_maple_font || error "Failed to install Maple Mono NF — continuing"
             fi
             substep "Rebuilding font cache..."
             fc-cache -fv &>/dev/null 2>&1 || true
