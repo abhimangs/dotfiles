@@ -378,6 +378,20 @@ ensure_vscode_deb() {
     apt_pkg_installed code
 }
 
+# ── Claude Desktop (Debian/Ubuntu only — no Arch package) ─────────────────────
+ensure_claude_desktop_deb() {
+    apt_pkg_installed claude-desktop && return 0
+    ensure_apt_deps
+    sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc \
+        https://downloads.claude.ai/claude-desktop/key.asc &>/dev/null 2>&1
+    echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" \
+        | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
+    APT_UPDATED=0
+    apt_update_once
+    apt_install claude-desktop
+    apt_pkg_installed claude-desktop
+}
+
 # ── JetBrainsMono Nerd Font (Debian/Ubuntu — no apt package) ─────────────────
 FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
 
@@ -579,7 +593,9 @@ if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
-    APPS_LIST=(brave-beta brave-stable vscode claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
+    # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
+    # but there is no Arch package — so it is Debian/Ubuntu-only.
+    APPS_LIST=(brave-beta brave-stable vscode claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
 fi
 
 declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
@@ -596,6 +612,7 @@ APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
+APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
 
@@ -635,6 +652,7 @@ declare -A APP_PKG_DEB
 APP_PKG_DEB[brave-stable]="brave-origin"
 APP_PKG_DEB[brave-beta]="brave-origin-beta"
 APP_PKG_DEB[vscode]="code"
+APP_PKG_DEB[claude-desktop]="claude-desktop"
 
 declare -A APP_TYPE_DEB
 APP_TYPE_DEB[brave-stable]="brave"
@@ -645,6 +663,7 @@ APP_TYPE_DEB[antigravity-cli]="curl"
 APP_TYPE_DEB[codex-cli]="curl"
 APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
+APP_TYPE_DEB[claude-desktop]="claude-desktop"
 # vlc/flatpak fall through to the "apt" default below
 
 app_pkg_name() {
@@ -1209,7 +1228,7 @@ for _k in "${APPS_LIST[@]}"; do
         paru-y|paru) _tl="paru"   ;;
         pacman)      _tl="pacman" ;;
         curl)        _tl="curl"   ;;
-        apt|brave|vscode) _tl="apt" ;;
+        apt|brave|vscode|claude-desktop) _tl="apt" ;;
         *)           _tl="$_rt" ;;
     esac
     _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ·  %s' "${APP_LABEL[$_k]}" "$_tl")")
@@ -1625,6 +1644,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     esac
                     ;;
                 vscode) ensure_vscode_deb ;;
+                claude-desktop) ensure_claude_desktop_deb ;;
             esac
             if pkg_installed "$_pkg"; then
                 success "${C_ACCENT}${_lbl}${C_RESET} done"

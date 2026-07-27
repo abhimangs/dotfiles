@@ -39,7 +39,7 @@ bash install.sh
 
 - **fzf TUI** — multi-select configs with a live preview pane
 - **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree
-- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only — see below)
+- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing
@@ -49,6 +49,10 @@ bash install.sh
 ### Arch-only items
 
 `rofi` (native Wayland `rofi-wayland` build), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), and the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
+
+### Debian/Ubuntu-only items
+
+`claude-desktop` runs the other way around — Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
 
 ## Theme
 
