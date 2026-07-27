@@ -18,6 +18,13 @@ cd ~/dotfiles
 bash install.sh
 ```
 
+### Flags
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Walks the menus and prints the full plan, then exits without changing anything |
+| `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
+
 ## What's included
 
 | Config | Stow target | Arch package | Debian/Ubuntu |
@@ -42,9 +49,11 @@ bash install.sh
 - **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
-- **Idempotent** — safe to re-run; stow uses `-D` before re-stowing
+- **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
 - **paru** — installed automatically if missing on Arch (AUR helper)
-- **chsh** — changes default shell to zsh when zsh is selected
+- **Shell change** — switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
+- **Headless aware** — on a machine with no display server, GUI configs and apps are hidden (see below)
+- **Retries** — a stale pacman db / apt index is refreshed and the install retried instead of failing; GitHub release lookups fall back to the release page when the API rate-limits
 
 ### Arch-only items
 
@@ -53,6 +62,14 @@ bash install.sh
 ### Debian/Ubuntu-only items
 
 `claude-desktop` runs the other way around — Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
+
+### Headless servers
+
+The installer checks `DISPLAY`, `WAYLAND_DISPLAY`, the systemd default target and the installed session files. With no display server it drops the GUI entries from both menus — terminal emulators (`ghostty`, `kitty`), the launchers (`rofi`, `ulauncher`), and every GUI app (browsers, editors, Notion, Obsidian, Claude Desktop, VLC) — since none of them can run and each pulls in a large X/GTK dependency tree. What remains is the part that makes sense on a server: `zsh`, `starship`, `git`, `fastfetch`, `protonvpn`, the dep tools and the CLI agents.
+
+Pass `--gui` to override the detection.
+
+Shell changes work on cloud images too: `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), so the installer falls back to `usermod`.
 
 ## Theme
 
