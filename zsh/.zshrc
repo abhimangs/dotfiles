@@ -1,7 +1,11 @@
 # ── PATH ──────────────────────────────────────────────────────
+# Declared here so the CLI installers see their bin dir already on PATH and
+# skip appending their own export block to this file (it is a stow symlink
+# into ~/dotfiles — their edits would dirty the repo).
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
+export PATH="$HOME/.kimi-code/bin:$PATH"
 
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"
@@ -139,7 +143,6 @@ alias cc='claude --dangerously-skip-permissions'
 alias ccr='claude --dangerously-skip-permissions --resume'
 alias ccc='claude --dangerously-skip-permissions --continue'
 
-export PATH="$HOME/.local/bin:$PATH"
 alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=4080x3072 --video-codec=h265 --video-bit-rate=25M --max-fps=30 --v4l2-sink=/dev/video2 --no-playback'
 
 # ── Fastfetch ─────────────────────────────────────────────────

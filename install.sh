@@ -780,6 +780,16 @@ APP_PKG[obsidian]="obsidian"
 APP_PKG[vlc]="vlc"
 APP_PKG[flatpak]="flatpak"
 
+# Installer bin dirs, exported before running them: opencode, codex and kimi
+# all append a PATH block to ~/.zshrc, which is a stow symlink into this repo —
+# they would silently edit the tracked dotfile. Seeing their dir already on
+# PATH (plus the opt-out flags below) makes them leave it alone.
+CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin"
+
+declare -A APP_CURL_ARGS APP_CURL_ENV
+APP_CURL_ARGS[opencode]="--no-modify-path"
+APP_CURL_ENV[kimi-code]="KIMI_NO_MODIFY_PATH=1"
+
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
@@ -1765,7 +1775,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
-                    if "$_shell" "$_tmpsh"; then
+                    _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
+                    _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
+                    if env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}"; then
                         success "${C_ACCENT}${_lbl}${C_RESET} installed"
                         INSTALLED+=("$_lbl")
                     else
@@ -1777,7 +1789,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     FAILED+=("$_lbl")
                 fi
                 rm -f "$_tmpsh"
-                unset _tmpsh _curl_url _shell
+                unset _tmpsh _curl_url _shell _cenv _cargs
             fi
         else
             _pkg="$(app_pkg_name "$app")"
