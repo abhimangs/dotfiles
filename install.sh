@@ -36,6 +36,20 @@ unset _arg
 
 trap 'echo -ne "\033[0m"' EXIT
 
+# ── Interactive input source ──────────────────────────────────────────────────
+# Every prompt must read from the terminal, never stdin: reached through
+# `curl … | bash` (the documented bootstrap path) stdin is the download stream,
+# so a plain `read` silently eats script text instead of waiting for input.
+if [ -r /dev/tty ]; then
+    TTY_IN=/dev/tty
+elif [ -t 0 ]; then
+    TTY_IN=/dev/stdin
+else
+    echo "This installer is interactive and needs a terminal." >&2
+    echo "Clone the repo and run it directly:  bash install.sh" >&2
+    exit 1
+fi
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 C_MAIN='\033[38;2;202;169;224m'
 C_ACCENT='\033[38;2;145;177;240m'
@@ -955,7 +969,7 @@ show_plan() {
         exit 0
     fi
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
-    read -r CONFIRM </dev/tty
+    read -r CONFIRM <"$TTY_IN"
     [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
     echo ""
 }
@@ -982,7 +996,7 @@ _bm_draw $_bm_sel
 
 while true; do
     printf "\033[2A"
-    IFS= read -n 1 -rs _bm_key </dev/tty
+    IFS= read -n 1 -rs _bm_key <"$TTY_IN"
     case "$_bm_key" in
         $'\n'|$'\r'|'')
             _bm_draw $_bm_sel
@@ -991,7 +1005,7 @@ while true; do
         'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
         'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
         $'\033')
-            IFS= read -n 2 -rs -t 0.1 _bm_esc </dev/tty || true
+            IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
             case "$_bm_esc" in
                 '[A'|'[D') _bm_sel=0 ;;
                 '[B'|'[C') _bm_sel=1 ;;
@@ -1153,7 +1167,7 @@ else
         done
         echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
-        read -rp "" RAW
+        read -r RAW <"$TTY_IN"
 
         if [[ "$RAW" == "a" || "$RAW" == "A" ]]; then
             SELECTED=("${CONFIGS[@]}")
@@ -1225,7 +1239,7 @@ else
     done
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
-    read -rp "" DEP_RAW
+    read -r DEP_RAW <"$TTY_IN"
     if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
         DEPS=("${DEPS_LIST[@]}")
     elif [[ -n "$DEP_RAW" ]]; then
@@ -1302,7 +1316,7 @@ else
     done
     echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
-    read -rp "" APP_RAW
+    read -r APP_RAW <"$TTY_IN"
     if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
         APPS=("${APPS_LIST[@]}")
     elif [[ -n "$APP_RAW" ]]; then
@@ -1455,22 +1469,25 @@ for cfg in "${SELECTED[@]}"; do
         fi
 
         # Change default shell to zsh if still on bash/something else
+        # $USER is unset under cron/docker exec/some non-login shells — ask the
+        # kernel who we are instead of trusting the environment.
+        target_user="$(id -un)"
         zsh_path="$(command -v zsh)"
-        current_shell="$(getent passwd "$USER" | cut -d: -f7)"
+        current_shell="$(getent passwd "$target_user" | cut -d: -f7)"
         if [ "$current_shell" != "$zsh_path" ]; then
             substep "Changing default shell to ${C_ACCENT}zsh${C_RESET}..."
             if ! grep -qx "$zsh_path" /etc/shells; then
                 echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
             fi
-            if sudo chsh -s "$zsh_path" "$USER"; then
+            if sudo chsh -s "$zsh_path" "$target_user"; then
                 substep "${C_GREEN}Default shell changed — log out and back in to apply${C_RESET}"
             else
-                error "chsh failed — change shell manually: sudo chsh -s $zsh_path $USER"
+                error "chsh failed — change shell manually: sudo chsh -s $zsh_path $target_user"
             fi
         else
             substep "${C_DIM}Default shell already zsh${C_RESET}"
         fi
-        unset zsh_path current_shell
+        unset zsh_path current_shell target_user
         ;;
 
       # ── protonvpn ────────────────────────────────────────────────────────
