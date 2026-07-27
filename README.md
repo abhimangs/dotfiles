@@ -25,7 +25,7 @@ bash install.sh
 | `fastfetch/` | `~/.config/fastfetch/` | `fastfetch` | apt / PPA / GitHub `.deb` |
 | `ghostty/` | `~/.config/ghostty/` | `ghostty` | official install script |
 | `kitty/` | `~/.config/kitty/` | `kitty` | apt |
-| `rofi/` | `~/.config/rofi/` | `rofi-wayland` | **Arch only** — no reliable prebuilt Wayland rofi across Debian/Ubuntu versions |
+| `rofi/` | `~/.config/rofi/` | `rofi` | **Arch only** — Debian/Ubuntu still ship the 1.7.x X11-only build |
 | `starship/` | `~/.config/starship.toml` | `starship` | apt / official install script |
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* | PPA (Ubuntu) / GitHub `.deb` (Debian) |
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
@@ -48,7 +48,7 @@ bash install.sh
 
 ### Arch-only items
 
-`rofi` (native Wayland `rofi-wayland` build), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), and the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), and the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
 
 ### Debian/Ubuntu-only items
 

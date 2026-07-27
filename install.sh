@@ -534,7 +534,7 @@ PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
 PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
-PKG_MAP[rofi]="rofi-wayland"
+PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 
@@ -1075,7 +1075,8 @@ success "Tools verified"
 info "Select configs to install..."
 CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher git)
 if [[ "$DISTRO" == "debian" ]]; then
-    # rofi-wayland has no reliable prebuilt path across Debian/Ubuntu versions — Arch only
+    # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
+    # still on the 1.7.x X11-only build, so rofi stays Arch-only.
     CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher git)
 fi
 declare -a SELECTED=()
