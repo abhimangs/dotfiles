@@ -7,11 +7,12 @@ IS_UBUNTU=0
 if [ -f /etc/arch-release ]; then
     DISTRO="arch"
 else
+    # Read in subshells: sourcing os-release directly dumps NAME, VERSION,
+    # PRETTY_NAME and a dozen more variables into this script's namespace.
     _os_id="" _os_id_like=""
     if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        _os_id="${ID:-}"
-        _os_id_like="${ID_LIKE:-}"
+        _os_id="$(. /etc/os-release 2>/dev/null && printf '%s' "${ID:-}")"
+        _os_id_like="$(. /etc/os-release 2>/dev/null && printf '%s' "${ID_LIKE:-}")"
     fi
     if [[ "$_os_id" == "arch" || "$_os_id_like" == *arch* ]]; then
         DISTRO="arch"
@@ -812,6 +813,14 @@ declare -A APP_CURL_ARGS APP_CURL_ENV
 APP_CURL_ARGS[opencode]="--no-modify-path"
 APP_CURL_ENV[kimi-code]="KIMI_NO_MODIFY_PATH=1"
 
+# These CLIs install into their own bin dirs, which are not necessarily on the
+# PATH of whatever shell is running this script — search them explicitly, or an
+# already-installed tool looks missing and gets reinstalled every run.
+curl_app_installed() {
+    [ -n "$1" ] || return 1
+    PATH="${CURL_APP_PATH}:$PATH" command -v "$1" &>/dev/null
+}
+
 APP_BIN[claude-code]="claude"
 APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
@@ -1069,7 +1078,7 @@ show_plan() {
             local _type; _type="$(app_type_resolved "$_a")"
             if [[ "$_type" == "curl" ]]; then
                 local _bin="${APP_BIN[$_a]:-}"
-                if [[ -n "$_bin" ]] && command -v "$_bin" &>/dev/null; then
+                if curl_app_installed "$_bin"; then
                     echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed${C_RESET}"
                 else
                     echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
@@ -1781,7 +1790,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
 
         if [[ "$_type" == "curl" ]]; then
             _bin="${APP_BIN[$app]:-}"
-            if [[ -n "$_bin" ]] && command -v "$_bin" &>/dev/null; then
+            if curl_app_installed "$_bin"; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
