@@ -297,10 +297,22 @@ deb_arch() { dpkg --print-architecture; }
 
 # GitHub "latest release" asset lookup — no jq dependency
 github_latest_asset_url() {
-    local repo="$1" pattern="$2"
-    curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
+    local repo="$1" pattern="$2" url tag
+    url=$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
         | grep -oP '"browser_download_url":\s*"\K[^"]+' \
-        | grep -E "$pattern" | head -1
+        | grep -Ei "$pattern" | head -1)
+    [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+
+    # The unauthenticated API allows 60 requests/hour per IP — behind shared
+    # NAT, or on a second run, it returns a 403 and the lookup came back empty
+    # with no explanation. The release page has no such limit: resolve the tag
+    # from the /latest redirect, then read that tag's asset list.
+    tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+              "https://github.com/${repo}/releases/latest" 2>/dev/null | sed 's#.*/tag/##')
+    [ -n "$tag" ] || return 1
+    curl -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" 2>/dev/null \
+        | grep -oP 'href="\K[^"]+' \
+        | grep -Ei "$pattern" | head -1 | sed 's#^/#https://github.com/#'
 }
 
 # ── ghostty (Debian/Ubuntu) ───────────────────────────────────────────────────
@@ -473,6 +485,16 @@ ensure_vscode_deb() {
     apt_update_once
     apt_install code
     apt_pkg_installed code
+}
+
+# ── Flatpak ───────────────────────────────────────────────────────────────────
+# A freshly installed flatpak has no remotes, so 'flatpak install <app>' fails
+# with "no remote refs found" — the package alone is not usable.
+ensure_flathub_remote() {
+    command -v flatpak &>/dev/null || return 1
+    flatpak remotes 2>/dev/null | grep -q '^flathub' && return 0
+    sudo flatpak remote-add --if-not-exists flathub \
+        https://dl.flathub.org/repo/flathub.flatpakrepo &>/dev/null 2>&1
 }
 
 # ── Claude Desktop (Debian/Ubuntu only — no Arch package) ─────────────────────
@@ -1813,6 +1835,11 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 claude-desktop) ensure_claude_desktop_deb ;;
             esac
             if pkg_installed "$_pkg"; then
+                if [[ "$app" == "flatpak" ]]; then
+                    substep "Adding Flathub remote..."
+                    ensure_flathub_remote \
+                        || substep "${C_YELLOW}Could not add Flathub — add it manually${C_RESET}"
+                fi
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
             else
