@@ -1610,7 +1610,12 @@ for cfg in "${SELECTED[@]}"; do
         target_user="$(id -un)"
         zsh_path="$(command -v zsh)"
         current_shell="$(getent passwd "$target_user" | cut -d: -f7)"
-        if [ "$current_shell" != "$zsh_path" ]; then
+        if [ -z "$zsh_path" ]; then
+            # The package manager reported success but no zsh landed on PATH.
+            # Without this guard the fallbacks below run 'chsh -s "" <user>',
+            # which blanks the login shell entry.
+            error "zsh binary not found on PATH — leaving the default shell alone"
+        elif [ "$current_shell" != "$zsh_path" ]; then
             substep "Changing default shell to ${C_ACCENT}zsh${C_RESET}..."
             if ! grep -qx "$zsh_path" /etc/shells; then
                 echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
