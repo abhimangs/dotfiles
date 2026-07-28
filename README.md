@@ -63,6 +63,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 - **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
+- **Private mode** — third option in the first menu: delete existing configs *and* strip the repo traces from `~/dotfiles` afterwards (see below)
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
 - **Repo before AUR** — on Arch every install checks the official repos first and only falls back to paru for AUR-only packages
 - **paru** — installed automatically if missing on Arch (AUR helper)
@@ -77,6 +78,22 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 ### Debian/Ubuntu-only items
 
 `claude-desktop` runs the other way around — Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
+
+### Private mode
+
+The first menu offers three ways to handle what is already on the machine:
+
+| Choice | Effect |
+|--------|--------|
+| `backup` | Existing configs move to `.bak` |
+| `delete` | Existing configs are wiped, no backup kept |
+| `private` | Same as delete, then strips every trace that `~/dotfiles` is a clone |
+
+`private` removes `.git` (remote URL, full history, author name and email), `.github`, `.gitignore`, `.gitattributes`, `README.md`, `CLAUDE.md`, `LICENSE` and `linux.sh` — the last of which carries the GitHub URL. The config folders and `install.sh` stay, so the stow symlinks keep resolving and the installer can still be re-run from the directory. Re-running it *and* getting updates needs a fresh clone.
+
+It refuses to run against anything that does not look like the checkout (no `install.sh`, or a path equal to `/` or `$HOME`).
+
+Two things it deliberately does not touch, because they are live configs rather than repo metadata: the byline comment in `fastfetch/config.jsonc`, and `user.name`/`user.email` in `git/.gitconfig`. Edit those yourself if the machine should not carry your name.
 
 ### Headless servers
 
