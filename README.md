@@ -24,6 +24,12 @@ bash install.sh
 |------|--------|
 | `--dry-run` | Walks the menus and prints the full plan, then exits without changing anything |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
+| `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
+| `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
+
+Colour and glyphs are also dropped automatically where they cannot render: `TERM=dumb`/`linux`/`vt*`, a non-UTF-8 locale, or output that is not a terminal. That is what makes the installer readable over a plain SSH session or on a VT console.
+
+Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see [Running as root](#running-as-root-or-as-a-sudo-user) below.
 
 ## What's included
 
@@ -70,19 +76,27 @@ The installer checks `DISPLAY`, `WAYLAND_DISPLAY`, the systemd default target an
 
 Pass `--gui` to override the detection.
 
-**Running as root, or as a sudo user.** Both are supported. VPS and container images usually log you in as root, often with no `sudo` installed at all — the installer detects that and runs privileged commands directly, no password prompt. As a normal user it asks for sudo once and caches it.
+<a id="running-as-root-or-as-a-sudo-user"></a>**Running as root, or as a sudo user.** Both are supported. VPS and container images usually log you in as root, often with no `sudo` installed at all — the installer detects that and runs privileged commands directly, no password prompt. As a normal user it asks for sudo once and caches it.
 
 What is *not* supported is `sudo bash install.sh`: under sudo the configs would be stowed into root's home, or into yours owned by root, depending on the sudoers policy. The installer detects that case and tells you which of the two supported ways to use instead.
 
 One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
-**Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), so the installer falls back to `usermod`. Either way the change applies at the next login — log out and back in, or run `exec zsh` to switch the current session immediately.
+**Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login) — and can exit 0 without changing anything at all. The installer therefore reads `/etc/passwd` back after each attempt, falls through to `usermod` if the entry did not change, and only reports success once the shell really is zsh; otherwise it prints the exact command to run. The change applies at the next login — or run `exec zsh` to switch the current session immediately.
+
+Note that it changes the shell for *the user running it*. Running as root sets root's shell, which is not what you want if you then SSH in as a different account.
 
 ### apt mirrors
 
 Cloud images often ship a regional mirror that is slow, half-synced or retired, which makes every `apt-get` fail on 404s or hash mismatches. When the index cannot be refreshed and the failure looks mirror-level, the installer adds the canonical mirror alongside the existing sources — never replacing them, and skipped if it is already configured.
 
 The Ubuntu host is chosen by architecture: `archive.ubuntu.com` serves amd64/i386, `ports.ubuntu.com` serves arm64 and the rest, and each 404s for the other's architectures. Debian uses `deb.debian.org`.
+
+### WSL
+
+Ubuntu and Debian under WSL work as-is: the apt path is used, and with no display server the GUI configs and apps are hidden automatically (WSLg sets `DISPLAY`, so they reappear if you have it).
+
+The one difference is fonts. Your terminal on WSL is a Windows program, so a font installed into the Linux filesystem has no effect — the installer detects WSL and tells you to install JetBrainsMono Nerd Font and Maple Mono on the Windows side and select them in Windows Terminal or VS Code.
 
 ### Architectures
 
