@@ -70,11 +70,19 @@ The installer checks `DISPLAY`, `WAYLAND_DISPLAY`, the systemd default target an
 
 Pass `--gui` to override the detection.
 
-**Running as root.** VPS and container images usually log you in as root, often with no `sudo` installed at all. The installer detects this and runs privileged commands directly — no sudo needed, no password prompt. A non-root user with no sudo gets told what to do rather than a cryptic failure.
+**Running as root, or as a sudo user.** Both are supported. VPS and container images usually log you in as root, often with no `sudo` installed at all — the installer detects that and runs privileged commands directly, no password prompt. As a normal user it asks for sudo once and caches it.
+
+What is *not* supported is `sudo bash install.sh`: under sudo the configs would be stowed into root's home, or into yours owned by root, depending on the sudoers policy. The installer detects that case and tells you which of the two supported ways to use instead.
 
 One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
 **Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), so the installer falls back to `usermod`. Either way the change applies at the next login — log out and back in, or run `exec zsh` to switch the current session immediately.
+
+### apt mirrors
+
+Cloud images often ship a regional mirror that is slow, half-synced or retired, which makes every `apt-get` fail on 404s or hash mismatches. When the index cannot be refreshed and the failure looks mirror-level, the installer adds the canonical mirror alongside the existing sources — never replacing them, and skipped if it is already configured.
+
+The Ubuntu host is chosen by architecture: `archive.ubuntu.com` serves amd64/i386, `ports.ubuntu.com` serves arm64 and the rest, and each 404s for the other's architectures. Debian uses `deb.debian.org`.
 
 ### Architectures
 
