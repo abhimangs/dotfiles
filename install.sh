@@ -175,6 +175,15 @@ pacman_install() {
 _paru_run_robust() {
     local sync_flag="${1:-}"   # "" | "y" | "yy"
     local pkg="$2"
+
+    # paru is absent when the AUR bootstrap was skipped — as root, where
+    # makepkg refuses to build. Fail cleanly here instead of leaking
+    # "paru: command not found" from every attempt below.
+    if ! command -v paru &>/dev/null; then
+        substep "${C_YELLOW}No AUR helper available — ${pkg} needs one${C_RESET}"
+        return 1
+    fi
+
     local tmplog; tmplog=$(mktemp /tmp/paru_XXXXXX.log)
 
     # ── preflight: stale pacman lock ─────────────────────────────────────────
