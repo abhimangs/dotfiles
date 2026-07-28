@@ -57,6 +57,15 @@ unset _arg
 # emulators, the launchers and every GUI app are unusable — and pull hundreds of
 # MB of X/GTK libraries to sit unused. Detect it and drop them from the menus.
 # --gui forces the full desktop menus (e.g. provisioning a box before its DE).
+# WSL runs a real Ubuntu/Debian userland under Windows. Package installs behave
+# normally; what differs is that the terminal is a Windows program, so fonts
+# have to be installed on the Windows side to have any effect.
+IS_WSL=0
+if [ -n "${WSL_DISTRO_NAME:-}" ] || [ -d /run/WSL ] \
+   || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+    IS_WSL=1
+fi
+
 IS_HEADLESS=0
 detect_headless() {
     [ -n "${DISPLAY:-}" ]         && return 1
@@ -133,6 +142,7 @@ header() {
         arch)   _distro_label="Arch Linux" ;;
         debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
     esac
+    [ "$IS_WSL" -eq 1 ] && _distro_label="${_distro_label} on WSL"
     echo -e "      ${C_DIM}${_distro_label}  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
     if [ "$IS_HEADLESS" -eq 1 ]; then
         echo ""
@@ -1045,8 +1055,12 @@ show_plan() {
         case "$cfg" in
           ghostty|kitty)
             if [ "$_font_planned" -eq 0 ]; then
-                font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
+                if [ "$IS_WSL" -eq 1 ]; then
+                    steps+=("${C_DIM}skip fonts — WSL, install them on Windows${C_RESET}")
+                else
+                    font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
+                    maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
+                fi
                 _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -1721,6 +1735,16 @@ for cfg in "${SELECTED[@]}"; do
                 FAILED+=("$cfg")
                 continue
             fi
+        fi
+
+        if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg" && [ "$IS_WSL" -eq 1 ]; then
+            # Fonts live with the terminal, and on WSL the terminal is a
+            # Windows program — installing into the Linux filesystem changes
+            # nothing there.
+            substep "${C_YELLOW}WSL detected — install the fonts on Windows, not here${C_RESET}"
+            substep "${C_DIM}Get JetBrainsMono Nerd Font and Maple Mono, install them in${C_RESET}"
+            substep "${C_DIM}Windows, then select them in Windows Terminal / VS Code.${C_RESET}"
+            FONT_DONE=1
         fi
 
         if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
