@@ -279,7 +279,19 @@ apt_pkg_installed() {
 APT_UPDATED=0
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
-    sudo apt-get update -qq &>/dev/null 2>&1
+    local out
+    if out=$(sudo apt-get update -qq 2>&1); then
+        APT_UPDATED=1
+        return 0
+    fi
+    # Only a mirror-level failure justifies adding another mirror — a broken
+    # third-party repo would fail this too and swapping mirrors would not help.
+    if grep -qiE 'could not resolve|failed to fetch|connection failed|404 +not found|no longer has a release file|hash sum mismatch' <<< "$out"; then
+        substep "${C_YELLOW}Package index unreachable — trying the canonical mirror${C_RESET}"
+        if apt_add_fallback_mirror; then
+            sudo apt-get update -qq &>/dev/null 2>&1
+        fi
+    fi
     APT_UPDATED=1
 }
 
@@ -318,6 +330,49 @@ add_ppa() {
 }
 
 deb_arch() { dpkg --print-architecture; }
+
+# ── apt mirror fallback ──────────────────────────────────────────────────────
+# VPS and cloud images often ship a regional mirror that is slow, half-synced or
+# retired, and then every apt-get fails with 404s or hash mismatches. When the
+# index cannot be refreshed, add the canonical mirror alongside whatever is
+# already configured (never replacing it).
+#
+# Architecture decides the Ubuntu host: archive.ubuntu.com carries amd64/i386
+# and 404s for arm64, ports.ubuntu.com carries the other architectures and 404s
+# for amd64 — both verified against the live indexes. Getting this wrong is
+# exactly how an ARM VPS ends up unable to install anything.
+APT_FALLBACK_ADDED=0
+apt_add_fallback_mirror() {
+    [ "$APT_FALLBACK_ADDED" -eq 1 ] && return 1
+    APT_FALLBACK_ADDED=1
+
+    local codename; codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")"
+    [ -n "$codename" ] || return 1
+
+    local list=/etc/apt/sources.list.d/zz-dotfiles-fallback.list
+    local host
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        case "$(deb_arch)" in
+            amd64|i386) host="http://archive.ubuntu.com/ubuntu" ;;
+            *)          host="http://ports.ubuntu.com/ubuntu-ports" ;;
+        esac
+        # Already on the canonical mirror? Then a duplicate cannot fix anything.
+        grep -rqs "${host#http://}" /etc/apt/sources.list /etc/apt/sources.list.d/ && return 1
+        printf 'deb %s %s main restricted universe multiverse\ndeb %s %s-updates main restricted universe multiverse\ndeb %s %s-security main restricted universe multiverse\n' \
+            "$host" "$codename" "$host" "$codename" "$host" "$codename" \
+            | sudo tee "$list" >/dev/null
+    else
+        host="http://deb.debian.org/debian"
+        grep -rqs 'deb.debian.org' /etc/apt/sources.list /etc/apt/sources.list.d/ && return 1
+        # main/contrib/non-free only — every Debian release has those three,
+        # while non-free-firmware would error out on anything before bookworm.
+        printf 'deb %s %s main contrib non-free\ndeb %s %s-updates main contrib non-free\ndeb http://security.debian.org/debian-security %s-security main contrib non-free\n' \
+            "$host" "$codename" "$host" "$codename" "$codename" \
+            | sudo tee "$list" >/dev/null
+    fi
+    substep "${C_YELLOW}Added fallback mirror: ${host}${C_RESET}"
+    return 0
+}
 
 # GitHub "latest release" asset lookup — no jq dependency
 github_latest_asset_url() {
