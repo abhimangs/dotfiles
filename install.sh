@@ -243,6 +243,20 @@ _paru_run_robust() {
 paru_install()   { _paru_run_robust ""  "$1"; }
 paru_install_y() { _paru_run_robust "y" "$1"; }
 
+# Official repos first, AUR only as a fallback. Repo packages are signed,
+# prebuilt and install in seconds, where the AUR builds from source — and some
+# names now exist in both places (opencode, thefuck), so asking paru blindly
+# could pick the slower path. 'pacman -Si' answers "is this in a sync repo?"
+# without touching the network, so an AUR-only name costs nothing here.
+arch_install() {
+    local pkg="$1"
+    if pacman -Si "$pkg" &>/dev/null; then
+        pacman_install "$pkg" && return 0
+    fi
+    command -v paru &>/dev/null || return 1
+    paru_install "$pkg"
+}
+
 # ── Debian/Ubuntu (apt) package helpers ──────────────────────────────────────
 # 'dpkg -s' also succeeds for purged-but-config-files packages ("deinstall ok
 # config-files"), which made removed packages look installed. Check the real
@@ -564,7 +578,7 @@ font_installed() {
 
 install_font() {
     if [[ "$DISTRO" == "arch" ]]; then
-        pacman_install "$FONT_PKG"
+        arch_install "$FONT_PKG"
     else
         ensure_nerd_font_deb
     fi
@@ -581,7 +595,7 @@ maple_font_installed() {
 install_maple_font() {
     if [[ "$DISTRO" == "arch" ]]; then
         # AUR-only on Arch — pacman cannot resolve it
-        paru_install "$MAPLE_FONT_PKG"
+        arch_install "$MAPLE_FONT_PKG"
     else
         ensure_maple_font_deb
     fi
@@ -726,10 +740,6 @@ DEP_PKG[btop]="btop"
 DEP_PKG[tree]="tree"
 DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
 
-# AUR-only dep tools — must use paru, not pacman (Arch only)
-declare -A DEP_TYPE
-DEP_TYPE[thefuck]="paru"
-
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
 DEP_PKG_DEB[fd]="fd-find"
@@ -777,6 +787,9 @@ APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
 
+# paru-y forces a db refresh first (Brave bumps versions faster than a stale
+# db notices); paru and pacman both resolve through arch_install — repo first,
+# AUR second — so the distinction is only about which one is expected to hit.
 APP_TYPE[brave-beta]="paru-y"
 APP_TYPE[brave-stable]="paru-y"
 APP_TYPE[vscode]="paru"
@@ -1481,11 +1494,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
             _dep_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                if [[ "${DEP_TYPE[$dep]:-pacman}" == "paru" ]]; then
-                    paru_install "$dep_pkg" || _dep_ok=0
-                else
-                    pacman_install "$dep_pkg" || _dep_ok=0
-                fi
+                arch_install "$dep_pkg" || _dep_ok=0
             else
                 case "$dep" in
                     eza)     ensure_eza_deb     || _dep_ok=0 ;;
@@ -1533,7 +1542,7 @@ for cfg in "${SELECTED[@]}"; do
             substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
             _install_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                pacman_install "$pkg" || _install_ok=0
+                arch_install "$pkg" || _install_ok=0
             else
                 case "$cfg" in
                     ghostty)   ensure_ghostty_deb   || _install_ok=0 ;;
@@ -1587,7 +1596,7 @@ for cfg in "${SELECTED[@]}"; do
             substep "Installing ${C_ACCENT}zsh${C_RESET}..."
             _install_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                pacman_install zsh || _install_ok=0
+                arch_install zsh || _install_ok=0
             else
                 apt_install zsh || _install_ok=0
             fi
@@ -1644,7 +1653,7 @@ for cfg in "${SELECTED[@]}"; do
             substep "Installing ${C_ACCENT}proton-vpn-cli${C_RESET}..."
             _install_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                pacman_install proton-vpn-cli || _install_ok=0
+                arch_install proton-vpn-cli || _install_ok=0
             else
                 ensure_protonvpn_cli_deb || _install_ok=0
             fi
@@ -1681,7 +1690,7 @@ for cfg in "${SELECTED[@]}"; do
             substep "Installing ${C_ACCENT}starship${C_RESET}..."
             _install_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                pacman_install starship || _install_ok=0
+                arch_install starship || _install_ok=0
             else
                 ensure_starship_deb || _install_ok=0
             fi
@@ -1710,7 +1719,7 @@ for cfg in "${SELECTED[@]}"; do
             substep "Installing ${C_ACCENT}git${C_RESET}..."
             _install_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
-                pacman_install git || _install_ok=0
+                arch_install git || _install_ok=0
             else
                 apt_install git || _install_ok=0
             fi
@@ -1734,8 +1743,8 @@ for cfg in "${SELECTED[@]}"; do
             substep "${C_ACCENT}ulauncher${C_RESET} already installed"
         else
             if [[ "$DISTRO" == "arch" ]]; then
-                substep "Installing ${C_ACCENT}ulauncher${C_RESET} via paru (AUR)..."
-                if ! paru_install ulauncher; then
+                substep "Installing ${C_ACCENT}ulauncher${C_RESET}..."
+                if ! arch_install ulauncher; then
                     error "Failed to install ulauncher — skipping"
                     FAILED+=(ulauncher)
                     continue
@@ -1836,8 +1845,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             fi
             case "$_type" in
                 paru-y) paru_install_y "$_pkg" ;;
-                pacman) pacman_install "$_pkg" ;;
-                paru)   paru_install "$_pkg" ;;
+                pacman|paru) arch_install "$_pkg" ;;
                 apt)    apt_install "$_pkg" ;;
                 brave)
                     case "$app" in

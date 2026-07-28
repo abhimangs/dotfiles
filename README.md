@@ -50,6 +50,7 @@ bash install.sh
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
+- **Repo before AUR** — on Arch every install checks the official repos first and only falls back to paru for AUR-only packages
 - **paru** — installed automatically if missing on Arch (AUR helper)
 - **Shell change** — switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
 - **Headless aware** — on a machine with no display server, GUI configs and apps are hidden (see below)
