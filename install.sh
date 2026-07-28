@@ -351,7 +351,15 @@ ensure_fastfetch_deb() {
         apt_install fastfetch
     else
         local apat url
-        case "$(deb_arch)" in amd64) apat='amd64|x86_64' ;; arm64) apat='arm64|aarch64' ;; *) apat="$(deb_arch)" ;; esac
+        # Upstream names 32-bit ARM builds armv7l/armv6l, never Debian's
+        # armhf/armel, so those need translating or nothing matches.
+        case "$(deb_arch)" in
+            amd64) apat='amd64|x86_64' ;;
+            arm64) apat='arm64|aarch64' ;;
+            armhf) apat='armv7l' ;;
+            armel) apat='armv6l' ;;
+            *)     apat="$(deb_arch)" ;;
+        esac
         url=$(github_latest_asset_url "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$")
         if [ -n "$url" ]; then
             local tmp; tmp=$(mktemp /tmp/fastfetch_XXXXXX.deb)
@@ -392,7 +400,13 @@ ensure_lazygit_deb() {
     fi
 
     local apat url tmp
-    case "$(deb_arch)" in amd64) apat='x86_64' ;; arm64) apat='arm64' ;; *) apat="$(uname -m)" ;; esac
+    case "$(deb_arch)" in
+        amd64)        apat='x86_64' ;;
+        arm64)        apat='arm64' ;;
+        armhf|armel)  apat='armv6' ;;
+        i386)         apat='32-bit' ;;
+        *)            apat="$(uname -m)" ;;
+    esac
     url=$(github_latest_asset_url "jesseduffield/lazygit" "Linux_${apat}\.tar\.gz$")
     if [ -n "$url" ]; then
         tmp=$(mktemp -d /tmp/lazygit_XXXXXX)
