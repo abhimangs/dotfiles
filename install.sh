@@ -279,11 +279,16 @@ apt_pkg_installed() {
 APT_UPDATED=0
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
-    local out
-    if out=$(sudo apt-get update -qq 2>&1); then
-        APT_UPDATED=1
-        return 0
-    fi
+    local out try
+    for try in 1 2 3; do
+        if out=$(sudo apt-get update -qq 2>&1); then
+            APT_UPDATED=1
+            return 0
+        fi
+        grep -qiE 'could not get lock|another process (is )?using it|frontend lock' <<< "$out" || break
+        substep "${C_YELLOW}apt is locked — waiting 20s (${try}/3)${C_RESET}"
+        sleep 20
+    done
     # Only a mirror-level failure justifies adding another mirror — a broken
     # third-party repo would fail this too and swapping mirrors would not help.
     if grep -qiE 'could not resolve|failed to fetch|connection failed|404 +not found|no longer has a release file|hash sum mismatch' <<< "$out"; then
@@ -295,16 +300,37 @@ apt_update_once() {
     APT_UPDATED=1
 }
 
+# Last apt error, so a failure can be shown instead of just "failed"
+APT_LAST_ERROR=""
+
 apt_install() {
     apt_update_once
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" &>/dev/null 2>&1 \
-        && return 0
-    # Same failure mode as pacman: an index older than the mirror 404s on a
-    # superseded version. Force a refresh and retry once.
+    local try out
+    # Fresh cloud images run unattended-upgrades / apt-daily at boot and hold
+    # the dpkg lock for minutes. Every apt-get in that window dies with "Could
+    # not get lock /var/lib/dpkg/lock-frontend" — the usual reason a server
+    # install fails before stow and fzf are even in place. Wait it out.
+    for try in 1 2 3 4 5; do
+        if out=$(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1); then
+            return 0
+        fi
+        if grep -qiE 'could not get lock|another process (is )?using it|frontend lock|resource temporarily unavailable' <<< "$out"; then
+            substep "${C_YELLOW}apt is locked by another process — waiting 20s (${try}/5)${C_RESET}"
+            sleep 20
+            continue
+        fi
+        break
+    done
+
+    # An index older than the mirror 404s on a superseded version.
     substep "${C_YELLOW}Stale package index — refreshing and retrying${C_RESET}"
     APT_UPDATED=0
     apt_update_once
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" &>/dev/null 2>&1
+    if out=$(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1); then
+        return 0
+    fi
+    APT_LAST_ERROR="$out"
+    return 1
 }
 
 # Bootstraps utilities repo-add steps commonly need
@@ -1381,6 +1407,12 @@ if [[ "$DISTRO" == "arch" ]]; then
 else
     if ! apt_install stow fzf; then
         error "Failed to install/update stow and fzf."
+        if [ -n "$APT_LAST_ERROR" ]; then
+            substep "${C_DIM}apt said:${C_RESET}"
+            printf '%s\n' "$APT_LAST_ERROR" | tail -5 | while IFS= read -r _l; do
+                substep "${C_DIM}${_l}${C_RESET}"
+            done
+        fi
         exit 1
     fi
 fi
