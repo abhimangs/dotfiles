@@ -150,7 +150,7 @@ esac
 if [ "$USE_GLYPHS" -eq 1 ]; then
     G_TOP='╭─' ; G_MID='│'  ; G_END='╰─'
     G_ARROW='❯'; G_OK='✔'   ; G_FAIL='✘'
-    G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='${G_DOT}'
+    G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='·'
 else
     G_TOP='+-' ; G_MID='|'  ; G_END='+-'
     G_ARROW='>'; G_OK='[ok]'; G_FAIL='[!]'
@@ -793,6 +793,34 @@ ensure_fd_shim() {
     ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
 }
 
+# ── Strip every trace that ~/dotfiles came from a git repo ───────────────────
+# The stowed configs are symlinks *into* ~/dotfiles, so the directory itself has
+# to stay — what goes is anything identifying it as a clone: git metadata (the
+# remote URL, the full commit history, the author name and email), the repo
+# documentation, and linux.sh, which carries the GitHub URL. install.sh and the
+# config folders are kept, so the checkout still works and can be re-run.
+strip_repo_traces() {
+    local d="$DOTFILES_DIR"
+    # Refuse to touch anything that is not recognisably the dotfiles checkout
+    [ -n "$d" ] && [ -d "$d" ] && [ -f "$d/install.sh" ] || return 1
+    [ "$d" != "/" ] && [ "$d" != "$HOME" ] || return 1
+
+    local removed=() item
+    for item in .git .github .gitignore .gitattributes \
+                README.md CLAUDE.md LICENSE LICENSE.md linux.sh; do
+        if [ -e "$d/$item" ] || [ -L "$d/$item" ]; then
+            rm -rf "${d:?}/${item:?}" && removed+=("$item")
+        fi
+    done
+
+    if [ "${#removed[@]}" -gt 0 ]; then
+        substep "Removed: ${C_DIM}${removed[*]}${C_RESET}"
+    else
+        substep "${C_DIM}Nothing left to remove${C_RESET}"
+    fi
+    return 0
+}
+
 # ── Stow package directly into ~/.config/<name>/ (flat repo structure) ────────
 stow_config() {
     local name="$1"
@@ -1286,6 +1314,13 @@ show_plan() {
         done
     fi
 
+    if [ "$STRIP_REPO" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}private mode${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_RED}remove${C_RESET} ${C_DIM}~/dotfiles/.git and repo files at the end${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}configs keep working — re-running needs a fresh clone${C_RESET}"
+    fi
+
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
     if [ "$DRY_RUN" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
@@ -1302,23 +1337,27 @@ header
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
 BACKUP_MODE="backup"
+STRIP_REPO=0
 _bm_sel=0
+_BM_N=3
+
+_bm_row() {   # <index> <selected> <colour> <label> <description>
+    local mark="   "
+    [ "$1" -eq "$2" ] && mark=" $3${G_ARROW}${C_RESET} "
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET} %b %-8s ${C_DIM}${G_DOT}  %-44s${C_RESET}\n" "$mark" "$4" "$5"
+}
 
 _bm_draw() {
-    if [ "$1" -eq 0 ]; then
-        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  ${C_GREEN}${G_ARROW}${C_RESET}  backup  ${C_DIM}${G_DOT}  move to .bak, safe and reversible   ${C_RESET}\n"
-        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}     delete  ${C_DIM}${G_DOT}  wipe cleanly, no backup kept         ${C_RESET}\n"
-    else
-        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}     backup  ${C_DIM}${G_DOT}  move to .bak, safe and reversible   ${C_RESET}\n"
-        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  ${C_RED}${G_ARROW}${C_RESET}  delete  ${C_DIM}${G_DOT}  wipe cleanly, no backup kept         ${C_RESET}\n"
-    fi
+    _bm_row 0 "$1" "$C_GREEN"  "backup"  "move to .bak, safe and reversible"
+    _bm_row 1 "$1" "$C_RED"    "delete"  "wipe cleanly, no backup kept"
+    _bm_row 2 "$1" "$C_RED"    "private" "delete, then strip repo traces from ~/dotfiles"
 }
 
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
 _bm_draw $_bm_sel
 
 while true; do
-    printf "\033[2A"
+    printf "\033[%dA" "$_BM_N"
     IFS= read -n 1 -rs _bm_key <"$TTY_IN"
     case "$_bm_key" in
         $'\n'|$'\r'|'')
@@ -1327,11 +1366,12 @@ while true; do
             ;;
         'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
         'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
+        'p'|'P') _bm_sel=2; _bm_draw $_bm_sel ;;
         $'\033')
             IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
             case "$_bm_esc" in
-                '[A'|'[D') _bm_sel=0 ;;
-                '[B'|'[C') _bm_sel=1 ;;
+                '[A'|'[D') [ "$_bm_sel" -gt 0 ] && _bm_sel=$(( _bm_sel - 1 )) ;;
+                '[B'|'[C') [ "$_bm_sel" -lt 2 ] && _bm_sel=$(( _bm_sel + 1 )) ;;
             esac
             _bm_draw $_bm_sel
             ;;
@@ -1339,14 +1379,15 @@ while true; do
     esac
 done
 
-if [ "$_bm_sel" -eq 1 ]; then
-    BACKUP_MODE="delete"
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
-else
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
-fi
-unset -f _bm_draw
-unset _bm_sel _bm_key _bm_esc
+case "$_bm_sel" in
+    2)  BACKUP_MODE="delete"; STRIP_REPO=1
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private ${C_DIM}(delete + strip repo traces)${C_RESET}\n" ;;
+    1)  BACKUP_MODE="delete"
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n" ;;
+    *)  echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n" ;;
+esac
+unset -f _bm_draw _bm_row
+unset _bm_sel _bm_key _bm_esc _BM_N
 
 # ── Privileges ────────────────────────────────────────────────────────────────
 # VPS and container images normally drop you straight into root, and plenty of
@@ -1508,7 +1549,7 @@ if command -v fzf &>/dev/null; then
     echo ""
     _cfg_lines=()
     for _c in "${CONFIGS[@]}"; do
-        _cfg_lines+=("$(printf '%-11s  ${G_DOT}  %s' "$_c" "${CONFIG_DESC[$_c]}")")
+        _cfg_lines+=("$(printf '%-11s  %s  %s' "$_c" "$G_DOT" "${CONFIG_DESC[$_c]}")")
     done
     mapfile -t SELECTED < <(
         printf '%s\n' "${_cfg_lines[@]}" | \
@@ -1536,11 +1577,12 @@ else
     while true; do
         for _i in "${!CONFIGS[@]}"; do
             _c="${CONFIGS[$_i]}"
-            printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%d ${C_DIM}${G_ARROW} ${C_RESET}%-11s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
+            printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-11s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
         done
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -r RAW <"$TTY_IN"
+    echo ""
 
         if [[ "$RAW" == "a" || "$RAW" == "A" ]]; then
             SELECTED=("${CONFIGS[@]}")
@@ -1576,6 +1618,7 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     error "Nothing selected. Exiting."
     exit 0
 fi
+success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
 
 # ── Dep tools sub-menu (always shown) ────────────────────────────────────────
 DEPS=()
@@ -1585,7 +1628,7 @@ echo ""
 if command -v fzf &>/dev/null; then
     _dep_lines=()
     for _dd in "${DEPS_LIST[@]}"; do
-        _dep_lines+=("$(printf '%-10s  ${G_DOT}  %s' "$_dd" "${DEP_DESC[$_dd]}")")
+        _dep_lines+=("$(printf '%-10s  %s  %s' "$_dd" "$G_DOT" "${DEP_DESC[$_dd]}")")
     done
     mapfile -t DEPS < <(
         printf '%s\n' "${_dep_lines[@]}" | \
@@ -1608,11 +1651,12 @@ if command -v fzf &>/dev/null; then
 else
     for _i in "${!DEPS_LIST[@]}"; do
         _dd="${DEPS_LIST[$_i]}"
-        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
+        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
     done
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
     read -r DEP_RAW <"$TTY_IN"
+    echo ""
     if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
         DEPS=("${DEPS_LIST[@]}")
     elif [[ -n "$DEP_RAW" ]]; then
@@ -1622,6 +1666,12 @@ else
             DEPS+=("${DEPS_LIST[$((token-1))]}")
         done
     fi
+fi
+
+if [ "${#DEPS[@]}" -gt 0 ]; then
+    success "Dep tools: ${C_ACCENT}${DEPS[*]}${C_RESET}"
+else
+    success "${C_DIM}No dep tools selected${C_RESET}"
 fi
 
 # Warn if alias-heavy dep tools selected without zsh
@@ -1655,7 +1705,7 @@ for _k in "${APPS_LIST[@]}"; do
         apt|brave|vscode|claude-desktop) _tl="apt" ;;
         *)           _tl="$_rt" ;;
     esac
-    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ${G_DOT}  %s' "${APP_LABEL[$_k]}" "$_tl")")
+    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  %s  %s' "${APP_LABEL[$_k]}" "$G_DOT" "$_tl")")
 done
 unset _rt
 
@@ -1684,12 +1734,13 @@ else
     _app_i=1
     for _line in "${_app_lines[@]}"; do
         _disp="${_line#*$'\t'}"
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${_app_i} ${C_DIM}${G_ARROW} ${C_RESET}${_disp}"
+        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%b\n" "$_app_i" "$_disp"
         (( _app_i++ ))
     done
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
     echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
     read -r APP_RAW <"$TTY_IN"
+    echo ""
     if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
         APPS=("${APPS_LIST[@]}")
     elif [[ -n "$APP_RAW" ]]; then
@@ -1702,6 +1753,15 @@ else
     unset _app_i _disp APP_RAW token
 fi
 unset _app_lines _k _tl _line
+
+if [ "${#APPS[@]}" -gt 0 ]; then
+    _app_labels=()
+    for _k in "${APPS[@]}"; do _app_labels+=("${APP_LABEL[$_k]}"); done
+    success "Apps: ${C_ACCENT}${_app_labels[*]}${C_RESET}"
+    unset _app_labels _k
+else
+    success "${C_DIM}No apps selected${C_RESET}"
+fi
 
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
@@ -2140,6 +2200,18 @@ if [ "${#APPS[@]}" -gt 0 ]; then
         fi
     done
     unset app _lbl _type _pkg _bin
+fi
+
+# ── Step 5d: strip repo traces (private mode) ────────────────────────────────
+if [ "$STRIP_REPO" -eq 1 ]; then
+    info "Stripping repo traces..."
+    if strip_repo_traces; then
+        substep "${C_DIM}~/dotfiles is now a plain folder — symlinks still resolve${C_RESET}"
+        substep "${C_YELLOW}Re-running the installer now needs a fresh clone${C_RESET}"
+        success "No git metadata left"
+    else
+        error "Refused — ${DOTFILES_DIR} does not look like the dotfiles checkout"
+    fi
 fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
