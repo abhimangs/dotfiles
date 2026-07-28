@@ -549,7 +549,7 @@ ensure_nerd_font_deb() {
 
 ensure_maple_font_deb() {
     maple_font_installed_deb && return 0
-    install_font_zip "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF.zip" \
+    install_font_zip "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-TTF.zip" \
                      "$MAPLE_FONT_DIR_DEB"
     maple_font_installed_deb
 }
@@ -697,7 +697,7 @@ PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
-MAPLE_FONT_PKG="maplemono-nf"   # AUR — Maple Mono with Nerd Font glyphs
+MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf asks for
 NEEDS_FONT=(ghostty kitty rofi)
 
 needs_font() {
@@ -916,7 +916,7 @@ show_plan() {
           ghostty|kitty)
             if [ "$_font_planned" -eq 0 ]; then
                 font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono NF${C_RESET}")
+                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
                 _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -947,7 +947,7 @@ show_plan() {
           fastfetch|rofi)
             if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ]; then
                 font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono NF${C_RESET}")
+                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
                 _font_planned=1
             fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -1554,8 +1554,8 @@ for cfg in "${SELECTED[@]}"; do
                 install_font || error "Failed to install JetBrainsMono — continuing"
             fi
             if ! maple_font_installed; then
-                substep "Installing ${C_ACCENT}Maple Mono NF${C_RESET}..."
-                install_maple_font || error "Failed to install Maple Mono NF — continuing"
+                substep "Installing ${C_ACCENT}Maple Mono${C_RESET}..."
+                install_maple_font || error "Failed to install Maple Mono — continuing"
             fi
             substep "Rebuilding font cache..."
             fc-cache -fv &>/dev/null 2>&1 || true

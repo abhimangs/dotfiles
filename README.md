@@ -75,12 +75,12 @@ Shell changes work on cloud images too: `chsh` authenticates through PAM and ref
 
 [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop.
 
-Fonts (both auto-installed with ghostty, kitty, or rofi):
+Fonts (both auto-installed with ghostty, kitty, or rofi) — ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
 
 | Font | Arch | Debian/Ubuntu |
 |------|------|---------------|
 | JetBrainsMono Nerd Font | `ttf-jetbrains-mono-nerd` | [nerd-fonts](https://github.com/ryanoasis/nerd-fonts) release zip → `~/.local/share/fonts/JetBrainsMono/` |
-| Maple Mono NF | `maplemono-nf` *(AUR)* | [maple-font](https://github.com/subframe7536/maple-font) release zip → `~/.local/share/fonts/MapleMono/` |
+| Maple Mono | `maplemono-ttf` *(AUR)* | [maple-font](https://github.com/subframe7536/maple-font) release zip → `~/.local/share/fonts/MapleMono/` |
 
 Neither is packaged in apt, so on Debian/Ubuntu both are pulled straight from their GitHub releases (`fontconfig` is installed first if the image doesn't have it).
 
