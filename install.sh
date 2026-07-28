@@ -43,6 +43,7 @@ if [ -z "$DISTRO" ]; then
 fi
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+START_TS=$SECONDS
 
 DRY_RUN=0
 FORCE_GUI=0
@@ -1749,8 +1750,10 @@ fi
 
 # ── Step 5b: install configs ──────────────────────────────────────────────────
 
+_cfg_i=0
 for cfg in "${SELECTED[@]}"; do
-    info "Installing ${C_ACCENT}${cfg}${C_RESET}..."
+    _cfg_i=$(( _cfg_i + 1 ))
+    info "${C_DIM}[${_cfg_i}/${#SELECTED[@]}]${C_RESET} Installing ${C_ACCENT}${cfg}${C_RESET}..."
     pkg="${PKG_MAP[$cfg]}"
 
     case "$cfg" in
@@ -2044,10 +2047,13 @@ done
 # ── Step 5c: install applications ────────────────────────────────────────────
 if [ "${#APPS[@]}" -gt 0 ]; then
     info "Installing applications..."
+    _app_n=0
     for app in "${APPS[@]}"; do
+        _app_n=$(( _app_n + 1 ))
         _lbl="${APP_LABEL[$app]}"
         _type="$(app_type_resolved "$app")"
-        substep "${C_ACCENT}${_lbl}${C_RESET}"
+        # counter only in the running output — $_lbl also feeds the summary
+        substep "${C_DIM}[${_app_n}/${#APPS[@]}]${C_RESET} ${C_ACCENT}${_lbl}${C_RESET}"
 
         if [[ "$_type" == "curl" ]]; then
             _bin="${APP_BIN[$app]:-}"
@@ -2124,11 +2130,13 @@ fi
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_SUM} Summary${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed: ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed (${#INSTALLED[@]}): ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed:    ${C_RED}${FAILED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}${FAILED[*]}${C_RESET}"
 fi
+_elapsed=$(( SECONDS - START_TS ))
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT} ${C_RESET}${C_DIM}took $(( _elapsed / 60 ))m $(( _elapsed % 60 ))s${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}Restart your terminal to apply changes.\n"
