@@ -1169,18 +1169,36 @@ fi
 unset -f _bm_draw
 unset _bm_sel _bm_key _bm_esc
 
-# ── Sudo cache ────────────────────────────────────────────────────────────────
+# ── Privileges ────────────────────────────────────────────────────────────────
+# VPS and container images normally drop you straight into root, and plenty of
+# them ship without sudo at all — 'sudo -v' died with "command not found" before
+# the installer did anything. As root, run privileged commands directly. The
+# passthrough goes through env so that 'sudo VAR=value cmd' (which sudo parses
+# itself) keeps working unchanged at every call site.
 info "Authentication..."
-substep "Enter your sudo password once — cached for the full install"
-if ! sudo -v; then
-    error "Authentication failed. Exiting."
+if [ "$(id -u)" -eq 0 ]; then
+    IS_ROOT=1
+    sudo() { env "$@"; }
+    substep "Running as root — sudo not needed"
+    success "Ready"
+elif ! command -v sudo &>/dev/null; then
+    IS_ROOT=0
+    error "sudo is not installed and you are not root."
+    substep "Install sudo, or re-run this script as root."
     exit 1
-fi
-success "Authenticated"
+else
+    IS_ROOT=0
+    substep "Enter your sudo password once — cached for the full install"
+    if ! sudo -v; then
+        error "Authentication failed. Exiting."
+        exit 1
+    fi
+    success "Authenticated"
 
-( while true; do sudo -v; sleep 240; done ) &>/dev/null &
-_SUDO_KEEPALIVE=$!
-trap 'kill "$_SUDO_KEEPALIVE" 2>/dev/null; echo -ne "\033[0m"' EXIT
+    ( while true; do sudo -v; sleep 240; done ) &>/dev/null &
+    _SUDO_KEEPALIVE=$!
+    trap 'kill "$_SUDO_KEEPALIVE" 2>/dev/null; echo -ne "\033[0m"' EXIT
+fi
 
 # ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
 if [[ "$DISTRO" == "arch" ]]; then
@@ -1189,6 +1207,17 @@ if [[ "$DISTRO" == "arch" ]]; then
         substep "paru already installed"
         success "AUR helper ready"
     else
+        if [ "$IS_ROOT" -eq 1 ]; then
+            # makepkg hard-refuses to build as root, so paru cannot be
+            # bootstrapped here. Repo packages still install fine; only
+            # AUR-only items are affected, and they report as failed.
+            substep "${C_YELLOW}Running as root — makepkg refuses to build as root,${C_RESET}"
+            substep "${C_YELLOW}so paru cannot be installed. Repo packages will work;${C_RESET}"
+            substep "${C_YELLOW}AUR-only ones will be skipped.${C_RESET}"
+            substep "${C_DIM}To get AUR support: create a normal user with sudo rights${C_RESET}"
+            substep "${C_DIM}and re-run this script as that user.${C_RESET}"
+            success "Continuing without an AUR helper"
+        else
         substep "paru not found — installing..."
         substep "Checking internet connection..."
         if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
@@ -1222,6 +1251,7 @@ if [[ "$DISTRO" == "arch" ]]; then
             exit 1
         fi
         success "paru installed"
+        fi
     fi
 else
     info "Preparing apt..."
