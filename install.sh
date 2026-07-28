@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+# ── Interpreter guard ─────────────────────────────────────────────────────────
+# Must stay POSIX until the re-exec below. On Debian and Ubuntu /bin/sh is dash,
+# so 'sh install.sh' ignores the shebang and dies on the first array — which
+# looks exactly like "the installer does not run on servers". Re-exec instead.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+# Namerefs (declare -n) need 4.3+; every supported distro ships 5.x.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; then
+    echo "This installer needs bash 4.3 or newer (found ${BASH_VERSION})." >&2
+    exit 1
+fi
+
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
 IS_UBUNTU=0
