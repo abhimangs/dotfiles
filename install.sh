@@ -1790,25 +1790,41 @@ for cfg in "${SELECTED[@]}"; do
             # Without this guard the fallbacks below run 'chsh -s "" <user>',
             # which blanks the login shell entry.
             error "zsh binary not found on PATH — leaving the default shell alone"
-        elif [ "$current_shell" != "$zsh_path" ]; then
-            substep "Changing default shell to ${C_ACCENT}zsh${C_RESET}..."
-            if ! grep -qx "$zsh_path" /etc/shells; then
-                echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
-            fi
-            if sudo chsh -s "$zsh_path" "$target_user" &>/dev/null; then
-                substep "${C_GREEN}Default shell changed — log out and back in to apply${C_RESET}"
-            elif sudo usermod -s "$zsh_path" "$target_user" &>/dev/null; then
-                # chsh authenticates through PAM, which fails on cloud images
-                # where the account has no local password (SSH-key login only).
-                # usermod edits /etc/passwd directly and does not care.
-                substep "${C_GREEN}Default shell changed via usermod — log out and back in to apply${C_RESET}"
-            else
-                error "Could not change shell — run manually: sudo usermod -s $zsh_path $target_user"
-            fi
+        elif [ "$current_shell" = "$zsh_path" ]; then
+            substep "${C_DIM}Login shell for ${target_user} is already zsh${C_RESET}"
         else
-            substep "${C_DIM}Default shell already zsh${C_RESET}"
+            substep "Changing login shell for ${C_ACCENT}${target_user}${C_RESET} to zsh..."
+
+            # chsh refuses any shell missing from /etc/shells (-s creates the
+            # file if the image does not ship one).
+            grep -qxs "$zsh_path" /etc/shells \
+                || echo "$zsh_path" | sudo tee -a /etc/shells &>/dev/null
+
+            # </dev/null: chsh goes through PAM and may prompt for a password.
+            # Without it the prompt reads the installer's own stdin and hangs.
+            sudo chsh -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
+
+            if [ "$(getent passwd "$target_user" | cut -d: -f7)" != "$zsh_path" ]; then
+                # PAM refuses on cloud accounts with no local password
+                # (SSH-key-only login). usermod writes /etc/passwd directly.
+                sudo usermod -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
+            fi
+
+            # Read it back rather than trusting an exit code. chsh can exit 0
+            # having changed nothing, which is exactly how the shell ends up
+            # still being bash after logging out and back in.
+            new_shell="$(getent passwd "$target_user" | cut -d: -f7)"
+            if [ "$new_shell" = "$zsh_path" ]; then
+                substep "${C_GREEN}Login shell for ${target_user} is now ${zsh_path}${C_RESET}"
+                substep "${C_DIM}Applies at next login — or run ${C_ACCENT}exec zsh${C_DIM} to switch now${C_RESET}"
+            else
+                error "Login shell unchanged — still ${new_shell:-unknown}"
+                substep "Run it manually: ${C_ACCENT}sudo usermod -s ${zsh_path} ${target_user}${C_RESET}"
+                substep "${C_DIM}This sets the shell for '${target_user}'. If you SSH in as a${C_RESET}"
+                substep "${C_DIM}different account, run that command for that account instead.${C_RESET}"
+            fi
         fi
-        unset zsh_path current_shell target_user
+        unset zsh_path current_shell target_user new_shell
         ;;
 
       # ── protonvpn ────────────────────────────────────────────────────────
