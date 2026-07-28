@@ -9,7 +9,9 @@ export PATH="$HOME/.kimi-code/bin:$PATH"
 
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"
-if [[ ! -f "$_zinit_zsh" ]]; then
+# Needs git — a minimal server image may not have it, and without this guard
+# every single shell start printed "command not found: git" and retried.
+if [[ ! -f "$_zinit_zsh" ]] && command -v git &>/dev/null; then
     print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
     command mkdir -p "$HOME/.local/share/zinit" && command chmod g-rwX "$HOME/.local/share/zinit"
     command git clone https://github.com/zdharma-continuum/zinit "$HOME/.local/share/zinit/zinit.git" && \
@@ -46,8 +48,25 @@ setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
 
 # ── fzf ───────────────────────────────────────────────────────
-[ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
-[ -f /usr/share/fzf/completion.zsh ]   && source /usr/share/fzf/completion.zsh
+# Distros put the shell integration in different places: Arch uses
+# /usr/share/fzf/, Debian and Ubuntu use /usr/share/doc/fzf/examples/.
+# fzf >= 0.48 can just print it, so prefer that and keep the paths as a
+# fallback for older builds.
+if command -v fzf &>/dev/null; then
+    if fzf --zsh >/dev/null 2>&1; then
+        source <(fzf --zsh)
+    else
+        for _fzf_f in \
+            /usr/share/fzf/key-bindings.zsh \
+            /usr/share/fzf/completion.zsh \
+            /usr/share/doc/fzf/examples/key-bindings.zsh \
+            /usr/share/doc/fzf/examples/completion.zsh
+        do
+            [ -f "$_fzf_f" ] && source "$_fzf_f"
+        done
+        unset _fzf_f
+    fi
+fi
 
 if command -v fd &>/dev/null; then
     export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
@@ -101,11 +120,19 @@ alias grep='grep --color=auto'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
 
 # ── Aliases: System ───────────────────────────────────────────
+# Built from what is actually installed — a server with no paru or flatpak
+# would otherwise fail the whole chain on the first missing command.
 if command -v pacman &>/dev/null; then
-    alias update='sudo pacman -Syyu && paru -Syu && flatpak update'
+    _upd='sudo pacman -Syu'
+    command -v paru    &>/dev/null && _upd="$_upd && paru -Sua"
 elif command -v apt &>/dev/null; then
-    alias update='sudo apt update && sudo apt full-upgrade -y && flatpak update'
+    _upd='sudo apt update && sudo apt full-upgrade -y'
 fi
+if [[ -n "$_upd" ]]; then
+    command -v flatpak &>/dev/null && _upd="$_upd && flatpak update"
+    alias update="$_upd"
+fi
+unset _upd
 alias reload='source ~/.zshrc'
 alias zshrc='nano ~/.zshrc'
 alias myip='curl ifconfig.me'
