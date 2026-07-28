@@ -29,6 +29,12 @@ bash install.sh
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
 
+Each flag has an environment equivalent — `DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR` — because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
+
+```bash
+DOTFILES_DRY_RUN=1 curl -fsSL https://abhiman.io/linux.sh | bash
+```
+
 Colour and glyphs are also dropped automatically where they cannot render: `TERM=dumb`/`linux`/`vt*`, a non-UTF-8 locale, or output that is not a terminal. That is what makes the installer readable over a plain SSH session or on a VT console.
 
 Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see [Running as root](#running-as-root-or-as-a-sudo-user) below.
@@ -108,7 +114,7 @@ amd64 and arm64 are fully supported on all three distros; 32-bit ARM (`armhf`/`a
 
 [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop.
 
-Fonts (both auto-installed with ghostty, kitty, or rofi) — ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
+Fonts are installed on every run, whatever you select — the configs reference them by name, so picking only zsh or starship used to leave a terminal with no font to render. They are skipped where they cannot do anything: no display server, or WSL. ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
 
 | Font | Arch | Debian/Ubuntu |
 |------|------|---------------|

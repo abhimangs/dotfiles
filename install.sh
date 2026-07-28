@@ -52,6 +52,12 @@ for _arg in "$@"; do
     [[ "$_arg" == "--gui"     ]] && FORCE_GUI=1
 done
 unset _arg
+# linux.sh (deployed by hand at abhiman.io/linux.sh, and not editable) ends in
+# `exec ./install.sh` with no arguments, so flags cannot reach us through the
+# curl bootstrap. The environment does survive exec, so every flag has an env
+# equivalent:  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
+[ -n "${DOTFILES_DRY_RUN:-}" ] && DRY_RUN=1
+[ -n "${DOTFILES_GUI:-}" ]     && FORCE_GUI=1
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
@@ -129,6 +135,8 @@ for _arg in "$@"; do
     [[ "$_arg" == "--no-color" ]] && USE_COLOR=0
 done
 unset _arg
+[ -n "${DOTFILES_ASCII:-}" ]    && USE_GLYPHS=0
+[ -n "${DOTFILES_NO_COLOR:-}" ] && USE_COLOR=0
 [ -n "${NO_COLOR:-}" ] && USE_COLOR=0
 case "${TERM:-}" in
     dumb|linux|vt*|"") USE_COLOR=0; USE_GLYPHS=0 ;;
@@ -881,13 +889,6 @@ PKG_MAP[git]="git"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf asks for
-NEEDS_FONT=(ghostty kitty rofi)
-
-needs_font() {
-    local cfg="$1"
-    for n in "${NEEDS_FONT[@]}"; do [[ "$cfg" == "$n" ]] && return 0; done
-    return 1
-}
 
 # Wallpapers are only for terminal emulators, not all font-using configs
 NEEDS_WALLPAPER=(ghostty kitty)
@@ -1075,7 +1076,6 @@ DEP_DESC[tree]="directory tree listing"
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
-    local _font_planned=0
 
     local _mode_label
     [[ "$BACKUP_MODE" == "delete" ]] \
@@ -1096,15 +1096,6 @@ show_plan() {
 
         case "$cfg" in
           ghostty|kitty)
-            if [ "$_font_planned" -eq 0 ]; then
-                if [ "$IS_WSL" -eq 1 ]; then
-                    steps+=("${C_DIM}skip fonts — WSL, install them on Windows${C_RESET}")
-                else
-                    font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-                    maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
-                fi
-                _font_planned=1
-            fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -1131,11 +1122,6 @@ show_plan() {
             fi
             ;;
           fastfetch|rofi)
-            if [[ "$cfg" == "rofi" ]] && [ "$_font_planned" -eq 0 ]; then
-                font_installed       || steps+=("${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}")
-                maple_font_installed || steps+=("${C_YELLOW}install Maple Mono${C_RESET}")
-                _font_planned=1
-            fi
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -1241,6 +1227,26 @@ show_plan() {
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${step}"
         done
     done
+
+    # Fonts — installed on every run, so they get their own plan entry
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}fonts${C_RESET}"
+    if [ "$IS_WSL" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — WSL, install them on Windows${C_RESET}"
+    elif [ "$IS_HEADLESS" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — no display server${C_RESET}"
+    else
+        if font_installed; then
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}JetBrainsMono Nerd Font already installed${C_RESET}"
+        else
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install JetBrainsMono Nerd Font${C_RESET}"
+        fi
+        if maple_font_installed; then
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}Maple Mono already installed${C_RESET}"
+        else
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install Maple Mono${C_RESET}"
+        fi
+    fi
 
     # Dep tools section
     if [ "${#DEPS[@]}" -gt 0 ]; then
@@ -1701,10 +1707,44 @@ unset _app_lines _k _tl _line
 show_plan "${SELECTED[@]}"
 
 # ── Step 5a: install dep tools ───────────────────────────────────────────────
-FONT_DONE=0
 STOWED_WALLPAPER=0
 INSTALLED=()
 FAILED=()
+
+# ── Step 5a0: fonts ───────────────────────────────────────────────────────────
+# Both fonts are installed on every run rather than only when a terminal config
+# happens to be selected: the configs reference them by name, so picking zsh or
+# starship alone used to leave a terminal with no font to render. Skipped only
+# where they cannot do anything — no display server, or WSL, where the terminal
+# is a Windows program and the Linux filesystem is the wrong place for them.
+if [ "$IS_WSL" -eq 1 ]; then
+    info "Fonts..."
+    substep "${C_YELLOW}WSL — install the fonts on Windows, not here${C_RESET}"
+    substep "${C_DIM}Get JetBrainsMono Nerd Font and Maple Mono, install them in${C_RESET}"
+    substep "${C_DIM}Windows, then select them in Windows Terminal / VS Code.${C_RESET}"
+    success "Skipped"
+elif [ "$IS_HEADLESS" -eq 1 ]; then
+    info "Fonts..."
+    substep "${C_DIM}No display server — nothing here can render them, skipping${C_RESET}"
+    success "Skipped"
+else
+    info "Fonts..."
+    if font_installed; then
+        substep "${C_DIM}JetBrainsMono Nerd Font already installed${C_RESET}"
+    else
+        substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
+        install_font || error "Failed to install JetBrainsMono — continuing"
+    fi
+    if maple_font_installed; then
+        substep "${C_DIM}Maple Mono already installed${C_RESET}"
+    else
+        substep "Installing ${C_ACCENT}Maple Mono${C_RESET}..."
+        install_maple_font || error "Failed to install Maple Mono — continuing"
+    fi
+    substep "Rebuilding font cache..."
+    fc-cache -fv &>/dev/null 2>&1 || true
+    success "Fonts ready"
+fi
 
 if [ "${#DEPS[@]}" -gt 0 ]; then
     info "Installing dep tools..."
@@ -1779,30 +1819,6 @@ for cfg in "${SELECTED[@]}"; do
                 FAILED+=("$cfg")
                 continue
             fi
-        fi
-
-        if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg" && [ "$IS_WSL" -eq 1 ]; then
-            # Fonts live with the terminal, and on WSL the terminal is a
-            # Windows program — installing into the Linux filesystem changes
-            # nothing there.
-            substep "${C_YELLOW}WSL detected — install the fonts on Windows, not here${C_RESET}"
-            substep "${C_DIM}Get JetBrainsMono Nerd Font and Maple Mono, install them in${C_RESET}"
-            substep "${C_DIM}Windows, then select them in Windows Terminal / VS Code.${C_RESET}"
-            FONT_DONE=1
-        fi
-
-        if [ "$FONT_DONE" -eq 0 ] && needs_font "$cfg"; then
-            if ! font_installed; then
-                substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-                install_font || error "Failed to install JetBrainsMono — continuing"
-            fi
-            if ! maple_font_installed; then
-                substep "Installing ${C_ACCENT}Maple Mono${C_RESET}..."
-                install_maple_font || error "Failed to install Maple Mono — continuing"
-            fi
-            substep "Rebuilding font cache..."
-            fc-cache -fv &>/dev/null 2>&1 || true
-            FONT_DONE=1
         fi
 
         if ! stow_config "$cfg"; then
