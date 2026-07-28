@@ -1200,6 +1200,19 @@ unset _bm_sel _bm_key _bm_esc
 # itself) keeps working unchanged at every call site.
 info "Authentication..."
 if [ "$(id -u)" -eq 0 ]; then
+    # Tell a real root login apart from 'sudo bash install.sh'. Under sudo,
+    # $HOME is /root or the caller's home depending on the sudoers policy, so
+    # the configs either land in the wrong home or land in the right one owned
+    # by root. Both are wrong and neither is obvious later, so stop and explain.
+    if [ -n "${SUDO_USER:-}" ]; then
+        error "Do not run this through sudo."
+        substep "The installer asks for sudo itself, only for the steps that need it."
+        substep "Run as your own user instead:   ${C_ACCENT}bash install.sh${C_RESET}"
+        substep "Or log in as root properly and run it there — both are supported."
+        substep "${C_DIM}(As it stands the configs would be stowed into ${HOME}${C_RESET}"
+        substep "${C_DIM} and any files created would be owned by root.)${C_RESET}"
+        exit 1
+    fi
     IS_ROOT=1
     sudo() { env "$@"; }
     substep "Running as root — sudo not needed"
