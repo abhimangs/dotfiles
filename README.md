@@ -70,7 +70,15 @@ The installer checks `DISPLAY`, `WAYLAND_DISPLAY`, the systemd default target an
 
 Pass `--gui` to override the detection.
 
-Shell changes work on cloud images too: `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), so the installer falls back to `usermod`.
+**Running as root.** VPS and container images usually log you in as root, often with no `sudo` installed at all. The installer detects this and runs privileged commands directly — no sudo needed, no password prompt. A non-root user with no sudo gets told what to do rather than a cryptic failure.
+
+One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
+
+**Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), so the installer falls back to `usermod`. Either way the change applies at the next login — log out and back in, or run `exec zsh` to switch the current session immediately.
+
+### Architectures
+
+amd64 and arm64 are fully supported on all three distros; 32-bit ARM (`armhf`/`armel`) and `i386` work for everything that publishes builds for them. Upstream projects name these inconsistently — fastfetch ships `armv7l`/`armv6l`, lazygit ships `armv6`/`32-bit` — so the installer translates Debian's architecture names to whatever each project actually publishes.
 
 ## Theme
 
