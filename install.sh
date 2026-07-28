@@ -115,6 +115,39 @@ else
     exit 1
 fi
 
+# ── Terminal capabilities ─────────────────────────────────────────────────────
+# A server console is not a desktop terminal. The Linux VT ignores 24-bit
+# colour, a non-UTF-8 locale turns every box-drawing character into garbage,
+# and no server has a Nerd Font installed — which is why this UI arrives as a
+# wall of tofu over SSH. Detect the cases that are actually detectable and fall
+# back to plain ASCII. --ascii and --no-color force it; NO_COLOR is honoured.
+USE_COLOR=1
+USE_GLYPHS=1
+for _arg in "$@"; do
+    [[ "$_arg" == "--ascii" ]]    && USE_GLYPHS=0
+    [[ "$_arg" == "--no-color" ]] && USE_COLOR=0
+done
+unset _arg
+[ -n "${NO_COLOR:-}" ] && USE_COLOR=0
+case "${TERM:-}" in
+    dumb|linux|vt*|"") USE_COLOR=0; USE_GLYPHS=0 ;;
+esac
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8*|*utf-8*|*UTF8*|*utf8*) : ;;
+    *) USE_GLYPHS=0 ;;
+esac
+[ -t 1 ] || { USE_COLOR=0; USE_GLYPHS=0; }
+
+if [ "$USE_GLYPHS" -eq 1 ]; then
+    G_TOP='╭─' ; G_MID='│'  ; G_END='╰─'
+    G_ARROW='❯'; G_OK='✔'   ; G_FAIL='✘'
+    G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='${G_DOT}'
+else
+    G_TOP='+-' ; G_MID='|'  ; G_END='+-'
+    G_ARROW='>'; G_OK='[ok]'; G_FAIL='[!]'
+    G_INFO='*' ; G_SUM='='  ; G_RULE='-' ; G_DOT='.'
+fi
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 C_MAIN='\033[38;2;202;169;224m'
 C_ACCENT='\033[38;2;145;177;240m'
@@ -126,16 +159,24 @@ C_TEAL='\033[38;2;148;226;213m'
 C_BOLD='\033[1m'
 C_RESET='\033[0m'
 
+if [ "$USE_COLOR" -eq 0 ]; then
+    C_MAIN='' C_ACCENT='' C_DIM='' C_GREEN='' C_YELLOW='' C_RED='' C_TEAL='' C_BOLD='' C_RESET=''
+fi
+
 # Full Catppuccin Mocha fzf theme
 _FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,prompt:#cba6f7,pointer:#f5e0dc,marker:#a6e3a1,border:#585b70,header:#94e2d5,info:#cba6f7,spinner:#f5e0dc,separator:#585b70,gutter:#1e1e2e"
+_FZF_COLOR_OPT="--color=${_FZF_CLR}"
+[ "$USE_COLOR" -eq 0 ] && _FZF_COLOR_OPT="--no-color"
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
 header() {
-    clear
+    [ "$USE_COLOR" -eq 1 ] && clear
+    local _rule=""; local _i
+    for ((_i = 0; _i < 54; _i++)); do _rule+="$G_RULE"; done
     echo ""
-    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
-    echo -e "        ${C_ACCENT}${C_BOLD}󰄴  D O T F I L E S${C_RESET}  ${C_DIM}·${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
-    echo -e "${C_MAIN}  ──────────────────────────────────────────────────────${C_RESET}"
+    echo -e "${C_MAIN}  ${_rule}${C_RESET}"
+    echo -e "        ${C_ACCENT}${C_BOLD}${G_SUM}  D O T F I L E S${C_RESET}  ${C_DIM}${G_DOT}${C_RESET}  ${C_TEAL}${C_BOLD}I N S T A L L E R${C_RESET}"
+    echo -e "${C_MAIN}  ${_rule}${C_RESET}"
     echo ""
     local _distro_label
     case "$DISTRO" in
@@ -143,19 +184,19 @@ header() {
         debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
     esac
     [ "$IS_WSL" -eq 1 ] && _distro_label="${_distro_label} on WSL"
-    echo -e "      ${C_DIM}${_distro_label}  ·  GNU Stow  ·  Catppuccin Mocha${C_RESET}"
+    echo -e "      ${C_DIM}${_distro_label}  ${G_DOT}  GNU Stow  ${G_DOT}  Catppuccin Mocha${C_RESET}"
     if [ "$IS_HEADLESS" -eq 1 ]; then
         echo ""
         echo -e "      ${C_YELLOW}headless — no display server detected${C_RESET}"
-        echo -e "      ${C_DIM}GUI configs and apps hidden  ·  pass --gui to show them${C_RESET}"
+        echo -e "      ${C_DIM}GUI configs and apps hidden  ${G_DOT}  pass --gui to show them${C_RESET}"
     fi
     echo ""
 }
 
-info()    { echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 $1${C_RESET}"; }
-substep() { echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}❯ ${C_RESET}$1"; }
-success() { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_GREEN}✔ ${C_RESET}$1\n"; }
-error()   { echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_RED}✘ ${C_RESET}$1\n"; }
+info()    { echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} $1${C_RESET}"; }
+substep() { echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW} ${C_RESET}$1"; }
+success() { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}$1\n"; }
+error()   { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}$1\n"; }
 
 # ── Package helpers ───────────────────────────────────────────────────────────
 # Some tools can land outside the package manager entirely — starship's own
@@ -1006,27 +1047,27 @@ app_type_resolved() {
 # ── Menu descriptions ─────────────────────────────────────────────────────────
 declare -A CONFIG_DESC
 CONFIG_DESC[fastfetch]="system info display at login"
-CONFIG_DESC[ghostty]="GPU-accelerated terminal   ·  JetBrains Nerd Font"
-CONFIG_DESC[kitty]="cross-platform terminal    ·  JetBrains Nerd Font"
+CONFIG_DESC[ghostty]="GPU-accelerated terminal   ${G_DOT}  JetBrains Nerd Font"
+CONFIG_DESC[kitty]="cross-platform terminal    ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[zsh]="shell + Zinit plugins"
 CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
 CONFIG_DESC[starship]="cross-shell prompt"
-CONFIG_DESC[rofi]="keyboard-driven launcher   ·  JetBrains Nerd Font"
+CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[git]="git config  →  ~/.gitconfig"
 if [[ "$DISTRO" == "arch" ]]; then
-    CONFIG_DESC[ulauncher]="app launcher              ·  AUR"
+    CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  AUR"
 else
-    CONFIG_DESC[ulauncher]="app launcher              ·  PPA/deb"
+    CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  PPA/deb"
 fi
 
 declare -A DEP_DESC
-DEP_DESC[bat]="cat with syntax highlighting  ·  Catppuccin theme"
+DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
 DEP_DESC[eza]="modern ls  →  ls  ll  lt  la aliases"
 DEP_DESC[fd]="fast find replacement  →  fzf integration"
 DEP_DESC[zoxide]="smart cd  →  z command"
 DEP_DESC[thefuck]="corrects last command  →  fuck alias"
 DEP_DESC[lazygit]="git TUI  →  lg alias"
-DEP_DESC[btop]="resource monitor  ·  Catppuccin theme"
+DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
@@ -1039,7 +1080,7 @@ show_plan() {
     [[ "$BACKUP_MODE" == "delete" ]] \
         && _mode_label="${C_RED}delete${C_RESET}" \
         || _mode_label="${C_YELLOW}backup${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Installation plan ${C_DIM}(existing configs: ${_mode_label}${C_DIM})${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Installation plan ${C_DIM}(existing configs: ${_mode_label}${C_DIM})${C_RESET}"
 
     for cfg in "${cfgs[@]}"; do
         local pkg="${PKG_MAP[$cfg]}"
@@ -1193,57 +1234,57 @@ show_plan() {
             ;;
         esac
 
-        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}${cfg}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}${cfg}${C_RESET}"
         for step in "${steps[@]}"; do
-            echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${step}"
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${step}"
         done
     done
 
     # Dep tools section
     if [ "${#DEPS[@]}" -gt 0 ]; then
-        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
         for _d in "${DEPS[@]}"; do
             if pkg_installed "$(dep_pkg_name "$_d")"; then
-                echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
-                echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
             fi
         done
     fi
 
     # Applications section
     if [ "${#APPS[@]}" -gt 0 ]; then
-        echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
         for _a in "${APPS[@]}"; do
             local _lbl="${APP_LABEL[$_a]}"
             local _type; _type="$(app_type_resolved "$_a")"
             if [[ "$_type" == "curl" ]]; then
                 local _bin="${APP_BIN[$_a]:-}"
                 if curl_app_installed "$_bin"; then
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed${C_RESET}"
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} already installed${C_RESET}"
                 else
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
                 fi
             else
                 local _pkg; _pkg="$(app_pkg_name "$_a")"
                 if pkg_installed "$_pkg"; then
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_DIM}${_lbl} already installed — will update${C_RESET}"
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} already installed — will update${C_RESET}"
                 else
-                    echo -e "${C_MAIN}${C_BOLD} │    ${C_DIM}·${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
                 fi
             fi
         done
     fi
 
-    echo -e "${C_MAIN}${C_BOLD} │${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
     if [ "$DRY_RUN" -eq 1 ]; then
-        echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
         exit 0
     fi
-    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
     read -r CONFIRM <"$TTY_IN"
     [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
     echo ""
@@ -1258,15 +1299,15 @@ _bm_sel=0
 
 _bm_draw() {
     if [ "$1" -eq 0 ]; then
-        printf " ${C_MAIN}${C_BOLD}│${C_RESET}  ${C_GREEN}❯${C_RESET}  backup  ${C_DIM}·  move to .bak, safe and reversible   ${C_RESET}\n"
-        printf " ${C_MAIN}${C_BOLD}│${C_RESET}     delete  ${C_DIM}·  wipe cleanly, no backup kept         ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  ${C_GREEN}${G_ARROW}${C_RESET}  backup  ${C_DIM}${G_DOT}  move to .bak, safe and reversible   ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}     delete  ${C_DIM}${G_DOT}  wipe cleanly, no backup kept         ${C_RESET}\n"
     else
-        printf " ${C_MAIN}${C_BOLD}│${C_RESET}     backup  ${C_DIM}·  move to .bak, safe and reversible   ${C_RESET}\n"
-        printf " ${C_MAIN}${C_BOLD}│${C_RESET}  ${C_RED}❯${C_RESET}  delete  ${C_DIM}·  wipe cleanly, no backup kept         ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}     backup  ${C_DIM}${G_DOT}  move to .bak, safe and reversible   ${C_RESET}\n"
+        printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  ${C_RED}${G_ARROW}${C_RESET}  delete  ${C_DIM}${G_DOT}  wipe cleanly, no backup kept         ${C_RESET}\n"
     fi
 }
 
-echo -e "${C_MAIN}${C_BOLD} ╭─ 󰓅 Existing configs  ${C_DIM}↑↓ navigate  ·  Enter confirm${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
 _bm_draw $_bm_sel
 
 while true; do
@@ -1293,9 +1334,9 @@ done
 
 if [ "$_bm_sel" -eq 1 ]; then
     BACKUP_MODE="delete"
-    echo -e " ${C_MAIN}${C_BOLD}╰─ ${C_RED}✔${C_RESET} delete\n"
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
 else
-    echo -e " ${C_MAIN}${C_BOLD}╰─ ${C_GREEN}✔${C_RESET} backup\n"
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
 fi
 unset -f _bm_draw
 unset _bm_sel _bm_key _bm_esc
@@ -1381,7 +1422,7 @@ if [[ "$DISTRO" == "arch" ]]; then
             exit 1
         fi
 
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
         if ! (cd /tmp/paru-build && makepkg -si --noconfirm); then
             error "paru build failed."
             exit 1
@@ -1460,7 +1501,7 @@ if command -v fzf &>/dev/null; then
     echo ""
     _cfg_lines=()
     for _c in "${CONFIGS[@]}"; do
-        _cfg_lines+=("$(printf '%-11s  ·  %s' "$_c" "${CONFIG_DESC[$_c]}")")
+        _cfg_lines+=("$(printf '%-11s  ${G_DOT}  %s' "$_c" "${CONFIG_DESC[$_c]}")")
     done
     mapfile -t SELECTED < <(
         printf '%s\n' "${_cfg_lines[@]}" | \
@@ -1470,9 +1511,9 @@ if command -v fzf &>/dev/null; then
             --reverse \
             --border=rounded \
             --prompt="  " \
-            --pointer="❯" \
-            --marker="✔" \
-            --color="${_FZF_CLR}" \
+            --pointer="$G_ARROW" \
+            --marker="$G_OK" \
+            ${_FZF_COLOR_OPT} \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
@@ -1488,10 +1529,10 @@ else
     while true; do
         for _i in "${!CONFIGS[@]}"; do
             _c="${CONFIGS[$_i]}"
-            printf "${C_MAIN}${C_BOLD} │  ${C_ACCENT}%d ${C_DIM}❯ ${C_RESET}%-11s ${C_DIM}·  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
+            printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%d ${C_DIM}${G_ARROW} ${C_RESET}%-11s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
         done
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All${C_RESET}"
-        echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All${C_RESET}"
+        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
         read -r RAW <"$TTY_IN"
 
         if [[ "$RAW" == "a" || "$RAW" == "A" ]]; then
@@ -1537,7 +1578,7 @@ echo ""
 if command -v fzf &>/dev/null; then
     _dep_lines=()
     for _dd in "${DEPS_LIST[@]}"; do
-        _dep_lines+=("$(printf '%-10s  ·  %s' "$_dd" "${DEP_DESC[$_dd]}")")
+        _dep_lines+=("$(printf '%-10s  ${G_DOT}  %s' "$_dd" "${DEP_DESC[$_dd]}")")
     done
     mapfile -t DEPS < <(
         printf '%s\n' "${_dep_lines[@]}" | \
@@ -1547,9 +1588,9 @@ if command -v fzf &>/dev/null; then
             --reverse \
             --border=rounded \
             --prompt="  " \
-            --pointer="❯" \
-            --marker="✔" \
-            --color="${_FZF_CLR}" \
+            --pointer="$G_ARROW" \
+            --marker="$G_OK" \
+            ${_FZF_COLOR_OPT} \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
@@ -1560,10 +1601,10 @@ if command -v fzf &>/dev/null; then
 else
     for _i in "${!DEPS_LIST[@]}"; do
         _dd="${DEPS_LIST[$_i]}"
-        printf "${C_MAIN}${C_BOLD} │  ${C_ACCENT}%d ${C_DIM}❯ ${C_RESET}%-9s ${C_DIM}·  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
+        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
     done
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
     read -r DEP_RAW <"$TTY_IN"
     if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
         DEPS=("${DEPS_LIST[@]}")
@@ -1607,7 +1648,7 @@ for _k in "${APPS_LIST[@]}"; do
         apt|brave|vscode|claude-desktop) _tl="apt" ;;
         *)           _tl="$_rt" ;;
     esac
-    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ·  %s' "${APP_LABEL[$_k]}" "$_tl")")
+    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  ${G_DOT}  %s' "${APP_LABEL[$_k]}" "$_tl")")
 done
 unset _rt
 
@@ -1622,9 +1663,9 @@ if command -v fzf &>/dev/null; then
             --reverse \
             --border=rounded \
             --prompt="  " \
-            --pointer="❯" \
-            --marker="✔" \
-            --color="${_FZF_CLR}" \
+            --pointer="$G_ARROW" \
+            --marker="$G_OK" \
+            ${_FZF_COLOR_OPT} \
             --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
             --bind='enter:toggle+down' \
             --bind='ctrl-j:accept' \
@@ -1636,11 +1677,11 @@ else
     _app_i=1
     for _line in "${_app_lines[@]}"; do
         _disp="${_line#*$'\t'}"
-        echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}${_app_i} ${C_DIM}❯ ${C_RESET}${_disp}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${_app_i} ${C_DIM}${G_ARROW} ${C_RESET}${_disp}"
         (( _app_i++ ))
     done
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_ACCENT}a ${C_DIM}❯ ${C_RESET}All  ${C_DIM}·  Enter to skip${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ╰─ ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
     read -r APP_RAW <"$TTY_IN"
     if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
         APPS=("${APPS_LIST[@]}")
@@ -2080,17 +2121,17 @@ if [ "${#APPS[@]}" -gt 0 ]; then
 fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
-echo -e "${C_MAIN}${C_BOLD} ╭─ 󰄴 Summary${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_SUM} Summary${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_GREEN}✔ ${C_RESET}Installed: ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed: ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} │  ${C_RED}✘ ${C_RESET}Failed:    ${C_RED}${FAILED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed:    ${C_RED}${FAILED[*]}${C_RESET}"
 fi
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_GREEN}✔ ${C_RESET}Restart your terminal to apply changes.\n"
+    echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}Restart your terminal to apply changes.\n"
 else
-    echo -e "${C_MAIN}${C_BOLD} ╰─ ${C_RED}✘ ${C_RESET}No configs were installed.\n"
+    echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}No configs were installed.\n"
 fi
