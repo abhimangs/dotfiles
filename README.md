@@ -10,6 +10,8 @@ curl -fsSL https://abhiman.io/linux.sh | bash
 
 Works on Arch Linux, Debian, and Ubuntu — the script detects your distro and hands off to `install.sh`. Every run backs up any existing `~/dotfiles` and replaces it with a fresh clone, so the checkout is always clean.
 
+> **One caveat on root-only images.** `linux.sh` caches sudo credentials as its first step and stops if `sudo` is missing — which is the case on many minimal root VPS images. `install.sh` itself runs fine as root without sudo, so on such a machine either install sudo first (`apt install sudo`) or skip the bootstrap and clone manually as shown below.
+
 Or clone manually:
 
 ```bash
