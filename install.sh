@@ -1732,25 +1732,26 @@ else
     fi
 fi
 
+# Everything .zshrc reaches for is guarded by `command -v`, so without these the
+# shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf key
+# bindings. They are part of the shell, not optional extras — pull them all in.
+if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
+    _dep_added=()
+    for _d in "${DEPS_LIST[@]}"; do
+        printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
+        DEPS+=("$_d")
+        _dep_added+=("$_d")
+    done
+    if [ "${#_dep_added[@]}" -gt 0 ]; then
+        substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
+    fi
+    unset _dep_added _d
+fi
+
 if [ "${#DEPS[@]}" -gt 0 ]; then
     success "Dep tools: ${C_ACCENT}${DEPS[*]}${C_RESET}"
 else
     success "${C_DIM}No dep tools selected${C_RESET}"
-fi
-
-# Warn if alias-heavy dep tools selected without zsh
-if [ "${#DEPS[@]}" -gt 0 ] && ! printf '%s\n' "${SELECTED[@]}" | grep -qx "zsh"; then
-    _alias_deps=(bat eza zoxide thefuck)
-    for _d in "${DEPS[@]}"; do
-        for _a in "${_alias_deps[@]}"; do
-            if [[ "$_d" == "$_a" ]]; then
-                echo -e " ${C_YELLOW}  Note: bat/eza/zoxide/thefuck aliases live in .zshrc — consider also selecting zsh${C_RESET}"
-                echo ""
-                break 2
-            fi
-        done
-    done
-    unset _alias_deps _d _a
 fi
 
 # ── App menu ─────────────────────────────────────────────────────────────────
