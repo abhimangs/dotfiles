@@ -844,6 +844,77 @@ ensure_zsh_autoexec() {
     return 0
 }
 
+# ── Private: remove the repo, and any sign of who owns it ────────────────────
+# Two kinds of target. Repo scaffolding is deleted outright — it has no value
+# once the configs are stowed. Live configs are scrubbed instead: they have to
+# keep working, they just must not carry a name, an address or a URL.
+PRIVATE_DELETE=(.git .github .gitignore .gitattributes
+                README.md CLAUDE.md LICENSE LICENSE.md linux.sh)
+
+# file → what is taken out of it
+PRIVATE_SCRUB_FILES=(git/.gitconfig fastfetch/config.jsonc install.sh)
+PRIVATE_SCRUB_WHAT=("user.name and user.email"
+                    "author byline (name, GitHub handle, contact address)"
+                    "hosted bootstrap domain in comments")
+
+private_preview() {
+    local d="$DOTFILES_DIR" item i present=()
+    for item in "${PRIVATE_DELETE[@]}"; do
+        { [ -e "$d/$item" ] || [ -L "$d/$item" ]; } && present+=("$item")
+    done
+    if [ "${#present[@]}" -gt 0 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_RED}delete${C_RESET} ${C_DIM}${present[*]}${C_RESET}"
+    else
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}delete  nothing left to remove${C_RESET}"
+    fi
+    for i in "${!PRIVATE_SCRUB_FILES[@]}"; do
+        [ -f "$d/${PRIVATE_SCRUB_FILES[$i]}" ] || continue
+        printf "${C_MAIN}${C_BOLD} ${G_MID}    ${C_YELLOW}scrub${C_RESET}  ${C_DIM}%-24s %s${C_RESET}\n" \
+            "${PRIVATE_SCRUB_FILES[$i]}" "${PRIVATE_SCRUB_WHAT[$i]}"
+    done
+}
+
+# Take the identifying lines out of a config without breaking it
+private_scrub() {
+    local d="$DOTFILES_DIR" done_any=0
+
+    if [ -f "$d/git/.gitconfig" ]; then
+        if command -v git &>/dev/null; then
+            git config --file "$d/git/.gitconfig" --unset user.name  2>/dev/null
+            git config --file "$d/git/.gitconfig" --unset user.email 2>/dev/null
+        else
+            sed -i -E '/^[[:space:]]*(name|email)[[:space:]]*=/d' "$d/git/.gitconfig" 2>/dev/null
+        fi
+        done_any=1
+    fi
+
+    # The whole leading comment block of the fastfetch config is the byline.
+    # Matched structurally rather than by name — hardcoding the name here would
+    # just move the leak into this script.
+    if [ -f "$d/fastfetch/config.jsonc" ]; then
+        local tmp_ff="${RUN_TMPDIR}/ff.jsonc"
+        if awk 'BEGIN{head=1}
+                head && (/^[[:space:]]*\/\// || /^[[:space:]]*$/) {next}
+                {head=0} {print}' "$d/fastfetch/config.jsonc" > "$tmp_ff" 2>/dev/null \
+           && [ -s "$tmp_ff" ]; then
+            cat "$tmp_ff" > "$d/fastfetch/config.jsonc"
+        fi
+        rm -f "$tmp_ff"
+        done_any=1
+    fi
+
+    # Any hosted bootstrap URL mentioned in this script's own comments. Done
+    # last: sed -i replaces the file by rename, so the running shell keeps
+    # reading the original inode and cannot be corrupted mid-run.
+    if [ -f "$d/install.sh" ]; then
+        sed -i -E 's#(https?://)?[A-Za-z0-9._-]+/linux\.sh#the hosted bootstrap script#g' \
+            "$d/install.sh" 2>/dev/null
+        done_any=1
+    fi
+
+    return $(( 1 - done_any ))
+}
+
 # ── Strip every trace that ~/dotfiles came from a git repo ───────────────────
 # The stowed configs are symlinks *into* ~/dotfiles, so the directory itself has
 # to stay — what goes is anything identifying it as a clone: git metadata (the
@@ -857,8 +928,7 @@ strip_repo_traces() {
     [ "$d" != "/" ] && [ "$d" != "$HOME" ] || return 1
 
     local removed=() item
-    for item in .git .github .gitignore .gitattributes \
-                README.md CLAUDE.md LICENSE LICENSE.md linux.sh; do
+    for item in "${PRIVATE_DELETE[@]}"; do
         if [ -e "$d/$item" ] || [ -L "$d/$item" ]; then
             rm -rf "${d:?}/${item:?}" && removed+=("$item")
         fi
@@ -868,6 +938,10 @@ strip_repo_traces() {
         substep "Removed: ${C_DIM}${removed[*]}${C_RESET}"
     else
         substep "${C_DIM}Nothing left to remove${C_RESET}"
+    fi
+
+    if private_scrub; then
+        substep "Scrubbed: ${C_DIM}name, address and URLs from the remaining configs${C_RESET}"
     fi
     return 0
 }
@@ -1368,8 +1442,8 @@ show_plan() {
     if [ "$STRIP_REPO" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}repo traces${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_RED}remove${C_RESET} ${C_DIM}~/dotfiles/.git and repo files at the end${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}configs keep working, install.sh stays — re-run it any time${C_RESET}"
+        private_preview
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}runs last; configs keep working and install.sh stays${C_RESET}"
     fi
 
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
@@ -1390,76 +1464,107 @@ header
 # What happens to existing configs (backup / delete) and whether to strip the
 # repo traces are two unrelated decisions, so the second is a toggle rather than
 # a third mode — you can keep your backups and still leave no trace of the repo.
-BACKUP_MODE="backup"
+# ── Privacy ───────────────────────────────────────────────────────────────────
+# Asked first and on its own, because it is a decision about this machine, not
+# about what happens to existing configs. The exact list is printed before the
+# choice — nothing here should be a surprise afterwards.
 STRIP_REPO=0
-_bm_mode=0     # 0 backup, 1 delete
-_bm_cur=0      # cursor row: 0, 1, or 2 (the toggle)
-_BM_N=3
 
-_bm_row() {   # <row> <cursor> <chosen-marker> <colour> <label> <description>
+echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Privacy${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ~/dotfiles came from a repo, or whose:${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+private_preview
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Configs keep working and install.sh stays, so it can be re-run.${C_RESET}"
+echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+
+_pv_cur=0
+_pv_row() {
     local mark="  "
-    [ "$1" -eq "$2" ] && mark="$4${G_ARROW}${C_RESET} "
-    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-46s${C_RESET}\n" \
-        "$mark" "$3" "$5" "$6"
+    [ "$1" -eq "$2" ] && mark="$3${G_ARROW}${C_RESET} "
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
+        "$mark" "$4" "$5" "$6"
 }
-
-_bm_draw() {
-    local m0="( )" m1="( )" tg="[ ]"
-    [ "$_bm_mode" -eq 0 ] && m0="(${G_PICK})"
-    [ "$_bm_mode" -eq 1 ] && m1="(${G_PICK})"
-    [ "$STRIP_REPO" -eq 1 ] && tg="[${G_PICK}]"
-    _bm_row 0 "$1" "$m0" "$C_GREEN" "backup" "move to .bak, safe and reversible"
-    _bm_row 1 "$1" "$m1" "$C_RED"   "delete" "wipe cleanly, no backup kept"
-    _bm_row 2 "$1" "$tg" "$C_RED"   "private" "also strip repo traces from ~/dotfiles"
+_pv_draw() {
+    local m0="( )" m1="( )"
+    [ "$STRIP_REPO" -eq 0 ] && m0="(${G_PICK})" || m1="(${G_PICK})"
+    _pv_row 0 "$1" "$C_GREEN" "$m0" "keep"    "leave it as a normal checkout"
+    _pv_row 1 "$1" "$C_RED"   "$m1" "private" "remove and scrub everything above"
 }
-
-echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ move  ${G_DOT}  space select/toggle  ${G_DOT}  Enter confirm${C_RESET}"
-_bm_draw $_bm_cur
+_pv_draw $_pv_cur
 
 while true; do
-    printf "\033[%dA" "$_BM_N"
-    IFS= read -n 1 -rs _bm_key <"$TTY_IN"
-    case "$_bm_key" in
-        $'\n'|$'\r'|'')
-            _bm_draw $_bm_cur
-            break
-            ;;
-        ' ')   # act on the row the cursor is on
-            case "$_bm_cur" in
-                0) _bm_mode=0 ;;
-                1) _bm_mode=1 ;;
-                2) STRIP_REPO=$(( 1 - STRIP_REPO )) ;;
-            esac
-            _bm_draw $_bm_cur ;;
-        'b'|'B') _bm_mode=0; _bm_cur=0; _bm_draw $_bm_cur ;;
-        'd'|'D') _bm_mode=1; _bm_cur=1; _bm_draw $_bm_cur ;;
-        'p'|'P') STRIP_REPO=$(( 1 - STRIP_REPO )); _bm_cur=2; _bm_draw $_bm_cur ;;
+    printf "\033[2A"
+    IFS= read -n 1 -rs _pv_key <"$TTY_IN"
+    case "$_pv_key" in
+        $'\n'|$'\r'|'') _pv_draw $_pv_cur; break ;;
+        ' ')     STRIP_REPO=$_pv_cur; _pv_draw $_pv_cur ;;
+        'k'|'K') STRIP_REPO=0; _pv_cur=0; _pv_draw $_pv_cur ;;
+        'p'|'P') STRIP_REPO=1; _pv_cur=1; _pv_draw $_pv_cur ;;
         $'\033')
-            IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
-            case "$_bm_esc" in
-                '[A'|'[D') [ "$_bm_cur" -gt 0 ] && _bm_cur=$(( _bm_cur - 1 ))
-                           [ "$_bm_cur" -lt 2 ] && _bm_mode=$_bm_cur ;;
-                '[B'|'[C') [ "$_bm_cur" -lt 2 ] && _bm_cur=$(( _bm_cur + 1 ))
-                           [ "$_bm_cur" -lt 2 ] && _bm_mode=$_bm_cur ;;
+            IFS= read -n 2 -rs -t 0.1 _pv_esc <"$TTY_IN" || true
+            case "$_pv_esc" in
+                '[A'|'[D') _pv_cur=0 ;;
+                '[B'|'[C') _pv_cur=1 ;;
             esac
-            _bm_draw $_bm_cur ;;
-        *) _bm_draw $_bm_cur ;;
+            STRIP_REPO=$_pv_cur
+            _pv_draw $_pv_cur ;;
+        *) _pv_draw $_pv_cur ;;
     esac
 done
 
-_bm_summary="backup"
-if [ "$_bm_mode" -eq 1 ]; then
-    BACKUP_MODE="delete"
-    _bm_summary="delete"
-fi
-[ "$STRIP_REPO" -eq 1 ] && _bm_summary="${_bm_summary} + strip repo traces"
-if [ "$_bm_mode" -eq 1 ] || [ "$STRIP_REPO" -eq 1 ]; then
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} ${_bm_summary}\n"
+if [ "$STRIP_REPO" -eq 1 ]; then
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private — traces removed at the end of the run\n"
 else
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} ${_bm_summary}\n"
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} keep\n"
 fi
-unset -f _bm_draw _bm_row
-unset _bm_mode _bm_cur _bm_key _bm_esc _BM_N _bm_summary
+unset -f _pv_draw _pv_row
+unset _pv_cur _pv_key _pv_esc
+
+# ── Existing configs: backup or delete ───────────────────────────────────────
+BACKUP_MODE="backup"
+_bm_sel=0
+
+_bm_draw() {
+    local m0="( )" m1="( )"
+    [ "$1" -eq 0 ] && m0="(${G_PICK})" || m1="(${G_PICK})"
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
+        "$( [ "$1" -eq 0 ] && printf '%b' "${C_GREEN}${G_ARROW}${C_RESET} " || printf '  ')" \
+        "$m0" "backup" "move to .bak, safe and reversible"
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
+        "$( [ "$1" -eq 1 ] && printf '%b' "${C_RED}${G_ARROW}${C_RESET} " || printf '  ')" \
+        "$m1" "delete" "wipe cleanly, no backup kept"
+}
+
+echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
+_bm_draw $_bm_sel
+
+while true; do
+    printf "\033[2A"
+    IFS= read -n 1 -rs _bm_key <"$TTY_IN"
+    case "$_bm_key" in
+        $'\n'|$'\r'|'') _bm_draw $_bm_sel; break ;;
+        'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
+        'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
+        $'\033')
+            IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
+            case "$_bm_esc" in
+                '[A'|'[D') _bm_sel=0 ;;
+                '[B'|'[C') _bm_sel=1 ;;
+            esac
+            _bm_draw $_bm_sel ;;
+        *) _bm_draw $_bm_sel ;;
+    esac
+done
+
+if [ "$_bm_sel" -eq 1 ]; then
+    BACKUP_MODE="delete"
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
+else
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
+fi
+unset -f _bm_draw
+unset _bm_sel _bm_key _bm_esc
 
 # ── Privileges ────────────────────────────────────────────────────────────────
 # VPS and container images normally drop you straight into root, and plenty of
