@@ -109,7 +109,16 @@ strip_items() {
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
 GUI_APPS=(brave-beta brave-stable vscode antigravity-ide antigravity notion obsidian claude-desktop vlc)
 
-trap 'echo -ne "\033[0m"' EXIT
+RUN_TMPDIR="$(mktemp -d /tmp/dotfiles-install_XXXXXX 2>/dev/null || echo /tmp)"
+
+# Everything the run downloads goes under RUN_TMPDIR, so an interrupt mid-install
+# does not leave .deb files and unpacked tarballs behind in /tmp.
+_cleanup() {
+    [ -n "${_SUDO_KEEPALIVE:-}" ] && kill "$_SUDO_KEEPALIVE" 2>/dev/null
+    [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
+    echo -ne "\033[0m"
+}
+trap _cleanup EXIT INT TERM
 
 # ── Interactive input source ──────────────────────────────────────────────────
 # Every prompt must read from the terminal, never stdin: reached through
@@ -260,7 +269,7 @@ _paru_run_robust() {
         return 1
     fi
 
-    local tmplog; tmplog=$(mktemp /tmp/paru_XXXXXX.log)
+    local tmplog; tmplog=$(mktemp -p "$RUN_TMPDIR" paru_XXXXXX.log)
 
     # ── preflight: stale pacman lock ─────────────────────────────────────────
     if [ -f /var/lib/pacman/db.lck ]; then
@@ -353,6 +362,7 @@ apt_pkg_installed() {
 }
 
 APT_UPDATED=0
+APT_INDEX_OK=1
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
     local out try
@@ -369,11 +379,17 @@ apt_update_once() {
     # third-party repo would fail this too and swapping mirrors would not help.
     if grep -qiE 'could not resolve|failed to fetch|connection failed|404 +not found|no longer has a release file|hash sum mismatch' <<< "$out"; then
         substep "${C_YELLOW}Package index unreachable — trying the canonical mirror${C_RESET}"
-        if apt_add_fallback_mirror; then
-            sudo apt-get update -qq &>/dev/null 2>&1
+        if apt_add_fallback_mirror && sudo apt-get update -qq &>/dev/null 2>&1; then
+            APT_UPDATED=1
+            return 0
         fi
     fi
+    # Marked done either way so every later step does not retry the same
+    # failing refresh, but remembered as broken so an install failure can say
+    # why instead of looking like a missing package.
+    APT_INDEX_OK=0
     APT_UPDATED=1
+    return 1
 }
 
 # Last apt error, so a failure can be shown instead of just "failed"
@@ -406,6 +422,7 @@ apt_install() {
         return 0
     fi
     APT_LAST_ERROR="$out"
+    [ "$APT_INDEX_OK" -eq 0 ] && substep "${C_YELLOW}Note: the package index never refreshed successfully${C_RESET}"
     return 1
 }
 
@@ -528,7 +545,7 @@ ensure_fastfetch_deb() {
         esac
         url=$(github_latest_asset_url "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$")
         if [ -n "$url" ]; then
-            local tmp; tmp=$(mktemp /tmp/fastfetch_XXXXXX.deb)
+            local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" fastfetch_XXXXXX.deb)
             curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
             rm -f "$tmp"
         fi
@@ -545,7 +562,7 @@ ensure_ulauncher_deb() {
     else
         local url; url=$(github_latest_asset_url "Ulauncher/Ulauncher" '_all\.deb$')
         if [ -n "$url" ]; then
-            local tmp; tmp=$(mktemp /tmp/ulauncher_XXXXXX.deb)
+            local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" ulauncher_XXXXXX.deb)
             curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
             rm -f "$tmp"
         fi
@@ -575,7 +592,7 @@ ensure_lazygit_deb() {
     esac
     url=$(github_latest_asset_url "jesseduffield/lazygit" "Linux_${apat}\.tar\.gz$")
     if [ -n "$url" ]; then
-        tmp=$(mktemp -d /tmp/lazygit_XXXXXX)
+        tmp=$(mktemp -d -p "$RUN_TMPDIR" lazygit_XXXXXX)
         if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null && tar -xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null; then
             sudo install -m755 "$tmp/lazygit" /usr/local/bin/lazygit
         fi
@@ -625,7 +642,7 @@ ensure_protonvpn_cli_deb() {
         listing=$(curl -fsSL "$listing_url" 2>/dev/null)
         deb_name=$(grep -oP "protonvpn-stable-release[^\"'>]+\.deb" <<< "$listing" | head -1)
         if [ -n "$deb_name" ]; then
-            tmp=$(mktemp /tmp/protonvpn_XXXXXX.deb)
+            tmp=$(mktemp -p "$RUN_TMPDIR" protonvpn_XXXXXX.deb)
             if curl -fsSL "${listing_url}${deb_name}" -o "$tmp" 2>/dev/null; then
                 sudo dpkg -i "$tmp" &>/dev/null 2>&1
             fi
@@ -725,7 +742,7 @@ install_font_zip() {
     ensure_apt_deps
     command -v unzip    &>/dev/null || apt_install unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
-    local tmp; tmp=$(mktemp -d /tmp/font_XXXXXX)
+    local tmp; tmp=$(mktemp -d -p "$RUN_TMPDIR" font_XXXXXX)
     if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
         mkdir -p "$dir"
         unzip -oq "$tmp/font.zip" -d "$dir" '*.ttf' &>/dev/null 2>&1
@@ -1485,7 +1502,6 @@ else
 
     ( while true; do sudo -v; sleep 240; done ) &>/dev/null &
     _SUDO_KEEPALIVE=$!
-    trap 'kill "$_SUDO_KEEPALIVE" 2>/dev/null; echo -ne "\033[0m"' EXIT
 fi
 
 # ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
@@ -2238,7 +2254,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 INSTALLED+=("$_lbl")
             else
                 substep "Downloading installer for ${C_ACCENT}${_lbl}${C_RESET}..."
-                _tmpsh=$(mktemp /tmp/installer_XXXXXX.sh)
+                _tmpsh=$(mktemp -p "$RUN_TMPDIR" installer_XXXXXX.sh)
                 case "$app" in
                     claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
                     antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
