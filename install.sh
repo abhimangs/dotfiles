@@ -124,7 +124,12 @@ trap _cleanup EXIT INT TERM
 # Every prompt must read from the terminal, never stdin: reached through
 # `curl … | bash` (the documented bootstrap path) stdin is the download stream,
 # so a plain `read` silently eats script text instead of waiting for input.
-if [ -r /dev/tty ]; then
+# The permission test is not enough: with no controlling terminal (setsid, a
+# detached session, some CI runners) /dev/tty exists and is mode 0666, so
+# [ -r /dev/tty ] passes while every open fails with ENXIO. Each prompt then
+# returns instantly with an empty answer and the run charges through the menus
+# on garbage. Actually open it.
+if { : < /dev/tty; } 2>/dev/null; then
     TTY_IN=/dev/tty
 elif [ -t 0 ]; then
     TTY_IN=/dev/stdin
