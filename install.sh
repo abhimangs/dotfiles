@@ -240,6 +240,10 @@ PKG_BIN[fd-find]="fdfind"
 
 pkg_installed() {
     local pkg="$1"
+    # An empty name means a lookup produced nothing; bash reports it as
+    # "PKG_BIN: bad array subscript", which reads like a crash in the middle of
+    # an install. Treat it as "not installed" instead.
+    [ -n "$pkg" ] || return 1
     if [[ "$DISTRO" == "arch" ]]; then
         pacman -Q "$pkg" &>/dev/null && return 0
     else
