@@ -59,7 +59,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 ## Installer features
 
 - **fzf TUI** — multi-select configs with a live preview pane
-- **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree
+- **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree (all of them come automatically with zsh — see below)
 - **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
@@ -78,6 +78,19 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 ### Debian/Ubuntu-only items
 
 `claude-desktop` runs the other way around — Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
+
+### Selecting zsh installs the whole shell
+
+Everything in `.zshrc` is guarded by `command -v`, so a missing tool means a silently absent feature rather than an error. Selecting `zsh` therefore also installs:
+
+- **starship** — the entire prompt is `eval "$(starship init zsh)"`
+- **bat, eza, fd, zoxide, thefuck, lazygit, btop, tree** — the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-T`/`Alt-C` integration
+
+Anything already ticked is not added twice, and all of these remain selectable on their own if you are not using zsh.
+
+### Exit status
+
+`0` when everything asked for succeeded, `1` when anything landed in the `Failed` list. The summary prints either way. The bootstrap `exec`s the installer, so the status propagates through `curl … | bash` unchanged.
 
 ### Private mode
 
@@ -110,6 +123,14 @@ What is *not* supported is `sudo bash install.sh`: under sudo the configs would 
 One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
 **Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login) — and can exit 0 without changing anything at all. The installer therefore reads `/etc/passwd` back after each attempt, falls through to `usermod` if the entry did not change, and only reports success once the shell really is zsh; otherwise it prints the exact command to run. The change applies at the next login — or run `exec zsh` to switch the current session immediately.
+
+**Over SSH, check your connection multiplexing first.** If your client has `ControlMaster` enabled, reconnecting reuses a master opened *before* the shell changed, so you land back in bash and it looks like nothing happened. From your local machine:
+
+```bash
+ssh -O exit <host>    # drop the persisted master, then reconnect
+```
+
+The installer prints this automatically when it detects an SSH session. Failing that, `exec zsh` switches the current session immediately.
 
 If a session still comes up as bash despite `/etc/passwd` being correct — which happens on some cloud images — the installer also drops a guarded hook in `~/.bashrc` that hands an interactive bash over to zsh. It is skipped inside zsh and for non-interactive shells, so it cannot loop or interfere with `scp`.
 
