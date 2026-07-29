@@ -381,6 +381,8 @@ apt_get() {
 
 APT_UPDATED=0
 APT_INDEX_OK=1
+# Last 'apt-get update' error, kept so the failure can explain itself
+APT_UPDATE_ERROR=""
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
     local out try
@@ -405,9 +407,32 @@ apt_update_once() {
     # Marked done either way so every later step does not retry the same
     # failing refresh, but remembered as broken so an install failure can say
     # why instead of looking like a missing package.
+    APT_UPDATE_ERROR="$out"
     APT_INDEX_OK=0
     APT_UPDATED=1
     return 1
+}
+
+# apt-get update exits non-zero when *any* configured source fails — including
+# some third-party repo left behind by an earlier install — while the distro
+# archive refreshed perfectly well and every package still installs. Print what
+# apt actually said, and name the file the failing source lives in: that is the
+# difference between "apt ready" (a lie) and a message worth acting on.
+APT_SOURCE_DIRS=(/etc/apt/sources.list /etc/apt/sources.list.d/)
+apt_index_report() {
+    [ -n "$APT_UPDATE_ERROR" ] || return 0
+    local line url f
+    while IFS= read -r line; do
+        [ -n "$line" ] && substep "${C_DIM}${line}${C_RESET}"
+    done < <(printf '%s\n' "$APT_UPDATE_ERROR" | grep -E '^[EW]:' | tail -4)
+
+    while IFS= read -r url; do
+        [ -n "$url" ] || continue
+        f=$(grep -rlsF -- "$url" "${APT_SOURCE_DIRS[@]}" 2>/dev/null | head -1)
+        [ -n "$f" ] && { substep "${C_YELLOW}Failing source is configured in: ${f}${C_RESET}"; return 0; }
+    done < <(printf '%s\n' "$APT_UPDATE_ERROR" \
+        | grep -oE 'https?://[^ '\''"]+' | sed 's#/dists/.*##;s#/*$##' | sort -u)
+    return 0
 }
 
 # Last apt error, so a failure can be shown instead of just "failed"
@@ -440,7 +465,7 @@ apt_install() {
         return 0
     fi
     APT_LAST_ERROR="$out"
-    [ "$APT_INDEX_OK" -eq 0 ] && substep "${C_YELLOW}Note: the package index never refreshed successfully${C_RESET}"
+    [ "$APT_INDEX_OK" -eq 0 ] && substep "${C_YELLOW}Note: the package index never refreshed cleanly — see the apt errors above${C_RESET}"
     return 1
 }
 
@@ -1689,9 +1714,20 @@ else
         exit 1
     fi
     substep "Updating package index..."
-    apt_update_once
-    ensure_apt_deps
-    success "apt ready"
+    if apt_update_once; then
+        ensure_apt_deps
+        success "apt ready"
+    else
+        # Not fatal: one dead source fails the whole refresh even though every
+        # other list updated and installs still work. Say so plainly here
+        # instead of printing "apt ready" and letting the next step look like
+        # the thing that broke.
+        substep "${C_YELLOW}Package index did not refresh cleanly${C_RESET}"
+        apt_index_report
+        substep "${C_DIM}Continuing — installs usually still work when one source is broken${C_RESET}"
+        ensure_apt_deps
+        success "apt ready (index refreshed with errors)"
+    fi
 fi
 
 # ── Step 2: tools (stow + fzf) ───────────────────────────────────────────────
