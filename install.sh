@@ -2347,3 +2347,9 @@ if [ "${#INSTALLED[@]}" -gt 0 ]; then
 else
     echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}No configs were installed.\n"
 fi
+
+# Exit status reflects the summary: a partial install used to look identical to
+# a clean one to anything calling this — including the curl bootstrap, which
+# execs us and passes our status straight back.
+[ "${#FAILED[@]}" -gt 0 ] && exit 1
+exit 0
