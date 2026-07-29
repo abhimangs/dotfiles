@@ -75,13 +75,16 @@ fi
 
 IS_HEADLESS=0
 detect_headless() {
+    # A live display server is conclusive
     [ -n "${DISPLAY:-}" ]         && return 1
     [ -n "${WAYLAND_DISPLAY:-}" ] && return 1
-    # A graphical default target means a display manager is meant to run here
-    if command -v systemctl &>/dev/null; then
-        [[ "$(systemctl get-default 2>/dev/null)" == "graphical.target" ]] && return 1
-    fi
-    # Installed session files are the last positive signal of a desktop
+
+    # Installed session files are the only other trustworthy signal.
+    #
+    # The systemd default target is not, and used to be checked here: Ubuntu
+    # server images ship graphical.target with no desktop installed at all, so
+    # every such VPS looked like a workstation — GUI configs offered, and both
+    # Nerd Fonts downloaded onto a machine with nothing to render them.
     local _d
     for _d in /usr/share/xsessions /usr/share/wayland-sessions; do
         [ -d "$_d" ] && find "$_d" -name '*.desktop' -print -quit 2>/dev/null | grep -q . && return 1

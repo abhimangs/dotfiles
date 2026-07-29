@@ -71,14 +71,24 @@ ls -A "$d" 2>/dev/null | tr '\n' ' ' | sed 's/^/  /'; echo
 echo
 
 echo "── stowed symlinks ───────────────────────────────────"
-for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/fastfetch" "$HOME/.config/kitty" \
-         "$HOME/.config/ghostty" "$HOME/.config/starship.toml" "$HOME/.config/btop" "$HOME/.config/bat"; do
+# Single-file targets are symlinks; ~/.config/<app> is a real directory by
+# design, with stow linking the files inside it — so look one level in.
+for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/starship.toml"; do
     if [ -L "$t" ]; then
-        printf "  %-28s -> %s %s\n" "${t#$HOME/}" "$(readlink "$t")" \
+        printf "  %-26s -> %-30s %s\n" "${t#$HOME/}" "$(readlink "$t")" \
             "$( [ -e "$t" ] && echo '[ok]' || echo '[BROKEN]')"
     elif [ -e "$t" ]; then
-        printf "  %-28s (real file, not a symlink)\n" "${t#$HOME/}"
+        printf "  %-26s %s\n" "${t#$HOME/}" "(real file — NOT stowed)"
+    else
+        printf "  %-26s %s\n" "${t#$HOME/}" "(absent)"
     fi
+done
+for d in fastfetch kitty ghostty rofi btop bat ulauncher wallpapers; do
+    t="$HOME/.config/$d"
+    [ -e "$t" ] || continue
+    n=$(find "$t" -maxdepth 1 -type l 2>/dev/null | wc -l)
+    broken=$(find "$t" -maxdepth 1 -xtype l 2>/dev/null | wc -l)
+    printf "  %-26s %s\n" ".config/$d" "$n symlink(s) inside$( [ "$broken" -gt 0 ] && echo ", $broken BROKEN")"
 done
 echo
 
