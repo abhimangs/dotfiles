@@ -150,11 +150,11 @@ esac
 if [ "$USE_GLYPHS" -eq 1 ]; then
     G_TOP='╭─' ; G_MID='│'  ; G_END='╰─'
     G_ARROW='❯'; G_OK='✔'   ; G_FAIL='✘'
-    G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='·'
+    G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='·' ; G_PICK='●'
 else
     G_TOP='+-' ; G_MID='|'  ; G_END='+-'
     G_ARROW='>'; G_OK='[ok]'; G_FAIL='[!]'
-    G_INFO='*' ; G_SUM='='  ; G_RULE='-' ; G_DOT='.'
+    G_INFO='*' ; G_SUM='='  ; G_RULE='-' ; G_DOT='.' ; G_PICK='x'
 fi
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -793,6 +793,37 @@ ensure_fd_shim() {
     ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
 }
 
+# ── Fallback: hand an interactive bash session over to zsh ───────────────────
+# Some machines keep starting bash after login even though /etc/passwd has been
+# updated and reads back correctly — SSH sessions on cloud images are the usual
+# offender. A guarded hook in .bashrc makes the switch happen regardless of why
+# the passwd entry is being ignored. Idempotent, and only written once zsh has
+# been confirmed to actually run.
+same_shell() {
+    # /bin/zsh and /usr/bin/zsh are one file on Debian/Ubuntu, where /bin is a
+    # symlink to usr/bin — comparing the strings would report a shell that was
+    # set correctly as still unchanged.
+    [ -n "$1" ] && [ -n "$2" ] || return 1
+    [ "$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")" = \
+      "$(readlink -f "$2" 2>/dev/null || printf '%s' "$2")" ]
+}
+
+ensure_zsh_autoexec() {
+    local rc="$HOME/.bashrc"
+    local marker="# >>> dotfiles: hand interactive bash to zsh >>>"
+    command -v zsh &>/dev/null && zsh -c 'exit 0' &>/dev/null || return 1
+    [ -f "$rc" ] && grep -qF "$marker" "$rc" && return 0
+    {
+        printf '\n%s\n' "$marker"
+        printf '%s\n' '# Only for interactive bash, and never from inside zsh itself.'
+        printf '%s\n' 'if [ -t 1 ] && [ -z "${ZSH_VERSION:-}" ] && command -v zsh >/dev/null 2>&1; then'
+        printf '%s\n' '    exec zsh -l'
+        printf '%s\n' 'fi'
+        printf '%s\n' '# <<< dotfiles: hand interactive bash to zsh <<<'
+    } >> "$rc" || return 1
+    return 0
+}
+
 # ── Strip every trace that ~/dotfiles came from a git repo ───────────────────
 # The stowed configs are symlinks *into* ~/dotfiles, so the directory itself has
 # to stay — what goes is anything identifying it as a clone: git metadata (the
@@ -1316,9 +1347,9 @@ show_plan() {
 
     if [ "$STRIP_REPO" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}private mode${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}repo traces${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_RED}remove${C_RESET} ${C_DIM}~/dotfiles/.git and repo files at the end${C_RESET}"
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}configs keep working — re-running needs a fresh clone${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}configs keep working, install.sh stays — re-run it any time${C_RESET}"
     fi
 
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
@@ -1336,58 +1367,79 @@ show_plan() {
 header
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
+# What happens to existing configs (backup / delete) and whether to strip the
+# repo traces are two unrelated decisions, so the second is a toggle rather than
+# a third mode — you can keep your backups and still leave no trace of the repo.
 BACKUP_MODE="backup"
 STRIP_REPO=0
-_bm_sel=0
+_bm_mode=0     # 0 backup, 1 delete
+_bm_cur=0      # cursor row: 0, 1, or 2 (the toggle)
 _BM_N=3
 
-_bm_row() {   # <index> <selected> <colour> <label> <description>
-    local mark="   "
-    [ "$1" -eq "$2" ] && mark=" $3${G_ARROW}${C_RESET} "
-    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET} %b %-8s ${C_DIM}${G_DOT}  %-44s${C_RESET}\n" "$mark" "$4" "$5"
+_bm_row() {   # <row> <cursor> <chosen-marker> <colour> <label> <description>
+    local mark="  "
+    [ "$1" -eq "$2" ] && mark="$4${G_ARROW}${C_RESET} "
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-46s${C_RESET}\n" \
+        "$mark" "$3" "$5" "$6"
 }
 
 _bm_draw() {
-    _bm_row 0 "$1" "$C_GREEN"  "backup"  "move to .bak, safe and reversible"
-    _bm_row 1 "$1" "$C_RED"    "delete"  "wipe cleanly, no backup kept"
-    _bm_row 2 "$1" "$C_RED"    "private" "delete, then strip repo traces from ~/dotfiles"
+    local m0="( )" m1="( )" tg="[ ]"
+    [ "$_bm_mode" -eq 0 ] && m0="(${G_PICK})"
+    [ "$_bm_mode" -eq 1 ] && m1="(${G_PICK})"
+    [ "$STRIP_REPO" -eq 1 ] && tg="[${G_PICK}]"
+    _bm_row 0 "$1" "$m0" "$C_GREEN" "backup" "move to .bak, safe and reversible"
+    _bm_row 1 "$1" "$m1" "$C_RED"   "delete" "wipe cleanly, no backup kept"
+    _bm_row 2 "$1" "$tg" "$C_RED"   "private" "also strip repo traces from ~/dotfiles"
 }
 
-echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
-_bm_draw $_bm_sel
+echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ move  ${G_DOT}  space select/toggle  ${G_DOT}  Enter confirm${C_RESET}"
+_bm_draw $_bm_cur
 
 while true; do
     printf "\033[%dA" "$_BM_N"
     IFS= read -n 1 -rs _bm_key <"$TTY_IN"
     case "$_bm_key" in
         $'\n'|$'\r'|'')
-            _bm_draw $_bm_sel
+            _bm_draw $_bm_cur
             break
             ;;
-        'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
-        'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
-        'p'|'P') _bm_sel=2; _bm_draw $_bm_sel ;;
+        ' ')   # act on the row the cursor is on
+            case "$_bm_cur" in
+                0) _bm_mode=0 ;;
+                1) _bm_mode=1 ;;
+                2) STRIP_REPO=$(( 1 - STRIP_REPO )) ;;
+            esac
+            _bm_draw $_bm_cur ;;
+        'b'|'B') _bm_mode=0; _bm_cur=0; _bm_draw $_bm_cur ;;
+        'd'|'D') _bm_mode=1; _bm_cur=1; _bm_draw $_bm_cur ;;
+        'p'|'P') STRIP_REPO=$(( 1 - STRIP_REPO )); _bm_cur=2; _bm_draw $_bm_cur ;;
         $'\033')
             IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
             case "$_bm_esc" in
-                '[A'|'[D') [ "$_bm_sel" -gt 0 ] && _bm_sel=$(( _bm_sel - 1 )) ;;
-                '[B'|'[C') [ "$_bm_sel" -lt 2 ] && _bm_sel=$(( _bm_sel + 1 )) ;;
+                '[A'|'[D') [ "$_bm_cur" -gt 0 ] && _bm_cur=$(( _bm_cur - 1 ))
+                           [ "$_bm_cur" -lt 2 ] && _bm_mode=$_bm_cur ;;
+                '[B'|'[C') [ "$_bm_cur" -lt 2 ] && _bm_cur=$(( _bm_cur + 1 ))
+                           [ "$_bm_cur" -lt 2 ] && _bm_mode=$_bm_cur ;;
             esac
-            _bm_draw $_bm_sel
-            ;;
-        *) _bm_draw $_bm_sel ;;
+            _bm_draw $_bm_cur ;;
+        *) _bm_draw $_bm_cur ;;
     esac
 done
 
-case "$_bm_sel" in
-    2)  BACKUP_MODE="delete"; STRIP_REPO=1
-        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private ${C_DIM}(delete + strip repo traces)${C_RESET}\n" ;;
-    1)  BACKUP_MODE="delete"
-        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n" ;;
-    *)  echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n" ;;
-esac
+_bm_summary="backup"
+if [ "$_bm_mode" -eq 1 ]; then
+    BACKUP_MODE="delete"
+    _bm_summary="delete"
+fi
+[ "$STRIP_REPO" -eq 1 ] && _bm_summary="${_bm_summary} + strip repo traces"
+if [ "$_bm_mode" -eq 1 ] || [ "$STRIP_REPO" -eq 1 ]; then
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} ${_bm_summary}\n"
+else
+    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} ${_bm_summary}\n"
+fi
 unset -f _bm_draw _bm_row
-unset _bm_sel _bm_key _bm_esc _BM_N
+unset _bm_mode _bm_cur _bm_key _bm_esc _BM_N _bm_summary
 
 # ── Privileges ────────────────────────────────────────────────────────────────
 # VPS and container images normally drop you straight into root, and plenty of
@@ -1934,7 +1986,7 @@ for cfg in "${SELECTED[@]}"; do
             # Without this guard the fallbacks below run 'chsh -s "" <user>',
             # which blanks the login shell entry.
             error "zsh binary not found on PATH — leaving the default shell alone"
-        elif [ "$current_shell" = "$zsh_path" ]; then
+        elif same_shell "$current_shell" "$zsh_path"; then
             substep "${C_DIM}Login shell for ${target_user} is already zsh${C_RESET}"
         else
             substep "Changing login shell for ${C_ACCENT}${target_user}${C_RESET} to zsh..."
@@ -1948,7 +2000,7 @@ for cfg in "${SELECTED[@]}"; do
             # Without it the prompt reads the installer's own stdin and hangs.
             sudo chsh -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
 
-            if [ "$(getent passwd "$target_user" | cut -d: -f7)" != "$zsh_path" ]; then
+            if ! same_shell "$(getent passwd "$target_user" | cut -d: -f7)" "$zsh_path"; then
                 # PAM refuses on cloud accounts with no local password
                 # (SSH-key-only login). usermod writes /etc/passwd directly.
                 sudo usermod -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
@@ -1958,12 +2010,18 @@ for cfg in "${SELECTED[@]}"; do
             # having changed nothing, which is exactly how the shell ends up
             # still being bash after logging out and back in.
             new_shell="$(getent passwd "$target_user" | cut -d: -f7)"
-            if [ "$new_shell" = "$zsh_path" ]; then
+            if same_shell "$new_shell" "$zsh_path"; then
                 substep "${C_GREEN}Login shell for ${target_user} is now ${zsh_path}${C_RESET}"
                 substep "${C_DIM}Applies at next login — or run ${C_ACCENT}exec zsh${C_DIM} to switch now${C_RESET}"
+                if ensure_zsh_autoexec; then
+                    substep "${C_DIM}Added a .bashrc fallback in case a session still starts bash${C_RESET}"
+                fi
             else
                 error "Login shell unchanged — still ${new_shell:-unknown}"
-                substep "Run it manually: ${C_ACCENT}sudo usermod -s ${zsh_path} ${target_user}${C_RESET}"
+                if ensure_zsh_autoexec; then
+                    substep "${C_GREEN}Added a .bashrc fallback — bash will hand over to zsh${C_RESET}"
+                fi
+                substep "To fix it properly: ${C_ACCENT}sudo usermod -s ${zsh_path} ${target_user}${C_RESET}"
                 substep "${C_DIM}This sets the shell for '${target_user}'. If you SSH in as a${C_RESET}"
                 substep "${C_DIM}different account, run that command for that account instead.${C_RESET}"
             fi
@@ -2207,7 +2265,8 @@ if [ "$STRIP_REPO" -eq 1 ]; then
     info "Stripping repo traces..."
     if strip_repo_traces; then
         substep "${C_DIM}~/dotfiles is now a plain folder — symlinks still resolve${C_RESET}"
-        substep "${C_YELLOW}Re-running the installer now needs a fresh clone${C_RESET}"
+        substep "${C_DIM}Re-run any time with: ${C_ACCENT}bash ~/dotfiles/install.sh${C_RESET}"
+        substep "${C_DIM}Only pulling new changes needs a clone — nothing else does${C_RESET}"
         success "No git metadata left"
     else
         error "Refused — ${DOTFILES_DIR} does not look like the dotfiles checkout"
