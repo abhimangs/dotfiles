@@ -628,12 +628,10 @@ ensure_lazygit_deb() {
     apt_install lazygit
     apt_pkg_installed lazygit && return 0
 
-    if [ "$IS_UBUNTU" -eq 1 ]; then
-        add_ppa ppa:lazygit-team/release
-        apt_install lazygit
-        apt_pkg_installed lazygit && return 0
-    fi
-
+    # No PPA step here on purpose. ppa:lazygit-team/release last published for
+    # hirsute in 2021 — on any supported release it adds a source with no
+    # Release file, which then breaks every apt-get update on the machine.
+    # The upstream release binary is the only working path.
     local apat url tmp
     case "$(deb_arch)" in
         amd64)        apat='x86_64' ;;
