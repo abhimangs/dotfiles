@@ -156,6 +156,10 @@ Cloud images often ship a regional mirror that is slow, half-synced or retired, 
 
 The Ubuntu host is chosen by architecture: `archive.ubuntu.com` serves amd64/i386, `ports.ubuntu.com` serves arm64 and the rest, and each 404s for the other's architectures. Debian uses `deb.debian.org`.
 
+`apt-get update` exits non-zero when *any* configured source fails, so one dead third-party repo fails the whole refresh even though the distro archive updated fine and packages still install. Rather than claiming the index is ready, the installer prints the `E:`/`W:` lines apt produced, names the file the failing source is configured in, and carries on.
+
+Everything privileged goes through `sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get …`. The `env` matters: the stock sudoers policy refuses `sudo VAR=value cmd` outright ("you are not allowed to set the following environment variables"), and `NEEDRESTART_SUSPEND` keeps needrestart from opening its service-restart dialog mid-install — or bouncing sshd underneath you on a VPS.
+
 ### WSL
 
 Ubuntu and Debian under WSL work as-is: the apt path is used, and with no display server the GUI configs and apps are hidden automatically (WSLg sets `DISPLAY`, so they reappear if you have it).
