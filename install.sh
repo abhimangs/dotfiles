@@ -1858,13 +1858,13 @@ else
         substep "${C_DIM}JetBrainsMono Nerd Font already installed${C_RESET}"
     else
         substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-        install_font || error "Failed to install JetBrainsMono — continuing"
+        install_font || { error "Failed to install JetBrainsMono — continuing"; FAILED+=("JetBrainsMono font"); }
     fi
     if maple_font_installed; then
         substep "${C_DIM}Maple Mono already installed${C_RESET}"
     else
         substep "Installing ${C_ACCENT}Maple Mono${C_RESET}..."
-        install_maple_font || error "Failed to install Maple Mono — continuing"
+        install_maple_font || { error "Failed to install Maple Mono — continuing"; FAILED+=("Maple Mono font"); }
     fi
     substep "Rebuilding font cache..."
     fc-cache -fv &>/dev/null 2>&1 || true
