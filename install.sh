@@ -361,13 +361,31 @@ apt_pkg_installed() {
     [ "$st" = "installed" ]
 }
 
+# Every privileged apt-get goes through here. Two things this fixes:
+#
+#   'sudo DEBIAN_FRONTEND=noninteractive apt-get …' is rejected outright on a
+#   stock Debian/Ubuntu sudoers policy — "sorry, you are not allowed to set the
+#   following environment variables: DEBIAN_FRONTEND". sudo parses leading
+#   VAR=value itself and only honours it when the rule carries SETENV, which
+#   '%sudo ALL=(ALL:ALL) ALL' does not. Handing the assignment to env(1) sets it
+#   inside the privileged process instead, which no policy blocks.
+#
+#   needrestart (Ubuntu 22.04+) hooks apt and opens a full-screen "which
+#   services should be restarted?" dialog mid-install. Suspending it keeps the
+#   run non-interactive and, on a VPS, avoids bouncing sshd underneath you.
+apt_get() {
+    sudo env DEBIAN_FRONTEND=noninteractive \
+             NEEDRESTART_SUSPEND=1 \
+             apt-get "$@"
+}
+
 APT_UPDATED=0
 APT_INDEX_OK=1
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
     local out try
     for try in 1 2 3; do
-        if out=$(sudo apt-get update -qq 2>&1); then
+        if out=$(apt_get update -qq 2>&1); then
             APT_UPDATED=1
             return 0
         fi
@@ -379,7 +397,7 @@ apt_update_once() {
     # third-party repo would fail this too and swapping mirrors would not help.
     if grep -qiE 'could not resolve|failed to fetch|connection failed|404 +not found|no longer has a release file|hash sum mismatch' <<< "$out"; then
         substep "${C_YELLOW}Package index unreachable — trying the canonical mirror${C_RESET}"
-        if apt_add_fallback_mirror && sudo apt-get update -qq &>/dev/null 2>&1; then
+        if apt_add_fallback_mirror && apt_get update -qq &>/dev/null 2>&1; then
             APT_UPDATED=1
             return 0
         fi
@@ -403,7 +421,7 @@ apt_install() {
     # not get lock /var/lib/dpkg/lock-frontend" — the usual reason a server
     # install fails before stow and fzf are even in place. Wait it out.
     for try in 1 2 3 4 5; do
-        if out=$(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1); then
+        if out=$(apt_get install -y --no-install-recommends "$@" 2>&1); then
             return 0
         fi
         if grep -qiE 'could not get lock|another process (is )?using it|frontend lock|resource temporarily unavailable' <<< "$out"; then
@@ -418,7 +436,7 @@ apt_install() {
     substep "${C_YELLOW}Stale package index — refreshing and retrying${C_RESET}"
     APT_UPDATED=0
     apt_update_once
-    if out=$(sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1); then
+    if out=$(apt_get install -y --no-install-recommends "$@" 2>&1); then
         return 0
     fi
     APT_LAST_ERROR="$out"
@@ -436,7 +454,7 @@ ensure_apt_deps() {
     fi
     if [ "${#need[@]}" -gt 0 ]; then
         apt_update_once
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${need[@]}" &>/dev/null 2>&1
+        apt_get install -y "${need[@]}" &>/dev/null 2>&1
     fi
 }
 
@@ -546,7 +564,7 @@ ensure_fastfetch_deb() {
         url=$(github_latest_asset_url "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$")
         if [ -n "$url" ]; then
             local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" fastfetch_XXXXXX.deb)
-            curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
+            curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
             rm -f "$tmp"
         fi
     fi
@@ -563,7 +581,7 @@ ensure_ulauncher_deb() {
         local url; url=$(github_latest_asset_url "Ulauncher/Ulauncher" '_all\.deb$')
         if [ -n "$url" ]; then
             local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" ulauncher_XXXXXX.deb)
-            curl -fsSL "$url" -o "$tmp" 2>/dev/null && sudo apt-get install -y "$tmp" &>/dev/null 2>&1
+            curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
             rm -f "$tmp"
         fi
     fi
@@ -644,7 +662,7 @@ ensure_protonvpn_cli_deb() {
         if [ -n "$deb_name" ]; then
             tmp=$(mktemp -p "$RUN_TMPDIR" protonvpn_XXXXXX.deb)
             if curl -fsSL "${listing_url}${deb_name}" -o "$tmp" 2>/dev/null; then
-                sudo dpkg -i "$tmp" &>/dev/null 2>&1
+                sudo env DEBIAN_FRONTEND=noninteractive dpkg -i "$tmp" &>/dev/null 2>&1
             fi
             rm -f "$tmp"
         fi
