@@ -63,7 +63,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 - **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Notion\*, Obsidian\*, VLC, Flatpak (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
-- **Private mode** — third option in the first menu: delete existing configs *and* strip the repo traces from `~/dotfiles` afterwards (see below)
+- **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
 - **Repo before AUR** — on Arch every install checks the official repos first and only falls back to paru for AUR-only packages
 - **paru** — installed automatically if missing on Arch (AUR helper)
@@ -94,15 +94,29 @@ Anything already ticked is not added twice, and all of these remain selectable o
 
 ### Private mode
 
-The first menu offers three ways to handle what is already on the machine:
+Privacy is its own question, asked before anything else, and it prints the exact list before you choose — nothing is a surprise afterwards. Answering `private` means the machine keeps no sign of where the configs came from or whose they are.
+
+**Deleted outright** (repo scaffolding, no value once the configs are stowed):
+`.git` `.github` `.gitignore` `.gitattributes` `README.md` `CLAUDE.md` `LICENSE` `linux.sh`
+
+`.git` is the big one — it carries the remote URL, the whole commit history, and the author name and email on every commit. `linux.sh` carries the GitHub URL.
+
+**Scrubbed in place** (live configs that must keep working):
+
+| File | What is removed |
+|------|-----------------|
+| `git/.gitconfig` | `user.name`, `user.email` |
+| `fastfetch/config.jsonc` | the author byline — name, GitHub handle, contact address |
+| `install.sh` | any hosted bootstrap URL in its comments |
+
+The byline and the URL are matched structurally, not by name, so the installer itself carries no identity to leak. The config folders and `install.sh` stay, so the stow symlinks keep resolving and it can be re-run.
+
+What happens to *existing* configs is asked separately, straight after:
 
 | Row | Effect |
 |-----|--------|
 | `backup` | Existing configs move to `.bak` |
 | `delete` | Existing configs are wiped, no backup kept |
-| `private` | **Toggle**, independent of the above — also strips every trace that `~/dotfiles` is a clone |
-
-`backup`/`delete` are the mode; `private` is a checkbox on top of whichever you pick, so `backup + strip repo traces` is a valid combination. Space acts on the highlighted row, or use `b`, `d`, `p` directly.
 
 `private` removes `.git` (remote URL, full history, author name and email), `.github`, `.gitignore`, `.gitattributes`, `README.md`, `CLAUDE.md`, `LICENSE` and `linux.sh` — the last of which carries the GitHub URL. The config folders and `install.sh` stay, so the stow symlinks keep resolving and you can re-run the installer any time with `bash ~/dotfiles/install.sh` — no clone needed. Only pulling *new changes* from GitHub needs one.
 
