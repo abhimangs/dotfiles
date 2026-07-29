@@ -2029,6 +2029,20 @@ for cfg in "${SELECTED[@]}"; do
                 if ensure_zsh_autoexec; then
                     substep "${C_DIM}Added a .bashrc fallback in case a session still starts bash${C_RESET}"
                 fi
+                # An SSH client with ControlMaster keeps handing out sessions from
+                # a master opened before the change, so reconnecting still lands in
+                # bash and the change looks like it failed. Say so up front.
+                if [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}${SSH_CLIENT:-}" ]; then
+                    _ssh_host="$(printf '%s' "${SSH_CONNECTION:-}" | awk '{print $3}')"
+                    substep ""
+                    substep "${C_YELLOW}On SSH: the new shell applies to new logins.${C_RESET}"
+                    substep "${C_DIM}If reconnecting still gives you bash, your client is reusing a${C_RESET}"
+                    substep "${C_DIM}multiplexed connection. Run this ${C_RESET}${C_DIM}on your local machine${C_RESET}${C_DIM}:${C_RESET}"
+                    substep "  ${C_ACCENT}ssh -O exit ${_ssh_host:-<host>}${C_RESET}   ${C_DIM}then reconnect${C_RESET}"
+                    substep "${C_DIM}Use whatever name you connect by — an alias from ~/.ssh/config${C_RESET}"
+                    substep "${C_DIM}works too. Or switch this session now: ${C_ACCENT}exec zsh${C_RESET}"
+                    unset _ssh_host
+                fi
             else
                 error "Login shell unchanged — still ${new_shell:-unknown}"
                 if ensure_zsh_autoexec; then
