@@ -47,7 +47,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `ghostty/` | `~/.config/ghostty/` | `ghostty` | official install script |
 | `kitty/` | `~/.config/kitty/` | `kitty` | apt |
 | `rofi/` | `~/.config/rofi/` | `rofi` | **Arch only** — Debian/Ubuntu still ship the 1.7.x X11-only build |
-| `starship/` | `~/.config/starship.toml` | `starship` | apt / official install script |
+| `starship/` | `~/.config/starship.toml` | `starship` | apt / official install script — **pulled in automatically with zsh**, which draws its whole prompt with it |
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* | PPA (Ubuntu) / GitHub `.deb` (Debian) |
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |

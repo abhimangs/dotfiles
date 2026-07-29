@@ -1673,6 +1673,15 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     error "Nothing selected. Exiting."
     exit 0
 fi
+
+# .zshrc ends with `eval "$(starship init zsh)"` — the entire prompt is
+# starship. Picking zsh without it produced a bare "hostname#", which looks
+# like the install failed. It is a hard dependency, so pull it in.
+if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
+   && ! printf '%s\n' "${SELECTED[@]}" | grep -qx starship; then
+    SELECTED+=(starship)
+    substep "${C_DIM}zsh draws its prompt with starship — adding starship${C_RESET}"
+fi
 success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
 
 # ── Dep tools sub-menu (always shown) ────────────────────────────────────────
