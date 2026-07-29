@@ -83,13 +83,15 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 
 The first menu offers three ways to handle what is already on the machine:
 
-| Choice | Effect |
-|--------|--------|
+| Row | Effect |
+|-----|--------|
 | `backup` | Existing configs move to `.bak` |
 | `delete` | Existing configs are wiped, no backup kept |
-| `private` | Same as delete, then strips every trace that `~/dotfiles` is a clone |
+| `private` | **Toggle**, independent of the above — also strips every trace that `~/dotfiles` is a clone |
 
-`private` removes `.git` (remote URL, full history, author name and email), `.github`, `.gitignore`, `.gitattributes`, `README.md`, `CLAUDE.md`, `LICENSE` and `linux.sh` — the last of which carries the GitHub URL. The config folders and `install.sh` stay, so the stow symlinks keep resolving and the installer can still be re-run from the directory. Re-running it *and* getting updates needs a fresh clone.
+`backup`/`delete` are the mode; `private` is a checkbox on top of whichever you pick, so `backup + strip repo traces` is a valid combination. Space acts on the highlighted row, or use `b`, `d`, `p` directly.
+
+`private` removes `.git` (remote URL, full history, author name and email), `.github`, `.gitignore`, `.gitattributes`, `README.md`, `CLAUDE.md`, `LICENSE` and `linux.sh` — the last of which carries the GitHub URL. The config folders and `install.sh` stay, so the stow symlinks keep resolving and you can re-run the installer any time with `bash ~/dotfiles/install.sh` — no clone needed. Only pulling *new changes* from GitHub needs one.
 
 It refuses to run against anything that does not look like the checkout (no `install.sh`, or a path equal to `/` or `$HOME`).
 
@@ -108,6 +110,8 @@ What is *not* supported is `sudo bash install.sh`: under sudo the configs would 
 One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
 **Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login) — and can exit 0 without changing anything at all. The installer therefore reads `/etc/passwd` back after each attempt, falls through to `usermod` if the entry did not change, and only reports success once the shell really is zsh; otherwise it prints the exact command to run. The change applies at the next login — or run `exec zsh` to switch the current session immediately.
+
+If a session still comes up as bash despite `/etc/passwd` being correct — which happens on some cloud images — the installer also drops a guarded hook in `~/.bashrc` that hands an interactive bash over to zsh. It is skipped inside zsh and for non-interactive shells, so it cannot loop or interfere with `scp`.
 
 Note that it changes the shell for *the user running it*. Running as root sets root's shell, which is not what you want if you then SSH in as a different account.
 
