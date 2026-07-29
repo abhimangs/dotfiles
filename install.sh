@@ -930,11 +930,20 @@ private_preview() {
 private_scrub() {
     local d="$DOTFILES_DIR" done_any=0
 
+    # Remembered before it is removed, so the folder can be checked for leftovers
+    # at the end — nothing about the identity is hardcoded here.
+    local ident=()
     if [ -f "$d/git/.gitconfig" ]; then
+        mapfile -t ident < <(sed -nE 's/^[[:space:]]*(name|email)[[:space:]]*=[[:space:]]*//p' \
+            "$d/git/.gitconfig" 2>/dev/null)
+
         if command -v git &>/dev/null; then
             git config --file "$d/git/.gitconfig" --unset user.name  2>/dev/null
             git config --file "$d/git/.gitconfig" --unset user.email 2>/dev/null
-        else
+        fi
+        # Verified, not assumed: git may be missing, and a wrapper or shim can
+        # exit 0 having done nothing. What matters is that the lines are gone.
+        if grep -qE '^[[:space:]]*(name|email)[[:space:]]*=' "$d/git/.gitconfig" 2>/dev/null; then
             sed -i -E '/^[[:space:]]*(name|email)[[:space:]]*=/d' "$d/git/.gitconfig" 2>/dev/null
         fi
         done_any=1
@@ -962,6 +971,18 @@ private_scrub() {
         sed -i -E 's#(https?://)?[A-Za-z0-9._-]+/linux\.sh#the hosted bootstrap script#g' \
             "$d/install.sh" 2>/dev/null
         done_any=1
+    fi
+
+    # A privacy feature that cannot say whether it worked is not worth much.
+    # Search the folder for the identity that was there a moment ago.
+    local leak=() v
+    for v in "${ident[@]}"; do
+        [ -n "$v" ] || continue
+        grep -rqiF -- "$v" "$d" 2>/dev/null && leak+=("$v")
+    done
+    if [ "${#leak[@]}" -gt 0 ]; then
+        substep "${C_YELLOW}Still present in ${d}: ${leak[*]}${C_RESET}"
+        substep "${C_DIM}Remove those by hand — everything else was scrubbed${C_RESET}"
     fi
 
     return $(( 1 - done_any ))
