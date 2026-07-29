@@ -392,11 +392,36 @@ APT_UPDATED=0
 APT_INDEX_OK=1
 # Last 'apt-get update' error, kept so the failure can explain itself
 APT_UPDATE_ERROR=""
+APT_SOURCES_D=/etc/apt/sources.list.d
+# PPAs this installer is the one that adds. Only these are ever removed again —
+# anything else under sources.list.d belongs to the user and is left alone.
+APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal'
+APT_HEALED=0
+
+# An earlier run may have added a PPA that has since stopped publishing for
+# this release. It breaks every apt-get update from then on, and the user has
+# no reason to connect that to this installer — so clean up after ourselves.
+apt_drop_own_dead_source() {
+    local f base owner dropped=0
+    for f in "$APT_SOURCES_D"/*; do
+        [ -f "$f" ] || continue
+        base="${f##*/}"
+        grep -qE "^(${APT_OWN_PPAS})" <<< "$base" || continue
+        owner="${base%%-ubuntu-*}"
+        grep -qiF "$owner" <<< "$APT_UPDATE_ERROR" || continue
+        sudo rm -f "$f" || continue
+        substep "${C_YELLOW}Removed a dead PPA from an earlier run: ${base}${C_RESET}"
+        dropped=1
+    done
+    [ "$dropped" -eq 1 ]
+}
+
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
     local out try
     for try in 1 2 3; do
         if out=$(apt_get update -qq 2>&1); then
+            APT_UPDATE_ERROR=""
             APT_UPDATED=1
             return 0
         fi
@@ -404,6 +429,19 @@ apt_update_once() {
         substep "${C_YELLOW}apt is locked — waiting 20s (${try}/3)${C_RESET}"
         sleep 20
     done
+    # One of ours that has gone stale? Remove it and try once more before
+    # blaming the mirror — this is by far the likeliest cause of a source with
+    # no Release file, and it is the only one we are entitled to fix.
+    APT_UPDATE_ERROR="$out"
+    if [ "$APT_HEALED" -eq 0 ] && apt_drop_own_dead_source; then
+        APT_HEALED=1
+        if out=$(apt_get update -qq 2>&1); then
+            APT_UPDATE_ERROR=""
+            APT_UPDATED=1
+            return 0
+        fi
+    fi
+
     # Only a mirror-level failure justifies adding another mirror — a broken
     # third-party repo would fail this too and swapping mirrors would not help.
     if grep -qiE 'could not resolve|failed to fetch|connection failed|404 +not found|no longer has a release file|hash sum mismatch' <<< "$out"; then
@@ -427,7 +465,7 @@ apt_update_once() {
 # archive refreshed perfectly well and every package still installs. Print what
 # apt actually said, and name the file the failing source lives in: that is the
 # difference between "apt ready" (a lie) and a message worth acting on.
-APT_SOURCE_DIRS=(/etc/apt/sources.list /etc/apt/sources.list.d/)
+APT_SOURCE_DIRS=(/etc/apt/sources.list "$APT_SOURCES_D/")
 apt_index_report() {
     [ -n "$APT_UPDATE_ERROR" ] || return 0
     local line url f
@@ -492,12 +530,28 @@ ensure_apt_deps() {
     fi
 }
 
+# A PPA that has no build for the running release does not just fail to
+# provide its package — it leaves behind a source with no Release file, and
+# from then on every apt-get update on the machine exits non-zero, including
+# ones that have nothing to do with this installer. So: add it, and if the
+# refresh starts complaining about this PPA specifically, take it back out
+# before falling through to whatever the caller's fallback is.
 add_ppa() {
-    local ppa="$1"
+    local ppa="$1" owner name
     ensure_apt_deps
-    sudo add-apt-repository -y "$ppa" &>/dev/null 2>&1
+    sudo add-apt-repository -y "$ppa" &>/dev/null 2>&1 || return 1
+    APT_UPDATED=0
+    apt_update_once && return 0
+
+    owner="${ppa#ppa:}"; name="${owner#*/}"; owner="${owner%%/*}"
+    grep -qiE "${owner}/${name}|${owner}-ubuntu-${name}" <<< "$APT_UPDATE_ERROR" || return 1
+
+    substep "${C_YELLOW}${ppa} has no build for this release — removing it again${C_RESET}"
+    sudo rm -f "$APT_SOURCES_D/${owner}-ubuntu-${name}"-*.sources \
+               "$APT_SOURCES_D/${owner}-ubuntu-${name}"-*.list
     APT_UPDATED=0
     apt_update_once
+    return 1
 }
 
 deb_arch() { dpkg --print-architecture; }
