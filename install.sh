@@ -1895,21 +1895,35 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
                 continue
             fi
         fi
-        INSTALLED+=("$dep")
-
+        # Debian ships these as batcat/fdfind; the shim is what makes the
+        # .zshrc aliases resolve. Not fatal on its own — the tool still works
+        # under its Debian name — so warn rather than fail the dep.
         if [[ "$DISTRO" == "debian" ]]; then
-            [[ "$dep" == "bat" ]] && ensure_bat_shim
-            [[ "$dep" == "fd"  ]] && ensure_fd_shim
+            if [[ "$dep" == "bat" ]] && ! ensure_bat_shim; then
+                substep "${C_YELLOW}bat installed as batcat; could not add the bat shim${C_RESET}"
+            fi
+            if [[ "$dep" == "fd" ]] && ! ensure_fd_shim; then
+                substep "${C_YELLOW}fd installed as fdfind; could not add the fd shim${C_RESET}"
+            fi
         fi
 
-        # Stow config for deps that have one
+        # Stow config for deps that have one. A stow conflict here used to be
+        # printed and then forgotten, leaving the tool reported as installed
+        # with none of its configuration in place.
+        _dep_cfg_ok=1
         for _dc in "${DEP_HAS_CONFIG[@]}"; do
             if [[ "$dep" == "$_dc" ]] && [ -d "$DOTFILES_DIR/$dep" ]; then
-                stow_config "$dep"
+                stow_config "$dep" || _dep_cfg_ok=0
                 break
             fi
         done
+        if [ "$_dep_cfg_ok" -eq 0 ]; then
+            FAILED+=("${dep} config")
+        fi
+
+        INSTALLED+=("$dep")
     done
+    unset _dep_cfg_ok
     success "Dep tools done"
 fi
 
