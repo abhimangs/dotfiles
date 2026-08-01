@@ -107,7 +107,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode antigravity-ide antigravity notion obsidian claude-desktop vlc)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop vlc)
 
 RUN_TMPDIR="$(mktemp -d /tmp/dotfiles-install_XXXXXX 2>/dev/null || echo /tmp)"
 
@@ -803,6 +803,25 @@ ensure_vscode_deb() {
     apt_pkg_installed code
 }
 
+# code-insiders ships from the same Microsoft repo/key as stable code, just a
+# different package — so this only needs to add that repo when vscode-insiders
+# is picked on its own, without ensure_vscode_deb having done it already.
+ensure_vscode_insiders_deb() {
+    apt_pkg_installed code-insiders && return 0
+    ensure_apt_deps
+    sudo mkdir -p /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/packages.microsoft.gpg ]; then
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null \
+            | gpg --dearmor | sudo tee /etc/apt/keyrings/packages.microsoft.gpg >/dev/null
+    fi
+    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+        | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
+    APT_UPDATED=0
+    apt_update_once
+    apt_install code-insiders
+    apt_pkg_installed code-insiders
+}
+
 # ── Flatpak ───────────────────────────────────────────────────────────────────
 # A freshly installed flatpak has no remotes, so 'flatpak install <app>' fails
 # with "no remote refs found" — the package alone is not usable.
@@ -1205,14 +1224,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code notion obsidian vlc flatpak)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code notion obsidian vlc flatpak)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code vlc flatpak)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -1222,6 +1241,7 @@ declare -A APP_LABEL APP_TYPE APP_PKG APP_BIN
 APP_LABEL[brave-beta]="Brave Origin Beta"
 APP_LABEL[brave-stable]="Brave Origin Stable"
 APP_LABEL[vscode]="Visual Studio Code"
+APP_LABEL[vscode-insiders]="VS Code Insiders"
 APP_LABEL[antigravity-ide]="Antigravity IDE"
 APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
@@ -1241,6 +1261,7 @@ APP_LABEL[flatpak]="Flatpak"
 APP_TYPE[brave-beta]="paru-y"
 APP_TYPE[brave-stable]="paru-y"
 APP_TYPE[vscode]="paru"
+APP_TYPE[vscode-insiders]="paru"
 APP_TYPE[antigravity-ide]="paru"
 APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
@@ -1256,6 +1277,7 @@ APP_TYPE[flatpak]="pacman"
 APP_PKG[brave-beta]="brave-origin-beta-bin"
 APP_PKG[brave-stable]="brave-origin-bin"
 APP_PKG[vscode]="visual-studio-code-bin"
+APP_PKG[vscode-insiders]="visual-studio-code-insiders-bin"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
@@ -1292,12 +1314,14 @@ declare -A APP_PKG_DEB
 APP_PKG_DEB[brave-stable]="brave-origin"
 APP_PKG_DEB[brave-beta]="brave-origin-beta"
 APP_PKG_DEB[vscode]="code"
+APP_PKG_DEB[vscode-insiders]="code-insiders"
 APP_PKG_DEB[claude-desktop]="claude-desktop"
 
 declare -A APP_TYPE_DEB
 APP_TYPE_DEB[brave-stable]="brave"
 APP_TYPE_DEB[brave-beta]="brave"
 APP_TYPE_DEB[vscode]="vscode"
+APP_TYPE_DEB[vscode-insiders]="vscode-insiders"
 APP_TYPE_DEB[claude-code]="curl"
 APP_TYPE_DEB[antigravity-cli]="curl"
 APP_TYPE_DEB[codex-cli]="curl"
@@ -2539,6 +2563,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     esac
                     ;;
                 vscode) ensure_vscode_deb ;;
+                vscode-insiders) ensure_vscode_insiders_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
             esac
             if pkg_installed "$_pkg"; then
