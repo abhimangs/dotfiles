@@ -2714,8 +2714,16 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
                     _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
                     if env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}"; then
-                        success "${C_ACCENT}${_lbl}${C_RESET} installed"
-                        INSTALLED+=("$_lbl")
+                        # Verified against reality, the way the package path is.
+                        # A vendor installer that swallows its own failure and
+                        # exits 0 otherwise gets reported as a success.
+                        if [ -z "$_bin" ] || curl_app_installed "$_bin"; then
+                            success "${C_ACCENT}${_lbl}${C_RESET} installed"
+                            INSTALLED+=("$_lbl")
+                        else
+                            error "Installer finished but ${C_ACCENT}${_bin}${C_RESET} is not on PATH"
+                            FAILED+=("$_lbl")
+                        fi
                     else
                         error "Installer exited with error for ${C_ACCENT}${_lbl}${C_RESET}"
                         FAILED+=("$_lbl")
