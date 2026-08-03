@@ -1946,21 +1946,26 @@ if [[ "$DISTRO" == "arch" ]]; then
             exit 1
         fi
 
+        # Under RUN_TMPDIR, like every other temp artifact: a predictable
+        # /tmp/paru-build is shared across users, and the EXIT trap cleans this
+        # up if the build is interrupted between the two rm -rf calls.
+        _paru_build="$RUN_TMPDIR/paru-build"
         substep "Cloning paru from AUR..."
-        rm -rf /tmp/paru-build
-        if ! git clone https://aur.archlinux.org/paru.git /tmp/paru-build &>/dev/null 2>&1; then
+        rm -rf "$_paru_build"
+        if ! git clone https://aur.archlinux.org/paru.git "$_paru_build" &>/dev/null 2>&1; then
             error "Failed to clone paru. Check your internet connection."
             exit 1
         fi
 
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
-        if ! (cd /tmp/paru-build && makepkg -si --noconfirm); then
+        if ! (cd "$_paru_build" && makepkg -si --noconfirm); then
             error "paru build failed."
             exit 1
         fi
         echo ""
 
-        rm -rf /tmp/paru-build
+        rm -rf "$_paru_build"
+        unset _paru_build
 
         if ! command -v paru &>/dev/null; then
             error "paru installation failed — binary not found after build."
