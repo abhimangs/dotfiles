@@ -48,12 +48,22 @@ echo
 
 echo "── bashrc hand-over hook ─────────────────────────────"
 if [ -f "$HOME/.bashrc" ]; then
-    if grep -q '>>> dotfiles: hand interactive bash to zsh >>>' "$HOME/.bashrc"; then
+    # Matches both marker versions: v1 said "dotfiles: <tag>", v2 dropped that
+    # word and appended "(v2)".
+    if grep -qE '^# >>> (dotfiles: )?hand interactive bash to zsh' "$HOME/.bashrc"; then
         echo "hook present    : yes"
-        grep -n -A4 '>>> dotfiles' "$HOME/.bashrc" | sed 's/^/  /'
+        if grep -q '(v2) >>>' "$HOME/.bashrc"; then
+            echo "hook version    : v2 (hardened)"
+        else
+            echo "hook version    : v1 — re-run install.sh to upgrade it"
+        fi
+        grep -n -A4 -E '^# >>> (dotfiles: )?hand interactive' "$HOME/.bashrc" | sed 's/^/  /'
     else
         echo "hook present    : NO"
     fi
+    echo "pristine copy   : $( [ -f "$HOME/.bashrc.orig" ] && echo "$HOME/.bashrc.orig" \
+        || { [ -f "$HOME/.bashrc.none" ] && echo 'none — there was no ~/.bashrc' || echo 'not taken yet'; } )"
+    echo "bashrc is       : $( [ -L "$HOME/.bashrc" ] && echo "a symlink -> $(readlink -f "$HOME/.bashrc")" || echo 'a real file' )"
     echo "bashrc early-return for non-interactive:"
     grep -n 'case \$-' "$HOME/.bashrc" 2>/dev/null | head -2 | sed 's/^/  /'
 else
