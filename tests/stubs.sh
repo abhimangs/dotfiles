@@ -183,9 +183,53 @@ w unzip                <<< '#!/bin/sh
 exit 0'
 w gpg                  <<< '#!/bin/sh
 cat > /dev/null; exit 0'
-# The installer only checks stow'\''s exit status, so this is enough for it.
-w stow                 <<< '#!/bin/sh
-exit 0'
+# Real enough to be worth asserting against: links a package's top-level
+# entries into the target and -D removes links that point back into it. A bare
+# `exit 0` meant no scenario ever produced a symlink, so nothing about stowing,
+# backing up or restoring could actually be tested.
+w stow <<'EOF'
+#!/usr/bin/env bash
+target=""; dir="."; del=0; pkgs=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target)   target="$2"; shift 2 ;;
+        --target=*) target="${1#*=}"; shift ;;
+        --dir)      dir="$2"; shift 2 ;;
+        --dir=*)    dir="${1#*=}"; shift ;;
+        -D|--delete) del=1; shift ;;
+        -R|--restow) del=0; shift ;;
+        -*) shift ;;
+        *)  pkgs+=("$1"); shift ;;
+    esac
+done
+[ -n "$target" ] || target="$(dirname "$dir")"
+rc=0
+for p in "${pkgs[@]}"; do
+    src="$dir/$p"
+    [ -d "$src" ] || { rc=1; continue; }
+    srcr="$(readlink -f "$src")"
+    mkdir -p "$target"
+    shopt -s nullglob dotglob
+    for f in "$src"/*; do
+        b="$(basename "$f")"
+        t="$target/$b"
+        if [ "$del" = 1 ]; then
+            if [ -L "$t" ]; then
+                case "$(readlink -f "$t" 2>/dev/null)" in
+                    "$srcr"/*) rm -f "$t" ;;
+                esac
+            fi
+        else
+            # A real file in the way is a conflict, exactly as stow reports.
+            if [ -e "$t" ] && [ ! -L "$t" ]; then rc=1; continue; fi
+            rm -f "$t"
+            ln -s "$f" "$t"
+        fi
+    done
+    shopt -u nullglob dotglob
+done
+exit $rc
+EOF
 
 # ── Arch side ────────────────────────────────────────────────────────────────
 w pacman <<'EOF'
