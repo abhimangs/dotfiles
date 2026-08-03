@@ -1381,7 +1381,13 @@ private_scrub() {
     if [ "${#leak[@]}" -gt 0 ]; then
         substep "${C_YELLOW}Still present in ${d}: ${leak[*]}${C_RESET}"
         substep "${C_DIM}Remove those by hand — everything else was scrubbed${C_RESET}"
+        # Finding the user's name still in the tree and then returning success
+        # is the wrong outcome for a privacy feature: the caller would print
+        # "Scrubbed: name, address and URLs" directly underneath it.
+        PRIVATE_LEAKED=("${leak[@]}")
+        return 2
     fi
+    PRIVATE_LEAKED=()
 
     return $(( 1 - done_any ))
 }
@@ -1400,6 +1406,7 @@ strip_repo_traces() {
 
     local removed=() item
     STRIP_SURVIVED=()
+    PRIVATE_LEAKED=()
     for item in "${PRIVATE_DELETE[@]}"; do
         { [ -e "$d/$item" ] || [ -L "$d/$item" ]; } || continue
         rm -rf "${d:?}/${item:?}" 2>/dev/null
@@ -1426,9 +1433,11 @@ strip_repo_traces() {
         substep "${C_DIM}Nothing left to remove${C_RESET}"
     fi
 
-    if private_scrub; then
-        substep "Scrubbed: ${C_DIM}name, address and URLs from the remaining configs${C_RESET}"
-    fi
+    private_scrub; local _scrub=$?
+    case "$_scrub" in
+        0) substep "Scrubbed: ${C_DIM}name, address and URLs from the remaining configs${C_RESET}" ;;
+        2) STRIP_SURVIVED+=("identity still in: ${PRIVATE_LEAKED[*]}") ;;
+    esac
     [ "${#STRIP_SURVIVED[@]}" -eq 0 ] || return 2
     return 0
 }
