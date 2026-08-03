@@ -63,8 +63,21 @@ EOF
 w apt-get <<'EOF'
 #!/usr/bin/env bash
 st="${STUB_STATE:?}"
+# Finding the subcommand means skipping options — including the value of the
+# ones that take a separate argument. -o is the reason this is not a one-liner:
+# real code calls `apt-get -o DPkg::Lock::Timeout=600 install …`, and the value
+# does not start with a dash, so a naive scan reads it as the subcommand and
+# every install silently becomes a no-op that still exits 0.
 sub=""
-for a in "$@"; do case "$a" in -*) ;; *) sub="$a"; break ;; esac; done
+skip=0
+for a in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$a" in
+        -o|--option|-c|--config-file|-t|--target-release) skip=1 ;;
+        -*) ;;
+        *)  sub="$a"; break ;;
+    esac
+done
 
 if [ "$sub" = "install" ]; then
     [ "${DEBIAN_FRONTEND:-}" = "noninteractive" ] \
@@ -103,7 +116,15 @@ ERR
       exit 0 ;;
   install)
       rc=0
+      optval=0
       for a in "$@"; do
+          # Same trap as the subcommand scan above: the value of -o is not
+          # dash-prefixed, so without this it is read as a package name and the
+          # install fails with "Unable to locate package DPkg::Lock::Timeout=600".
+          if [ "$optval" = 1 ]; then optval=0; continue; fi
+          case "$a" in
+              -o|--option|-c|--config-file|-t|--target-release) optval=1; continue ;;
+          esac
           case "$a" in -*|install) continue ;; esac
           case "$a" in *.deb) continue ;; esac
           if grep -qxF "$a" "$st/available" 2>/dev/null; then
