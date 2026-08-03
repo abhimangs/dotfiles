@@ -54,10 +54,12 @@ for _arg in "$@"; do
     [[ "$_arg" == "--restore-bash" ]] && RESTORE_BASH=1
 done
 unset _arg
-# linux.sh (deployed by hand at abhiman.io/linux.sh, and not editable) ends in
-# `exec ./install.sh` with no arguments, so flags cannot reach us through the
-# curl bootstrap. The environment does survive exec, so every flag has an env
-# equivalent:  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
+# linux.sh does `exec bash install.sh "$@"`, but nothing can put arguments there
+# when it is reached the documented way: `curl … | bash` gives bash the script on
+# stdin, and there is no argv to forward. The environment does survive, so every
+# flag has an env equivalent, and that is the only way to pass one through the
+# bootstrap:  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
+# (Verified against the hosted copy, which is deployed by hand and can lag.)
 [ -n "${DOTFILES_DRY_RUN:-}" ] && DRY_RUN=1
 [ -n "${DOTFILES_GUI:-}" ]     && FORCE_GUI=1
 [ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
@@ -434,7 +436,7 @@ apt_fix_interrupted_dpkg() {
 APT_LOCK_HANDLED=0
 apt_clear_lock() {
     [ "$APT_LOCK_HANDLED" -eq 1 ] && return 1
-    local holder pid name w ans
+    local holder pid name ans
     holder=$(grep -oE 'held by process [0-9]+ \([^)]+\)' <<< "$1" | head -1)
     pid=$(grep -oE '[0-9]+' <<< "$holder" | head -1)
     name=$(sed -nE 's/.*\(([^)]+)\).*/\1/p' <<< "$holder")
@@ -443,7 +445,7 @@ apt_clear_lock() {
 
     substep "${C_YELLOW}Still locked by ${name:-a process} (pid ${pid}) after waiting${C_RESET}"
     case "$name" in
-        unattended-upgr*|apt*|aptd*|packagekit*|dpkg*) ;;
+        unattended-upgr*|apt*|packagekit*|dpkg*) ;;   # apt* covers aptd too
         *)  substep "${C_DIM}Not one of the system's own updaters — leaving it alone${C_RESET}"
             return 1 ;;
     esac
@@ -455,12 +457,12 @@ apt_clear_lock() {
 
     sudo systemctl stop unattended-upgrades.service apt-daily.service \
         apt-daily-upgrade.service packagekit.service &>/dev/null
-    for w in 1 2 3 4 5 6 7 8 9 10; do [ -d "/proc/$pid" ] || break; sleep 2; done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -d "/proc/$pid" ] || break; sleep 2; done
     if [ -d "/proc/$pid" ]; then
         # Same signal systemctl would send; unattended-upgrades finishes the
         # package it is on and exits rather than dying mid-write.
         sudo kill -TERM "$pid" &>/dev/null
-        for w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -d "/proc/$pid" ] || break; sleep 2; done
+        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -d "/proc/$pid" ] || break; sleep 2; done
     fi
     if [ -d "/proc/$pid" ]; then
         substep "${C_RED}It is still running — try again in a few minutes${C_RESET}"
@@ -1243,7 +1245,7 @@ zsh_hook_wanted() {
 _HOOK_STATE=""
 
 ensure_zsh_autoexec() {
-    local rc="$HOME/.bashrc" rng
+    local rc="$HOME/.bashrc"
     _HOOK_STATE=""
     command -v zsh &>/dev/null && zsh -c 'exit 0' &>/dev/null || return 1
 
@@ -1261,7 +1263,9 @@ ensure_zsh_autoexec() {
     fi
 
     # An older block: replace it rather than stacking a second one on top.
-    if rng="$(bashrc_hook_range "$rc")"; then
+    # Only the exit status matters here (0 found / 1 absent / 2 malformed), so
+    # the range itself is discarded — bashrc_hook_strip_to looks it up again.
+    if bashrc_hook_range "$rc" >/dev/null; then
         bashrc_hook_strip_to "$rc" "$rc" || { _HOOK_STATE="malformed"; return 1; }
         _HOOK_STATE="migrated"
     elif [ "$?" = 2 ]; then
