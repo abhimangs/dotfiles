@@ -848,13 +848,24 @@ ensure_starship_deb() {
 #   apt_install_keyring <url> <dest> [--armored]
 apt_install_keyring() {
     local url="$1" dest="$2" armored="${3:-}"
-    local tmp="$RUN_TMPDIR/keyring.$$"
+    local tmp; tmp="$(mktemp -p "$RUN_TMPDIR" keyring_XXXXXX)" || return 1
+    # ${url%%/*} stops at the // in the scheme and prints "https:".
+    local host="${url#*://}"; host="${host%%/*}"
     curl -fsSL "$url" -o "$tmp" 2>/dev/null || {
-        substep "${C_YELLOW}Could not download the signing key from ${url%%/*}${C_RESET}"
+        substep "${C_YELLOW}Could not download the signing key from ${host}${C_RESET}"
         rm -f "$tmp"; return 1
     }
     [ -s "$tmp" ] || { substep "${C_YELLOW}Signing key came back empty${C_RESET}"; rm -f "$tmp"; return 1; }
     if [ "$armored" = "--armored" ]; then
+        # Validate it too. This branch serves three of the five callers, and
+        # without a check any 200-response body — a captive portal page, an S3
+        # XML error — gets sudo-installed into the trusted keyring directory,
+        # after which every apt-get update fails signature verification. That
+        # is the exact failure this function exists to prevent.
+        if ! gpg --show-keys --with-colons "$tmp" 2>/dev/null | grep -q '^pub'; then
+            substep "${C_YELLOW}What came back from ${host} is not a PGP key${C_RESET}"
+            rm -f "$tmp"; return 1
+        fi
         sudo install -m644 -D "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp"; return 1; }
     else
         gpg --dearmor < "$tmp" > "$tmp.gpg" 2>/dev/null || {
