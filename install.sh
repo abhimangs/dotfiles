@@ -1557,6 +1557,20 @@ show_plan() {
         || _mode_label="${C_YELLOW}backup${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Installation plan ${C_DIM}(existing configs: ${_mode_label}${C_DIM})${C_RESET}"
 
+    # Only two generations are kept, so a rotation destroys whatever is in
+    # .old.bak. The rows below say "x.bak → x.old.bak" and stop there, which
+    # reads like nothing is lost. On a third run something is.
+    if [[ "$BACKUP_MODE" != "delete" ]]; then
+        local _o
+        for _o in "$HOME"/.zshrc.old.bak "$HOME"/.bashrc.old.bak \
+                  "$HOME"/.gitconfig.old.bak "$HOME"/.config/*.old.bak \
+                  "$HOME"/.config/*/../*.old.bak; do
+            [ -e "$_o" ] || continue
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
+            break
+        done
+    fi
+
     for cfg in "${cfgs[@]}"; do
         local pkg="${PKG_MAP[$cfg]}"
         local steps=()
