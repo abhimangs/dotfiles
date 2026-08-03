@@ -2,6 +2,15 @@
 set -eu
 
 REPO=https://github.com/abhimangs/dotfiles.git
+
+# set -eu catches HOME being unset, but not HOME being set and empty — and an
+# empty one makes DIR "/dotfiles", pointing the rm and mv below at the root of
+# the filesystem. This script runs unattended through curl | bash, so there is
+# no prompt in front of them.
+if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
+    echo "HOME is not set to a usable directory — refusing to run." >&2
+    exit 1
+fi
 DIR="$HOME/dotfiles"
 
 if ! command -v git >/dev/null 2>&1; then
@@ -16,7 +25,14 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 if [ -e "$DIR" ] || [ -L "$DIR" ]; then
-    rm -rf "$DIR.bak"
+    # Two generations, matching install.sh's own convention. This used to keep
+    # one: running the documented curl one-liner twice destroyed whatever the
+    # first run had saved, with no prompt and no warning.
+    if [ -e "$DIR.bak" ] || [ -L "$DIR.bak" ]; then
+        rm -rf "$DIR.old.bak"
+        mv "$DIR.bak" "$DIR.old.bak"
+        echo "Rotated ~/dotfiles.bak to ~/dotfiles.old.bak"
+    fi
     mv "$DIR" "$DIR.bak"
     echo "Moved existing ~/dotfiles to ~/dotfiles.bak"
 fi
