@@ -473,24 +473,44 @@ APT_INDEX_OK=1
 # Last 'apt-get update' error, kept so the failure can explain itself
 APT_UPDATE_ERROR=""
 APT_SOURCES_D=/etc/apt/sources.list.d
-# PPAs this installer is the one that adds. Only these are ever removed again —
-# anything else under sources.list.d belongs to the user and is left alone.
+# Sources this installer is the one that adds. Only these are ever removed
+# again — anything else under sources.list.d belongs to the user and is left
+# alone. PPAs are matched by their owner prefix, vendor repos by filename.
 APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal'
+# Every vendor repo written by an ensure_*_deb function below. A stale one of
+# these breaks apt-get update for the whole machine exactly as a dead PPA does
+# — and used to do it permanently, because only PPAs were ever cleaned up.
+APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*'
 APT_HEALED=0
 
-# An earlier run may have added a PPA that has since stopped publishing for
-# this release. It breaks every apt-get update from then on, and the user has
-# no reason to connect that to this installer — so clean up after ourselves.
+# An earlier run may have added a source that has since stopped publishing for
+# this release, or whose signing key was rotated. It breaks every apt-get
+# update from then on, and the user has no reason to connect that to this
+# installer — so clean up after ourselves.
 apt_drop_own_dead_source() {
     local f base owner dropped=0
     for f in "$APT_SOURCES_D"/*; do
         [ -f "$f" ] || continue
         base="${f##*/}"
-        grep -qE "^(${APT_OWN_PPAS})" <<< "$base" || continue
-        owner="${base%%-ubuntu-*}"
+        if grep -qE "^(${APT_OWN_PPAS})" <<< "$base"; then
+            # ppa: owner-ubuntu-name-release.list — the owner is what apt names
+            # in the error, so match on that.
+            owner="${base%%-ubuntu-*}"
+        elif grep -qE "^(${APT_OWN_SOURCES})\.(list|sources)$" <<< "$base"; then
+            # vendor repo: the filename stem is not in apt's error text, so
+            # match on the hosts the file itself points at instead.
+            owner=""
+            while IFS= read -r _h; do
+                grep -qiF "$_h" <<< "$APT_UPDATE_ERROR" && { owner="$_h"; break; }
+            done < <(grep -ohE 'https?://[^ ]+' "$f" 2>/dev/null \
+                     | sed -E 's#https?://([^/ ]+).*#\1#' | sort -u)
+            [ -n "$owner" ] || continue
+        else
+            continue
+        fi
         grep -qiF "$owner" <<< "$APT_UPDATE_ERROR" || continue
         sudo rm -f "$f" || continue
-        substep "${C_YELLOW}Removed a dead PPA from an earlier run: ${base}${C_RESET}"
+        substep "${C_YELLOW}Removed a dead source from an earlier run: ${base}${C_RESET}"
         dropped=1
     done
     [ "$dropped" -eq 1 ]
