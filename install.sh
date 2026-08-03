@@ -1343,7 +1343,7 @@ MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf a
 # Wallpapers are only for terminal emulators, not all font-using configs
 NEEDS_WALLPAPER=(ghostty kitty)
 needs_wallpaper() {
-    local cfg="$1"
+    local cfg="$1" n
     for n in "${NEEDS_WALLPAPER[@]}"; do [[ "$cfg" == "$n" ]] && return 0; done
     return 1
 }
@@ -1531,6 +1531,9 @@ DEP_DESC[tree]="directory tree listing"
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
+    # cfg and step are the loop variables below; every other local in this
+    # function was declared and these two were missed, so they leaked out.
+    local cfg step
 
     local _mode_label
     [[ "$BACKUP_MODE" == "delete" ]] \
