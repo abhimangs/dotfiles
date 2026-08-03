@@ -1240,6 +1240,10 @@ strip_repo_traces() {
 # ── Stow package directly into ~/.config/<name>/ (flat repo structure) ────────
 stow_config() {
     local name="$1"
+    # Both branches below reach an rm -rf on $target. Every caller passes a
+    # literal today, but a future one passing an empty name would aim that at
+    # ~/.config itself — cheap to make impossible, expensive to discover.
+    [ -n "$name" ] || return 1
     local target="$HOME/.config/$name"
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
@@ -1277,6 +1281,8 @@ stow_config() {
 # ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
 backup_file() {
     local target="$1"
+    # Same reasoning as stow_config: delete mode rm -rf's this path.
+    [ -n "$target" ] || return 1
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
     local name; name="$(basename "$target")"
