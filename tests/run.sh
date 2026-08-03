@@ -37,6 +37,9 @@ printf '\n\n2\n\n\n\n' > "$WORK/k-num"      # numeric menu: item 2, skip, skip, 
 printf 'p\n\n\n'       > "$WORK/k-private"  # private mode, then fzf menus
 printf '\n\ny\n'       > "$WORK/k-lock-yes" # ... then "yes, stop the updater"
 printf '\n\nn\n'       > "$WORK/k-lock-no"  # ... then "no, leave it"
+# --restore-bash skips every prompt above it and asks exactly one question.
+printf '\n\n'          > "$WORK/k-restore"    # Proceed? → yes
+printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
 
 echo "── static ───────────────────────────────────────────────"
 for f in install.sh linux.sh doctor.sh; do
@@ -176,6 +179,161 @@ if [ -f "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
 else
     bad  ubuntu-keepstar "their starship.toml was replaced"
 fi
+
+echo
+echo "── restore bash ─────────────────────────────────────────"
+# --restore-bash is the undo for the zsh setup, and the last thing between a
+# botched zsh install and a box you cannot get a usable shell on over SSH. It
+# only means anything after an install has happened, so every scenario here runs
+# install.sh twice against ONE sandbox: `run` builds it, `rerun` re-enters the
+# root the first pass left behind, and RUN_ARGS carries the flag in.
+
+# 16. The ordinary undo. The bar is not "close enough" — the rc the user wrote
+#     has to come back byte for byte, and the pristine copy has to survive it,
+#     or the second attempt at an undo has nothing to work from.
+run     restore-zsh ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+check   restore-zsh 0
+rb_zsh="$WORK/run/restore-zsh/home"
+grep -q 'hand interactive bash to zsh (v2)' "$rb_zsh/.bashrc" 2>/dev/null \
+    && note restore-zsh "install wrote the v2 hook" \
+    || bad  restore-zsh "no hook written — the undo below would prove nothing"
+
+#     Dry run first, and on this sandbox rather than a fresh one: a dry run over
+#     a machine with nothing to undo cannot tell you whether it writes. Compared
+#     as a full checksum manifest, not a list of paths a human thought of — the
+#     failure that matters in a mode whose whole contract is "no writes" is the
+#     write nobody went looking for.
+manifest "$rb_zsh" > "$WORK/mf-dry-before"
+RUN_ARGS="--restore-bash --dry-run" rerun restore-dry restore-zsh "$WORK/k-restore"
+check   restore-dry 0
+want    restore-dry 'Restore bash'                  'plan is printed'
+want    restore-dry 'remove.*hand-off block'        'plan names the real work'
+want    restore-dry 'dry run'                       'says nothing changed'
+nowant  restore-dry 'Proceed\?'                     'never prompts'
+manifest "$rb_zsh" > "$WORK/mf-dry-after"
+cmp -s "$WORK/mf-dry-before" "$WORK/mf-dry-after" \
+    && note restore-dry "sandbox HOME is untouched" \
+    || bad  restore-dry "dry run wrote to HOME"
+
+RUN_ARGS=--restore-bash rerun restore-undo restore-zsh "$WORK/k-restore"
+check   restore-undo 0
+want    restore-undo 'bash restored'                'reports success'
+nowant  restore-undo 'Tools verified'               'short-circuits before the installer'
+cmp -s "$SEED_BASHRC" "$rb_zsh/.bashrc" \
+    && note restore-undo "~/.bashrc is byte-identical to the original" \
+    || bad  restore-undo "~/.bashrc came back changed"
+grep -q 'hand interactive bash to zsh' "$rb_zsh/.bashrc" 2>/dev/null \
+    && bad  restore-undo "hook block still in ~/.bashrc" \
+    || note restore-undo "no hook left behind"
+[ -f "$rb_zsh/.bashrc.orig" ] \
+    && note restore-undo "pristine copy kept, so this is repeatable" \
+    || bad  restore-undo "pristine copy consumed by the restore"
+{ [ -L "$rb_zsh/.zshrc" ] || [ -e "$rb_zsh/.zshrc" ]; } \
+    && bad  restore-undo "~/.zshrc still stowed" \
+    || note restore-undo "~/.zshrc unstowed"
+# The passwd change is the step that locks people out, so it is asserted on the
+# stub's own record rather than on a line of output claiming it happened.
+lsh="$(cat "$WORK/run/restore-zsh/state/login_shell" 2>/dev/null)"
+[ "$(basename "${lsh:-none}")" = bash ] \
+    && note restore-undo "login shell is back to bash" \
+    || bad  restore-undo "login shell is ${lsh:-unset}"
+
+# 17. Someone who is not sure the first one worked runs it again. A second pass
+#     has to be a no-op — the pristine copy is deliberately kept, so re-running
+#     must not turn that into a way to end up with a *different* rc than the
+#     first pass produced.
+RUN_ARGS=--restore-bash rerun restore-again restore-zsh "$WORK/k-restore"
+check   restore-again 0
+nowant  restore-again 'remove the zsh hand-off block' 'nothing left to strip'
+cmp -s "$SEED_BASHRC" "$rb_zsh/.bashrc" \
+    && note restore-again "still byte-identical after a second run" \
+    || bad  restore-again "second run changed ~/.bashrc"
+
+# 18. On the documented curl bootstrap the flag physically cannot get through:
+#     `curl | bash` hands bash the script on stdin, so there is no argv for
+#     linux.sh to forward, whatever it does with "$@". The env var is the only
+#     door, and it has to open onto exactly the same code. Declining comes first
+#     on this sandbox, since "n" only proves anything while there is still
+#     something left to lose.
+run     restore-env ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+check   restore-env 0
+rb_env="$WORK/run/restore-env/home"
+manifest "$rb_env" > "$WORK/mf-decline-before"
+RUN_ARGS=--restore-bash rerun restore-declined restore-env "$WORK/k-restore-no"
+check   restore-declined 0
+want    restore-declined 'Proceed\?'                'the prompt was reached'
+nowant  restore-declined 'Restoring bash'           'n stops before any write'
+manifest "$rb_env" > "$WORK/mf-decline-after"
+cmp -s "$WORK/mf-decline-before" "$WORK/mf-decline-after" \
+    && note restore-declined "sandbox HOME is untouched" \
+    || bad  restore-declined "a declined restore still wrote to HOME"
+
+rerun   restore-envvar restore-env "$WORK/k-restore" DOTFILES_RESTORE_BASH=1
+check   restore-envvar 0
+want    restore-envvar 'Restore bash'               'env var takes the restore path'
+nowant  restore-envvar 'Tools verified'             'short-circuits before the installer'
+cmp -s "$SEED_BASHRC" "$rb_env/.bashrc" \
+    && note restore-envvar "~/.bashrc is byte-identical to the original" \
+    || bad  restore-envvar "env var path restored something else"
+
+# 19. A container or a minimal image with no ~/.bashrc at all. The installer
+#     creates one to hold the hook, so the undo cannot strip the hook and call
+#     it done — that leaves a file the machine never had and no bash config in
+#     it. .bashrc.none is how the restore knows there is no original to put back
+#     and that bash/.bashrc is what belongs there instead.
+STUB_NO_BASHRC=1 run restore-nobashrc ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+check   restore-nobashrc 0
+rb_none="$WORK/run/restore-nobashrc/home"
+[ -f "$rb_none/.bashrc.none" ] \
+    && note restore-nobashrc "absence recorded as ~/.bashrc.none" \
+    || bad  restore-nobashrc "no ~/.bashrc.none written"
+[ -e "$rb_none/.bashrc.orig" ] \
+    && bad  restore-nobashrc "invented a pristine copy of a file that never existed" \
+    || note restore-nobashrc "no bogus pristine copy"
+RUN_ARGS=--restore-bash rerun restore-nobashrc-undo restore-nobashrc "$WORK/k-restore"
+check   restore-nobashrc-undo 0
+want    restore-nobashrc-undo 'there was no ~/.bashrc to restore' 'plan takes the repo path'
+grep -q 'hand interactive bash to zsh' "$rb_none/.bashrc" 2>/dev/null \
+    && bad  restore-nobashrc-undo "hook block still in ~/.bashrc" \
+    || note restore-nobashrc-undo "no hook left behind"
+# Currently RED, and it is install.sh that is wrong, not this assertion.
+# Stripping the hook out of the file the installer created leaves the file
+# itself behind (1 byte, the newline the block was appended after), and stow
+# refuses to write over a real file — so `stow_home bash` in restore_bash's
+# `repo` branch conflicts and loses, while the run still prints "bash restored".
+# The leftover has to be cleared before bash/.bashrc is laid down.
+if [ -e "$rb_none/.bashrc" ] && cmp -s "$rb_none/.bashrc" "$REPO/bash/.bashrc"; then
+    note restore-nobashrc-undo "repo bash/.bashrc laid down"
+else
+    bad  restore-nobashrc-undo \
+        "left a $(wc -c <"$rb_none/.bashrc" 2>/dev/null || echo 0)-byte ~/.bashrc, not bash/.bashrc"
+fi
+
+# 20. Every machine an earlier version of this installer touched already carries
+#     a v1 block. Stacking a v2 one on top gives bash two execs and gives the
+#     undo one range to strip, so the surviving half keeps handing every session
+#     to zsh forever — with the flag that was supposed to stop it reporting
+#     success. The pristine copy is taken on this same run, and it is write-once:
+#     if it captures the v1 block, the wrong file is preserved permanently.
+STUB_V1_HOOK=1 run restore-v1hook ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+check   restore-v1hook 0
+rb_v1="$WORK/run/restore-v1hook/home"
+v2n=$(grep -c '^# >>> hand interactive bash to zsh (v2) >>>' "$rb_v1/.bashrc" 2>/dev/null)
+v1n=$(grep -c '^# >>> dotfiles: hand interactive bash to zsh >>>' "$rb_v1/.bashrc" 2>/dev/null)
+[ "${v2n:-0}" = 1 ] \
+    && note restore-v1hook "exactly one v2 block" \
+    || bad  restore-v1hook "${v2n:-0} v2 blocks in ~/.bashrc"
+[ "${v1n:-0}" = 0 ] \
+    && note restore-v1hook "v1 block migrated, not stacked" \
+    || bad  restore-v1hook "v1 block still underneath"
+cmp -s "$SEED_BASHRC" "$rb_v1/.bashrc.orig" \
+    && note restore-v1hook "pristine copy is the rc from before any hook" \
+    || bad  restore-v1hook "pristine copy captured a hook"
+RUN_ARGS=--restore-bash rerun restore-v1hook-undo restore-v1hook "$WORK/k-restore"
+check   restore-v1hook-undo 0
+cmp -s "$SEED_BASHRC" "$rb_v1/.bashrc" \
+    && note restore-v1hook-undo "~/.bashrc is byte-identical to the pre-v1 original" \
+    || bad  restore-v1hook-undo "~/.bashrc came back changed"
 
 echo
 echo "── interrupt ────────────────────────────────────────────"

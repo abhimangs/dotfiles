@@ -30,9 +30,34 @@ sandbox_repo() {        # sandbox_repo <root>
     bash -n "$f" || { echo "harness: rewrite broke syntax"; exit 1; }
 }
 
-run() {                 # run <name> <distro> <keys-file> [VAR=value ...]
-    local name="$1" distro="$2" keys="$3"; shift 3
-    local root="$WORK/run/$name"
+# ── The seeded ~/.bashrc, as files ───────────────────────────────────────────
+# Not a heredoc inside run(), because --restore-bash promises the original comes
+# back *byte for byte* and only the exact seeded bytes can prove that. A second
+# copy of this text in run.sh would drift the first time either is edited.
+SEED_BASHRC="$WORK/seed/bashrc"
+SEED_V1_HOOK="$WORK/seed/v1hook"
+mkdir -p "$WORK/seed"
+cat > "$SEED_BASHRC" <<'BRC'
+# ~/.bashrc: the user's own, from before any of this ran
+case $- in *i*) ;; *) return ;; esac
+export EDITOR=nano
+alias ll='ls -alF'
+STUB_ORIGINAL_BASHRC=yes
+BRC
+# The hand-off block as an *older* install.sh wrote it: "dotfiles:" in the
+# marker, which v2 dropped. Appended with no blank line before it, so a correct
+# migration strips exactly these lines and what is left is SEED_BASHRC byte for
+# byte — which turns "the pristine copy is hook-free" from a grep into a diff.
+cat > "$SEED_V1_HOOK" <<'V1'
+# >>> dotfiles: hand interactive bash to zsh >>>
+if [ -z "${ZSH_VERSION:-}" ] && [ -t 1 ]; then
+    exec zsh -l
+fi
+# <<< dotfiles: hand interactive bash to zsh <<<
+V1
+
+build_root() {          # build_root <root> <distro>
+    local root="$1" distro="$2"
     rm -rf "$root"; mkdir -p "$root/home" "$root/state" "$root/etc/apt/sources.list.d" "$root/share"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"
@@ -42,13 +67,11 @@ run() {                 # run <name> <distro> <keys-file> [VAR=value ...]
     # Every Debian/Ubuntu home ships one, and the bash scenarios need something
     # real to snapshot. Distinctive enough that a restore can be checked for it.
     if [ "${STUB_NO_BASHRC:-0}" != 1 ]; then
-        cat > "$root/home/.bashrc" <<'BRC'
-# ~/.bashrc: the user's own, from before any of this ran
-case $- in *i*) ;; *) return ;; esac
-export EDITOR=nano
-alias ll='ls -alF'
-STUB_ORIGINAL_BASHRC=yes
-BRC
+        cp -p "$SEED_BASHRC" "$root/home/.bashrc"
+        # A machine an older version of this installer already ran on. Without
+        # one of these the migration branch is never taken and a regression that
+        # stacks a second block on top of the first ships unnoticed.
+        [ "${STUB_V1_HOOK:-0}" = 1 ] && cat "$SEED_V1_HOOK" >> "$root/home/.bashrc"
     fi
     # A starship.toml the user wrote themselves, which must survive untouched.
     if [ "${STUB_PRESEED_STARSHIP:-0}" = 1 ]; then
@@ -110,6 +133,25 @@ PKGS
         sleep 600 & echo $! > "$root/state/lockpid"
     fi
     [ "${STUB_DPKG_INTERRUPTED:-0}" = 1 ] && : > "$root/state/dpkg-interrupted"
+    return 0
+}
+
+# One invocation of install.sh inside an already-built sandbox.
+#   install_pass <root> <outdir> <keys-file> [VAR=value ...]
+#
+# The sandbox and the transcript are separate arguments on purpose. --restore-bash
+# only means anything after an install has happened, so those scenarios run the
+# installer twice against ONE $HOME — and each pass needs its own out.txt, or the
+# second silently overwrites the evidence the first pass is asserted on.
+#
+# $RUN_ARGS (set as a prefix on the run/rerun call) is appended to the command
+# line, which is the only way a scenario can reach a flag: install.sh parses "$@"
+# and the harness used to hardcode an empty one.
+install_pass() {        # install_pass <root> <outdir> <keys-file> [VAR=value ...]
+    local root="$1" out="$2" keys="$3"; shift 3
+    mkdir -p "$out"
+    local cmd="bash ./install.sh"
+    [ -n "${RUN_ARGS:-}" ] && cmd="$cmd ${RUN_ARGS}"
 
     # script(1) gives the installer a real pty, so /dev/tty resolves and the
     # keystroke file is delivered through it — the same path a human types on.
@@ -130,13 +172,30 @@ PKGS
         STUB_STATE="$root/state" STUB_BIN="$root/bin" STUB_TPL="$WORK/tpl" \
         STUB_ROOT="$root" STUB_APT_SRCD="$root/etc/apt/sources.list.d" \
         "$@" \
-        timeout 45 script -qec "bash ./install.sh" /dev/null \
-            < "$keys" > "$root/out.txt" 2>&1 ) || rc=$?
-    echo "$rc" > "$root/rc"
+        timeout 45 script -qec "$cmd" /dev/null \
+            < "$keys" > "$out/out.txt" 2>&1 ) || rc=$?
+    echo "$rc" > "$out/rc"
 
     [ -f "$root/state/lockpid" ] && kill "$(cat "$root/state/lockpid")" 2>/dev/null
     # The pty gives CRLF line endings; assertions anchored with $ need them gone.
-    sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r$//' "$root/out.txt" > "$root/clean.txt"
+    sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r$//' "$out/out.txt" > "$out/clean.txt"
+}
+
+run() {                 # run <name> <distro> <keys-file> [VAR=value ...]
+    local name="$1" distro="$2" keys="$3"; shift 3
+    build_root "$WORK/run/$name" "$distro"
+    install_pass "$WORK/run/$name" "$WORK/run/$name" "$keys" "$@"
+}
+
+# Run install.sh again in the sandbox <in> was built in, without rebuilding it —
+# the state the first pass left behind is the whole point. The transcript lands
+# under <name>, so check/want/nowant address the two passes separately while the
+# filesystem assertions all read $WORK/run/<in>/home.
+#
+#   RUN_ARGS=--restore-bash rerun myscen-undo myscen "$WORK/k-restore"
+rerun() {               # rerun <name> <in> <keys-file> [VAR=value ...]
+    local name="$1" in="$2" keys="$3"; shift 3
+    install_pass "$WORK/run/$in" "$WORK/run/$name" "$keys" "$@"
 }
 
 check() {               # check <name> <expected-rc>
@@ -180,3 +239,18 @@ nowant() {              # nowant <name> <regex> <description>
 
 note() { printf '  PASS  %-26s %s\n' "$1" "$2"; PASS=$((PASS+1)); }
 bad()  { printf '  FAIL  %-26s %s\n' "$1" "$2"; FAIL=$((FAIL+1)); }
+
+# Everything about a tree that a write would disturb: type, mode, size, mtime,
+# symlink target, and the contents of every regular file. Two manifests compare
+# equal only if nothing was created, removed, rewritten or re-pointed.
+#
+# This is what "--dry-run changes nothing" has to mean. Spot-checking the two or
+# three files a scenario expects to be touched cannot catch the failure that
+# actually matters — some unrelated write, in a mode whose entire contract is
+# that there are none.
+manifest() {            # manifest <dir>
+    ( cd "$1" 2>/dev/null || exit 0
+      find . -mindepth 1 -printf '%y %m %s %T@ %p -> %l\n' | LC_ALL=C sort
+      find . -type f -printf '%p\0' | LC_ALL=C sort -z \
+          | xargs -0 -r sha256sum 2>/dev/null | LC_ALL=C sort )
+}
