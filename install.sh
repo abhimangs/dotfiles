@@ -2001,6 +2001,10 @@ show_plan() {
 restore_bash() {
     local rc="$HOME/.bashrc" steps=() ans bash_path new_shell
     local current_shell target_user
+    # Any error below sets this. Without it the function printed "bash
+    # restored" and returned 0 after every possible failure, so
+    # `install.sh --restore-bash && echo ok` always said ok.
+    local _rb_failed=0
     target_user="$(id -un)"
     current_shell="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f7)"
     bash_path="$(command -v bash 2>/dev/null)"
@@ -2016,15 +2020,27 @@ restore_bash() {
         steps+=("${C_RED}skip${C_RESET} ${C_DIM}~/.bashrc hook block is hand-edited — left for you${C_RESET}")
     fi
 
-    local bashrc_action=""
+    # Decide against the real file, not the symlink. `-e "$rc"` follows a stow
+    # link into the checkout and reports the repo's own rc as "an existing
+    # bashrc", which is how this used to unstow the bash config and then
+    # immediately stow it straight back — or, with no pristine copy, unstow it
+    # and leave the user with no ~/.bashrc at all while printing success.
+    local bashrc_action="" stowed_bash=0
+    bashrc_is_repo_link "$rc" && stowed_bash=1
     if [ -e "$PRISTINE_BASHRC" ]; then
         bashrc_action="restore"
         steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.bashrc from the copy kept before the first run${C_RESET}")
-    elif [ -e "$PRISTINE_ABSENT" ] || [ ! -e "$rc" ]; then
+    elif [ -e "$PRISTINE_ABSENT" ] || [ "$stowed_bash" = 1 ] || [ ! -e "$rc" ]; then
         bashrc_action="repo"
-        steps+=("${C_GREEN}install${C_RESET} ${C_DIM}bash/.bashrc — there was no ~/.bashrc to restore${C_RESET}")
+        if [ "$stowed_bash" = 1 ]; then
+            steps+=("${C_GREEN}keep${C_RESET} ${C_DIM}the stowed bash/.bashrc — no earlier ~/.bashrc was ever saved${C_RESET}")
+        else
+            steps+=("${C_GREEN}install${C_RESET} ${C_DIM}bash/.bashrc — there was no ~/.bashrc to restore${C_RESET}")
+        fi
     fi
-    bashrc_is_repo_link "$rc" && steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}the bash config so ~/.bashrc is a real file again${C_RESET}")
+    # Only worth unstowing if something else is going to take its place.
+    [ "$stowed_bash" = 1 ] && [ "$bashrc_action" = "restore" ] \
+        && steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}the bash config so ~/.bashrc is a real file again${C_RESET}")
 
     local zsh_action=""
     if [ -L "$HOME/.zshrc" ]; then
@@ -2079,7 +2095,10 @@ restore_bash() {
     info "Restoring bash..."
     snapshot_bashrc >/dev/null 2>&1 || true   # first run here may be a restore
 
-    if bashrc_is_repo_link "$rc"; then
+    # Unstow only when a pristine copy is going to replace it. Otherwise the
+    # stowed rc *is* the best bash config on the machine and removing it would
+    # be a downgrade, not a restore.
+    if [ "$stowed_bash" = 1 ] && [ "$bashrc_action" = "restore" ]; then
         stow --target "$HOME" --dir "$DOTFILES_DIR" -D bash &>/dev/null 2>&1 || true
         [ -L "$rc" ] && rm -f "$rc"
         substep "Unstowed the bash config"
@@ -2090,6 +2109,7 @@ restore_bash() {
             substep "Removed the zsh hand-off block from ${C_ACCENT}~/.bashrc${C_RESET}"
         else
             error "Could not edit ~/.bashrc — remove the hook block by hand"
+            _rb_failed=1
         fi
     elif [ "$hook_state" = "malformed" ]; then
         substep "${C_YELLOW}Left the hand-edited hook block in ~/.bashrc alone${C_RESET}"
@@ -2101,10 +2121,32 @@ restore_bash() {
             substep "Restored ${C_ACCENT}~/.bashrc${C_RESET} ${C_DIM}from the pristine copy${C_RESET}"
         else
             error "Could not write ~/.bashrc"
+            _rb_failed=1
         fi ;;
       repo)
-        if [ -f "$DOTFILES_DIR/bash/.bashrc" ] && stow_home "bash"; then
-            substep "Installed ${C_ACCENT}bash/.bashrc${C_RESET} ${C_DIM}(there was no original)${C_RESET}"
+        if [ "$stowed_bash" = 1 ]; then
+            substep "${C_DIM}~/.bashrc already is the stowed bash config — left in place${C_RESET}"
+        elif [ ! -f "$DOTFILES_DIR/bash/.bashrc" ]; then
+            error "bash/.bashrc is missing from the checkout — nothing to install"
+            _rb_failed=1
+        else
+            # Stripping the hook leaves the file the installer created to hold
+            # it — one newline. stow refuses to link over a real file, so that
+            # leftover has to go first or the restore ends with a 1-byte
+            # ~/.bashrc and no config at all.
+            if [ -e "$rc" ] && [ ! -L "$rc" ]; then
+                if [ -s "$rc" ] && grep -qv '^[[:space:]]*$' "$rc" 2>/dev/null; then
+                    backup_file "$rc"          # real content: keep it
+                else
+                    rm -f "$rc"                # only what we created; drop it
+                fi
+            fi
+            if stow_home "bash"; then
+                substep "Installed ${C_ACCENT}bash/.bashrc${C_RESET} ${C_DIM}(there was no original)${C_RESET}"
+            else
+                error "Could not install bash/.bashrc — ~/.bashrc may be missing"
+                _rb_failed=1
+            fi
         fi ;;
     esac
 
@@ -2132,6 +2174,7 @@ restore_bash() {
         # An empty path here would run `chsh -s "" user` and blank the field.
         if [ -z "$bash_path" ]; then
             error "No bash on PATH — leaving the login shell alone"
+            _rb_failed=1
         else
             grep -qxs "$bash_path" /etc/shells \
                 || echo "$bash_path" | sudo tee -a /etc/shells &>/dev/null
@@ -2145,6 +2188,7 @@ restore_bash() {
             else
                 error "Login shell unchanged — still ${new_shell:-unknown}"
                 substep "To fix it by hand: ${C_ACCENT}sudo usermod -s ${bash_path} ${target_user}${C_RESET}"
+                _rb_failed=1
             fi
         fi
     fi
@@ -2153,6 +2197,10 @@ restore_bash() {
     if [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}${SSH_CLIENT:-}" ]; then
         substep "${C_DIM}On SSH the new shell applies to new logins; if reconnecting still${C_RESET}"
         substep "${C_DIM}gives you zsh, your client is reusing a multiplexed connection.${C_RESET}"
+    fi
+    if [ "$_rb_failed" -ne 0 ]; then
+        error "Restore finished with errors — see above"
+        return 1
     fi
     success "bash restored"
     return 0
