@@ -1132,6 +1132,12 @@ snapshot_bashrc() {
     [ -e "$PRISTINE_BASHRC" ] && return 0
     [ -e "$PRISTINE_ABSENT" ] && return 0
 
+    # If ~/.bashrc is a stow symlink into the checkout, the file behind it is
+    # the repo's, not the user's. Copying that would record the repo's own rc
+    # as "the original" — permanently, because of the write-once rule above.
+    # -e follows the link, so none of the tests below would notice.
+    bashrc_is_repo_link "$rc" && return 0
+
     if [ ! -e "$rc" ]; then
         # Record the absence, so a restore knows to remove what we created
         # rather than leave a file the machine never had.
@@ -1144,11 +1150,21 @@ snapshot_bashrc() {
     # every machine an earlier version of this installer has run on, including
     # the author's. Snapshot it hook-free or the write-once guarantee preserves
     # the wrong thing permanently.
-    if bashrc_hook_range "$rc" >/dev/null 2>&1; then
-        bashrc_hook_strip_to "$rc" "$PRISTINE_BASHRC" || return 1
-    else
-        cp -p "$rc" "$PRISTINE_BASHRC" 2>/dev/null || return 1
-    fi
+    #
+    # bashrc_hook_range is tri-state and this has to branch on all three. A
+    # binary if sends status 2 — a BEGIN marker whose END was hand-deleted —
+    # down the plain-copy path, which preserves the broken block *as the
+    # original*, forever. --restore-bash would then faithfully put a file back
+    # that still execs zsh and report success.
+    bashrc_hook_range "$rc" >/dev/null 2>&1
+    case "$?" in
+        0) bashrc_hook_strip_to "$rc" "$PRISTINE_BASHRC" || return 1 ;;
+        1) cp -p "$rc" "$PRISTINE_BASHRC" 2>/dev/null || return 1 ;;
+        *) # Malformed. Refuse rather than record something we cannot vouch for;
+           # the caller reports it and nothing is written, so a later run can
+           # still take a good snapshot once the file is repaired.
+           return 1 ;;
+    esac
     return 0
 }
 
@@ -2822,8 +2838,17 @@ for cfg in "${SELECTED[@]}"; do
         substep "${C_ACCENT}bash${C_RESET} already installed"
         # Before backup_file, always: in delete mode that rm -rf's ~/.bashrc
         # with no .bak, and this is the only other copy.
-        snapshot_bashrc \
-            || substep "${C_YELLOW}Could not keep a pristine copy of ~/.bashrc${C_RESET}"
+        # Enforced, not just asserted in a comment. In delete mode backup_file
+        # rm -rf's ~/.bashrc with no .bak, so if the snapshot did not happen
+        # this step is the difference between reversible and gone. Refuse the
+        # config rather than take that trade on the user's behalf.
+        if ! snapshot_bashrc; then
+            error "Could not keep a pristine copy of ~/.bashrc — not touching it"
+            substep "${C_DIM}Without that copy this change would be irreversible.${C_RESET}"
+            substep "${C_DIM}Check permissions on \$HOME and re-run.${C_RESET}"
+            FAILED+=(bash)
+            continue
+        fi
         backup_file "$HOME/.bashrc"
         if ! stow_home "bash"; then
             FAILED+=(bash)
