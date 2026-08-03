@@ -1798,20 +1798,19 @@ show_plan() {
             steps+=("${C_GREEN}stow ~/scripts/pvpn/pvpn.zsh${C_RESET}")
             ;;
           starship)
-            target="$HOME/.config/starship.toml"; bak="${target}.bak"
-            if [ -L "$target" ]; then
+            # Mirrors the three outcomes in the install loop. No backup line
+            # here any more: an existing starship.toml is never moved, so
+            # promising a .bak we will not take would be worse than silence.
+            target="$HOME/.config/starship.toml"
+            _pdf="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
+            if [ -L "$target" ] && [[ "$(readlink -f "$target" 2>/dev/null)" == "$_pdf"/* ]]; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$target" ]; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}starship.toml${C_RESET}")
-                else
-                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml.bak → starship.toml.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}starship.toml → starship.toml.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET}")
+            elif [ -e "$target" ] || [ -L "$target" ]; then
+                steps+=("${C_DIM}keep your existing starship.toml — ours not installed${C_RESET}")
             else
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
+            unset _pdf
             ;;
           ulauncher)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
@@ -2746,14 +2745,33 @@ for cfg in "${SELECTED[@]}"; do
             fi
         fi
 
-        # starship is a single file, not a directory — handle differently
-        stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
-        backup_file "$HOME/.config/starship.toml"
-        if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
-            error "Stow failed for starship — check for conflicts in ~/.config/"
-            FAILED+=(starship)
-            continue
+        # starship is a single file, not a directory — handle differently.
+        #
+        # An existing starship.toml is left exactly where it is. A prompt
+        # config is something people tune by hand, and replacing it (or, in
+        # delete mode, erasing it) to install our own is not a reasonable
+        # reading of "install starship". Ours goes in only when there is
+        # nothing there.
+        _st="$HOME/.config/starship.toml"
+        _stow_df="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
+        if [ -L "$_st" ] && [[ "$(readlink -f "$_st" 2>/dev/null)" == "$_stow_df"/* ]]; then
+            # ours from an earlier run — refresh the link
+            stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
+            if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+                error "Stow failed for starship — check for conflicts in ~/.config/"
+                FAILED+=(starship)
+                continue
+            fi
+        elif [ -e "$_st" ] || [ -L "$_st" ]; then
+            substep "${C_DIM}Keeping your existing ~/.config/starship.toml — ours not installed${C_RESET}"
+        else
+            if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+                error "Stow failed for starship — check for conflicts in ~/.config/"
+                FAILED+=(starship)
+                continue
+            fi
         fi
+        unset _st _stow_df
         ;;
 
       # ── git ──────────────────────────────────────────────────────────────
