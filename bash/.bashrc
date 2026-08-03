@@ -11,10 +11,21 @@ esac
 # Declared here so the CLI installers see their bin dir already on PATH and
 # skip appending their own export block to this file (it is a stow symlink
 # into ~/dotfiles — their edits would dirty the repo).
-export PATH="$HOME/.local/bin:$PATH"
-export PATH="$HOME/.npm-global/bin:$PATH"
-export PATH="$HOME/.opencode/bin:$PATH"
-export PATH="$HOME/.kimi-code/bin:$PATH"
+# Prepended only if not already there. Unlike .zshrc, a bash rc is re-read by
+# every nested interactive shell — bash inside bash inside tmux — so an
+# unconditional prepend grows $PATH without bound over a long session.
+_path_prepend() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1:$PATH" ;;
+    esac
+}
+_path_prepend "$HOME/.local/bin"
+_path_prepend "$HOME/.npm-global/bin"
+_path_prepend "$HOME/.opencode/bin"
+_path_prepend "$HOME/.kimi-code/bin"
+export PATH
+unset -f _path_prepend
 
 # ── History ───────────────────────────────────────────────────
 HISTFILE=~/.bash_history
@@ -61,7 +72,13 @@ if command -v eza &>/dev/null; then
 fi
 
 # ── Aliases: Tools ────────────────────────────────────────────
-command -v bat &>/dev/null && alias cat='bat'
+# Debian and Ubuntu ship the binary as batcat; the `bat` name there belongs to
+# an unrelated ACPI package on older releases.
+if command -v bat &>/dev/null; then
+    alias cat='bat'
+elif command -v batcat &>/dev/null; then
+    alias cat='batcat'
+fi
 alias grep='grep --color=auto'
 
 # ── Aliases: System ───────────────────────────────────────────
@@ -80,7 +97,7 @@ if [ -n "$_upd" ]; then
 fi
 unset _upd
 alias reload='source ~/.bashrc'
-alias bashrc='nano ~/.bashrc'
+alias bashrc='${EDITOR:-nano} ~/.bashrc'
 alias myip='curl ifconfig.me'
 alias ports='ss -tulpn'
 
@@ -120,5 +137,18 @@ alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=
 # would print a wall of syntax errors on every shell start. And the fzf-backed
 # `fp` / `fkill` aliases, which need a tool this file does not assume.
 
+# ── Local overrides ───────────────────────────────────────────
+# This file is a stow symlink into the repo, so anything that appends to
+# ~/.bashrc — nvm, rustup, conda, pyenv, bun, deno — writes into the checkout
+# and dirties it. They cannot be stopped from here, but this gives you a place
+# to move such lines to, which is not tracked by the repo.
+[ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
+
 # ── Fastfetch ─────────────────────────────────────────────────
 command -v fastfetch &>/dev/null && fastfetch
+
+# Sourcing this file must not report failure. Without this the last command
+# above decides the status, so on any machine without fastfetch `source
+# ~/.bashrc` returns 1 — which leaves $? set at the prompt and aborts any
+# provisioning script that sources it under `set -e`.
+true
