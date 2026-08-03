@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Gate on errors only. These scripts predate any linting, so failing on
+      # style would mean a permanently red pipeline nobody reads; the full
+      # report still runs below and is visible in the log.
+      - name: Run shellcheck (errors are fatal)
+        run: |
+          shellcheck --version
+          # zsh/.zshrc is excluded: shellcheck has no zsh dialect and would
+          # flag every setopt/zstyle/bindkey line. bash/.bashrc is sourced and
+          # has no shebang, hence -e SC2148.
+          shellcheck -S error -s bash install.sh linux.sh doctor.sh tests/*.sh
+          shellcheck -S error -s bash -e SC2148 bash/.bashrc
+
+      - name: Full shellcheck report (advisory)
+        continue-on-error: true
+        run: |
+          shellcheck -s bash install.sh linux.sh doctor.sh tests/*.sh
+          shellcheck -s bash -e SC2148 bash/.bashrc
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install harness dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y stow zsh
+      - name: Run the suite
+        # The suite stubs every package manager and sandboxes HOME, so it never
+        # touches the runner's real system.
+        run: bash tests/run.sh
+
+  linux-sh-unchanged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Warn if linux.sh changed
+        # It is deployed by hand to a hosted URL, so a change here means the
+        # hosted copy is now stale until someone re-pastes it.
+        run: |
+          if git diff --quiet "${{ github.event.pull_request.base.sha || github.event.before }}" HEAD -- linux.sh 2>/dev/null; then
+            echo "linux.sh unchanged"
+          else
+            echo "::warning file=linux.sh::linux.sh changed — re-deploy it to the hosted URL"
+          fi
