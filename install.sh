@@ -1098,19 +1098,162 @@ same_shell() {
       "$(readlink -f "$2" 2>/dev/null || printf '%s' "$2")" ]
 }
 
-ensure_zsh_autoexec() {
+# ── The pristine ~/.bashrc ───────────────────────────────────────────────────
+# Written once, ever. Neither name contains "dotfiles": these live in $HOME,
+# and private mode exists to remove exactly that kind of trace.
+PRISTINE_BASHRC="$HOME/.bashrc.orig"
+PRISTINE_ABSENT="$HOME/.bashrc.none"
+
+# True when ~/.bashrc is a stow symlink into the checkout. Writing through one
+# edits the repo itself, which would both dirty the working tree and ship the
+# edit to everyone who clones it.
+bashrc_is_repo_link() {
+    local rc="${1:-$HOME/.bashrc}" t d
+    [ -L "$rc" ] || return 1
+    t="$(readlink -f "$rc" 2>/dev/null)" || return 1
+    d="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
+    [ -n "$t" ] && [ -n "$d" ] && [[ "$t" == "$d"/* ]]
+}
+
+# Keep a copy of ~/.bashrc as it was before this installer ever touched it.
+#
+# Deliberately not gated on $BACKUP_MODE. Delete mode is a statement about the
+# user's old *configs*; it is not permission to destroy the only copy of a file
+# this script is about to edit, and which --restore-bash needs to put back.
+snapshot_bashrc() {
     local rc="$HOME/.bashrc"
-    local marker="# >>> dotfiles: hand interactive bash to zsh >>>"
+    # Write-once. A second run must never overwrite the pristine copy with one
+    # that already carries our hook.
+    [ -e "$PRISTINE_BASHRC" ] && return 0
+    [ -e "$PRISTINE_ABSENT" ] && return 0
+
+    if [ ! -e "$rc" ]; then
+        # Record the absence, so a restore knows to remove what we created
+        # rather than leave a file the machine never had.
+        printf '%s\n' "there was no ~/.bashrc before the dotfiles installer ran" \
+            > "$PRISTINE_ABSENT" 2>/dev/null || return 1
+        return 0
+    fi
+
+    # A .bashrc that already carries the hook is not an original — that is
+    # every machine an earlier version of this installer has run on, including
+    # the author's. Snapshot it hook-free or the write-once guarantee preserves
+    # the wrong thing permanently.
+    if bashrc_hook_range "$rc" >/dev/null 2>&1; then
+        bashrc_hook_strip_to "$rc" "$PRISTINE_BASHRC" || return 1
+    else
+        cp -p "$rc" "$PRISTINE_BASHRC" 2>/dev/null || return 1
+    fi
+    return 0
+}
+
+# The tag is stable across versions and is what detection and removal match on,
+# so a block written by any past version is still found. v1 said
+# "dotfiles: <tag>"; the optional group below still catches it — and dropping
+# that word from v2 takes the repo's name back out of $HOME/.bashrc, which
+# private mode never scrubbed.
+HOOK_TAG='hand interactive bash to zsh'
+HOOK_BEGIN="# >>> ${HOOK_TAG} (v2) >>>"
+HOOK_END="# <<< ${HOOK_TAG} (v2) <<<"
+HOOK_BEGIN_RE="^# >>> (dotfiles: )?${HOOK_TAG}"
+HOOK_END_RE="^# <<< (dotfiles: )?${HOOK_TAG}"
+
+# Prints "<first> <last>" for the hook block in a file.
+#   0 found · 1 not present · 2 a begin with no matching end
+bashrc_hook_range() {
+    local f="$1" b e
+    [ -f "$f" ] || return 1
+    b="$(grep -nE "$HOOK_BEGIN_RE" "$f" 2>/dev/null | head -1 | cut -d: -f1)"
+    [ -n "$b" ] || return 1
+    e="$(awk -v s="$b" 'NR>=s' "$f" 2>/dev/null | grep -nE "$HOOK_END_RE" | head -1 | cut -d: -f1)"
+    # Hand-edited past recognition. Refuse rather than let an open-ended range
+    # delete everything from the marker to the end of the file.
+    [ -n "$e" ] || return 2
+    printf '%s %s' "$b" "$(( b + e - 1 ))"
+}
+
+# Copy src to dst with the hook block removed. dst may be src.
+bashrc_hook_strip_to() {
+    local src="$1" dst="$2" range b e tmp
+    bashrc_is_repo_link "$dst" && return 2
+    range="$(bashrc_hook_range "$src")" || {
+        [ "$?" = 2 ] && return 2
+        # Nothing to strip — still produce dst.
+        [ "$src" = "$dst" ] || cp -p "$src" "$dst" 2>/dev/null || return 1
+        return 0
+    }
+    b="${range% *}"; e="${range#* }"
+    tmp="$RUN_TMPDIR/bashrc.$$"
+    awk -v b="$b" -v e="$e" 'NR<b || NR>e' "$src" > "$tmp" 2>/dev/null || return 1
+    # cat rather than mv, so an existing dst keeps its inode and permissions.
+    cat "$tmp" > "$dst" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+    return 0
+}
+
+# The block itself, as a single source of truth for writing and previewing.
+bashrc_hook_block() {
+    cat <<EOF
+$HOOK_BEGIN
+# Interactive bash only. \`ssh host cmd\`, scp, rsync and sftp all source this
+# file with no 'i' in \$- — one exec here breaks every one of them. That is
+# what the old \`[ -t 1 ]\` test failed to catch, since stdout is not a tty
+# there either.
+case \$- in
+    *i*) ;;
+      *) return ;;
+esac
+# Escape hatch, for when you want bash and mean it:
+#     DOTFILES_NO_ZSH=1 bash
+# To undo permanently: delete this block, or run
+#     bash ~/dotfiles/install.sh --restore-bash
+if [ -z "\${ZSH_VERSION:-}" ] && [ -z "\${DOTFILES_NO_ZSH:-}" ]; then
+    _zsh_bin=\$(command -v zsh 2>/dev/null)
+    # Verified, not assumed. A zsh that is on PATH but cannot actually start
+    # would otherwise end every new session instantly — on a machine you may
+    # only be able to reach through one.
+    if [ -n "\$_zsh_bin" ] && [ -x "\$_zsh_bin" ] && "\$_zsh_bin" -c exit >/dev/null 2>&1; then
+        unset _zsh_bin
+        exec zsh -l
+    fi
+    unset _zsh_bin
+fi
+$HOOK_END
+EOF
+}
+
+# Why the hook was or was not written, so the caller can say something true.
+_HOOK_STATE=""
+
+ensure_zsh_autoexec() {
+    local rc="$HOME/.bashrc" rng
+    _HOOK_STATE=""
     command -v zsh &>/dev/null && zsh -c 'exit 0' &>/dev/null || return 1
-    [ -f "$rc" ] && grep -qF "$marker" "$rc" && return 0
-    {
-        printf '\n%s\n' "$marker"
-        printf '%s\n' '# Only for interactive bash, and never from inside zsh itself.'
-        printf '%s\n' 'if [ -t 1 ] && [ -z "${ZSH_VERSION:-}" ] && command -v zsh >/dev/null 2>&1; then'
-        printf '%s\n' '    exec zsh -l'
-        printf '%s\n' 'fi'
-        printf '%s\n' '# <<< dotfiles: hand interactive bash to zsh <<<'
-    } >> "$rc" || return 1
+
+    # Never write through a stow symlink into the checkout.
+    if bashrc_is_repo_link "$rc"; then
+        _HOOK_STATE="skipped-repo-link"
+        return 1
+    fi
+
+    snapshot_bashrc || return 1
+
+    if [ -f "$rc" ] && grep -qF "$HOOK_BEGIN" "$rc" 2>/dev/null; then
+        _HOOK_STATE="present"
+        return 0
+    fi
+
+    # An older block: replace it rather than stacking a second one on top.
+    if rng="$(bashrc_hook_range "$rc")"; then
+        bashrc_hook_strip_to "$rc" "$rc" || { _HOOK_STATE="malformed"; return 1; }
+        _HOOK_STATE="migrated"
+    elif [ "$?" = 2 ]; then
+        _HOOK_STATE="malformed"
+        return 1
+    fi
+
+    { printf '\n'; bashrc_hook_block; } >> "$rc" || return 1
+    [ "$_HOOK_STATE" = "migrated" ] || _HOOK_STATE="added"
     return 0
 }
 
