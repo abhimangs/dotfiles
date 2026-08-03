@@ -830,6 +830,39 @@ ensure_starship_deb() {
     command -v starship &>/dev/null
 }
 
+# ── Keyring install, checked ─────────────────────────────────────────────────
+# `curl … | gpg --dearmor | sudo tee key.gpg` reports the exit status of tee,
+# which succeeds whatever it was handed. A failed download therefore wrote an
+# empty keyring, the caller went on to add the sources entry anyway, and every
+# apt-get update from then on failed to verify that repo — with nothing
+# anywhere saying the key never arrived.
+#
+# Fetch to a temp file, check curl, check the result is non-empty and really is
+# a key, and only then install it. Returns non-zero so callers can skip writing
+# a sources entry that could not possibly work.
+#   apt_install_keyring <url> <dest> [--armored]
+apt_install_keyring() {
+    local url="$1" dest="$2" armored="${3:-}"
+    local tmp="$RUN_TMPDIR/keyring.$$"
+    curl -fsSL "$url" -o "$tmp" 2>/dev/null || {
+        substep "${C_YELLOW}Could not download the signing key from ${url%%/*}${C_RESET}"
+        rm -f "$tmp"; return 1
+    }
+    [ -s "$tmp" ] || { substep "${C_YELLOW}Signing key came back empty${C_RESET}"; rm -f "$tmp"; return 1; }
+    if [ "$armored" = "--armored" ]; then
+        sudo install -m644 -D "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    else
+        gpg --dearmor < "$tmp" > "$tmp.gpg" 2>/dev/null || {
+            substep "${C_YELLOW}Signing key is not a valid GPG key${C_RESET}"
+            rm -f "$tmp" "$tmp.gpg"; return 1
+        }
+        [ -s "$tmp.gpg" ] || { rm -f "$tmp" "$tmp.gpg"; return 1; }
+        sudo install -m644 -D "$tmp.gpg" "$dest" 2>/dev/null || { rm -f "$tmp" "$tmp.gpg"; return 1; }
+    fi
+    rm -f "$tmp" "$tmp.gpg"
+    return 0
+}
+
 # ── eza (Debian/Ubuntu) ───────────────────────────────────────────────────────
 ensure_eza_deb() {
     apt_pkg_installed eza && return 0
@@ -837,12 +870,11 @@ ensure_eza_deb() {
     apt_pkg_installed eza && return 0
 
     ensure_apt_deps
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc 2>/dev/null \
-        | gpg --dearmor | sudo tee /etc/apt/keyrings/gierens.gpg >/dev/null
+    apt_install_keyring https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
+        /etc/apt/keyrings/gierens.gpg || return 1
     echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
         | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
-    sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+    sudo chmod 644 /etc/apt/sources.list.d/gierens.list
     APT_UPDATED=0
     apt_update_once
     apt_install eza
@@ -896,8 +928,9 @@ ensure_brave_deb() {
         sources_file="/etc/apt/sources.list.d/brave-browser-release.sources"
     fi
 
-    sudo curl -fsSLo "$key_file" "$key_url" &>/dev/null 2>&1
-    sudo curl -fsSLo "$sources_file" "https://${host}/brave-browser.sources" &>/dev/null 2>&1
+    apt_install_keyring "$key_url" "$key_file" --armored || return 1
+    sudo curl -fsSLo "$sources_file" "https://${host}/brave-browser.sources" &>/dev/null 2>&1 \
+        || { substep "${C_YELLOW}Could not download Brave's sources file${C_RESET}"; return 1; }
     APT_UPDATED=0
     apt_update_once
     apt_install "$pkg"
@@ -908,9 +941,8 @@ ensure_brave_deb() {
 ensure_vscode_deb() {
     apt_pkg_installed code && return 0
     ensure_apt_deps
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null \
-        | gpg --dearmor | sudo tee /etc/apt/keyrings/packages.microsoft.gpg >/dev/null
+    apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
+        /etc/apt/keyrings/packages.microsoft.gpg || return 1
     echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
         | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
     APT_UPDATED=0
@@ -925,10 +957,9 @@ ensure_vscode_deb() {
 ensure_vscode_insiders_deb() {
     apt_pkg_installed code-insiders && return 0
     ensure_apt_deps
-    sudo mkdir -p /etc/apt/keyrings
-    if [ ! -f /etc/apt/keyrings/packages.microsoft.gpg ]; then
-        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null \
-            | gpg --dearmor | sudo tee /etc/apt/keyrings/packages.microsoft.gpg >/dev/null
+    if [ ! -s /etc/apt/keyrings/packages.microsoft.gpg ]; then
+        apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
+            /etc/apt/keyrings/packages.microsoft.gpg || return 1
     fi
     echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
         | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
@@ -952,8 +983,8 @@ ensure_flathub_remote() {
 ensure_claude_desktop_deb() {
     apt_pkg_installed claude-desktop && return 0
     ensure_apt_deps
-    sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc \
-        https://downloads.claude.ai/claude-desktop/key.asc &>/dev/null 2>&1
+    apt_install_keyring https://downloads.claude.ai/claude-desktop/key.asc \
+        /usr/share/keyrings/claude-desktop-archive-keyring.asc --armored || return 1
     echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" \
         | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
     APT_UPDATED=0
