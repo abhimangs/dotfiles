@@ -47,9 +47,11 @@ START_TS=$SECONDS
 
 DRY_RUN=0
 FORCE_GUI=0
+RESTORE_BASH=0
 for _arg in "$@"; do
     [[ "$_arg" == "--dry-run" ]] && DRY_RUN=1
     [[ "$_arg" == "--gui"     ]] && FORCE_GUI=1
+    [[ "$_arg" == "--restore-bash" ]] && RESTORE_BASH=1
 done
 unset _arg
 # linux.sh (deployed by hand at abhiman.io/linux.sh, and not editable) ends in
@@ -58,6 +60,7 @@ unset _arg
 # equivalent:  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
 [ -n "${DOTFILES_DRY_RUN:-}" ] && DRY_RUN=1
 [ -n "${DOTFILES_GUI:-}" ]     && FORCE_GUI=1
+[ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
@@ -1968,8 +1971,186 @@ show_plan() {
     echo ""
 }
 
+
+# ── Restore bash ─────────────────────────────────────────────────────────────
+# Undoes what selecting zsh did: the hand-off hook, the stowed rc files, and
+# the login shell. Everything it needs already exists by this point in the
+# script (TTY_IN, colours, same_shell, the bashrc_* helpers), and everything it
+# must not trigger — the privacy and backup prompts, the menus, the install
+# loop — comes after.
+restore_bash() {
+    local rc="$HOME/.bashrc" steps=() ans bash_path new_shell
+    local current_shell target_user
+    target_user="$(id -un)"
+    current_shell="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f7)"
+    bash_path="$(command -v bash 2>/dev/null)"
+
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Restore bash${C_RESET}"
+
+    # ── survey, no writes ──
+    local has_hook=0 hook_state=""
+    if bashrc_hook_range "$rc" >/dev/null 2>&1; then
+        has_hook=1; steps+=("${C_YELLOW}remove${C_RESET} ${C_DIM}the zsh hand-off block from ~/.bashrc${C_RESET}")
+    elif [ "$?" = 2 ]; then
+        hook_state="malformed"
+        steps+=("${C_RED}skip${C_RESET} ${C_DIM}~/.bashrc hook block is hand-edited — left for you${C_RESET}")
+    fi
+
+    local bashrc_action=""
+    if [ -e "$PRISTINE_BASHRC" ]; then
+        bashrc_action="restore"
+        steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.bashrc from the copy kept before the first run${C_RESET}")
+    elif [ -e "$PRISTINE_ABSENT" ] || [ ! -e "$rc" ]; then
+        bashrc_action="repo"
+        steps+=("${C_GREEN}install${C_RESET} ${C_DIM}bash/.bashrc — there was no ~/.bashrc to restore${C_RESET}")
+    fi
+    bashrc_is_repo_link "$rc" && steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}the bash config so ~/.bashrc is a real file again${C_RESET}")
+
+    local zsh_action=""
+    if [ -L "$HOME/.zshrc" ]; then
+        zsh_action="unstow"
+        steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.zshrc${C_RESET}")
+        [ -e "$HOME/.zshrc.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.zshrc.bak → ~/.zshrc${C_RESET}")
+    fi
+
+    local st="$HOME/.config/starship.toml" st_action=""
+    local _rdf; _rdf="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
+    if [ -L "$st" ] && [[ "$(readlink -f "$st" 2>/dev/null)" == "$_rdf"/* ]]; then
+        st_action="unstow"
+        steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.config/starship.toml${C_RESET}")
+        [ -e "${st}.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}starship.toml.bak → starship.toml${C_RESET}")
+    fi
+
+    local shell_action=""
+    if [ -z "$bash_path" ]; then
+        steps+=("${C_RED}skip${C_RESET} ${C_DIM}no bash on PATH — login shell left alone${C_RESET}")
+    elif same_shell "$current_shell" "$bash_path"; then
+        steps+=("${C_DIM}login shell is already bash${C_RESET}")
+    else
+        shell_action="change"
+        steps+=("${C_GREEN}set${C_RESET} ${C_DIM}login shell for ${target_user} back to ${bash_path}${C_RESET}")
+    fi
+
+    if [ "${#steps[@]}" -eq 0 ]; then
+        substep "${C_DIM}Nothing to undo — no hook, no stowed rc, already on bash${C_RESET}"
+        success "Already restored"
+        return 0
+    fi
+    local _s
+    for _s in "${steps[@]}"; do
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW}${C_RESET} ${_s}"
+    done
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}the pristine copy is kept, so this can be re-run${C_RESET}"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_DIM}dry run — nothing changed${C_RESET}\n"
+        return 0
+    fi
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
+    read -r ans <"$TTY_IN"
+    [[ "$ans" =~ ^[Nn]$ ]] && { echo ""; return 0; }
+    echo ""
+
+    # ── act ──
+    # Order matters and is not negotiable: ~/.bashrc is made good BEFORE the
+    # login shell moves to it. The other way round, a failure between the two
+    # leaves you logging into a bash whose rc still execs a zsh that may no
+    # longer be there — unrecoverable over SSH without a console.
+    info "Restoring bash..."
+    snapshot_bashrc >/dev/null 2>&1 || true   # first run here may be a restore
+
+    if bashrc_is_repo_link "$rc"; then
+        stow --target "$HOME" --dir "$DOTFILES_DIR" -D bash &>/dev/null 2>&1 || true
+        [ -L "$rc" ] && rm -f "$rc"
+        substep "Unstowed the bash config"
+    fi
+
+    if [ "$has_hook" = 1 ] && [ -f "$rc" ] && [ ! -L "$rc" ]; then
+        if bashrc_hook_strip_to "$rc" "$rc"; then
+            substep "Removed the zsh hand-off block from ${C_ACCENT}~/.bashrc${C_RESET}"
+        else
+            error "Could not edit ~/.bashrc — remove the hook block by hand"
+        fi
+    elif [ "$hook_state" = "malformed" ]; then
+        substep "${C_YELLOW}Left the hand-edited hook block in ~/.bashrc alone${C_RESET}"
+    fi
+
+    case "$bashrc_action" in
+      restore)
+        if cp -p "$PRISTINE_BASHRC" "$rc" 2>/dev/null; then
+            substep "Restored ${C_ACCENT}~/.bashrc${C_RESET} ${C_DIM}from the pristine copy${C_RESET}"
+        else
+            error "Could not write ~/.bashrc"
+        fi ;;
+      repo)
+        if [ -f "$DOTFILES_DIR/bash/.bashrc" ] && stow_home "bash"; then
+            substep "Installed ${C_ACCENT}bash/.bashrc${C_RESET} ${C_DIM}(there was no original)${C_RESET}"
+        fi ;;
+    esac
+
+    if [ "$zsh_action" = "unstow" ]; then
+        stow --target "$HOME" --dir "$DOTFILES_DIR" -D zsh &>/dev/null 2>&1 || true
+        [ -L "$HOME/.zshrc" ] && rm -f "$HOME/.zshrc"
+        substep "Unstowed ${C_ACCENT}~/.zshrc${C_RESET}"
+        if [ -e "$HOME/.zshrc.bak" ] && [ ! -e "$HOME/.zshrc" ]; then
+            mv "$HOME/.zshrc.bak" "$HOME/.zshrc" && substep "Restored ${C_ACCENT}~/.zshrc${C_RESET} from .bak"
+        fi
+    fi
+
+    if [ "$st_action" = "unstow" ]; then
+        stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D starship &>/dev/null 2>&1 || true
+        [ -L "$st" ] && rm -f "$st"
+        substep "Unstowed ${C_ACCENT}~/.config/starship.toml${C_RESET}"
+        if [ -e "${st}.bak" ] && [ ! -e "$st" ]; then
+            mv "${st}.bak" "$st" && substep "Restored ${C_ACCENT}starship.toml${C_RESET} from .bak"
+        fi
+    fi
+
+    # Login shell last, and verified by reading /etc/passwd back rather than
+    # trusting chsh's exit code — chsh can exit 0 having changed nothing.
+    if [ "$shell_action" = "change" ]; then
+        # An empty path here would run `chsh -s "" user` and blank the field.
+        if [ -z "$bash_path" ]; then
+            error "No bash on PATH — leaving the login shell alone"
+        else
+            grep -qxs "$bash_path" /etc/shells \
+                || echo "$bash_path" | sudo tee -a /etc/shells &>/dev/null
+            sudo chsh -s "$bash_path" "$target_user" </dev/null &>/dev/null || true
+            if ! same_shell "$(getent passwd "$target_user" | cut -d: -f7)" "$bash_path"; then
+                sudo usermod -s "$bash_path" "$target_user" </dev/null &>/dev/null || true
+            fi
+            new_shell="$(getent passwd "$target_user" | cut -d: -f7)"
+            if same_shell "$new_shell" "$bash_path"; then
+                substep "${C_GREEN}Login shell for ${target_user} is now ${bash_path}${C_RESET}"
+            else
+                error "Login shell unchanged — still ${new_shell:-unknown}"
+                substep "To fix it by hand: ${C_ACCENT}sudo usermod -s ${bash_path} ${target_user}${C_RESET}"
+            fi
+        fi
+    fi
+
+    substep "${C_DIM}Switch this session now with: ${C_ACCENT}exec bash -l${C_RESET}"
+    if [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}${SSH_CLIENT:-}" ]; then
+        substep "${C_DIM}On SSH the new shell applies to new logins; if reconnecting still${C_RESET}"
+        substep "${C_DIM}gives you zsh, your client is reusing a multiplexed connection.${C_RESET}"
+    fi
+    success "bash restored"
+    return 0
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 header
+
+# --restore-bash short-circuits everything below: no privacy prompt, no backup
+# mode, no menus, no install loop. It needs sudo for chsh, and sudo -v is only
+# reached further down, so ask here.
+if [ "$RESTORE_BASH" -eq 1 ]; then
+    if [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null && [ "$DRY_RUN" -eq 0 ]; then
+        sudo -v || true
+    fi
+    restore_bash
+    exit $?
+fi
 
 # ── Backup mode ───────────────────────────────────────────────────────────────
 # What happens to existing configs (backup / delete) and whether to strip the
