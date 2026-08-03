@@ -1219,21 +1219,37 @@ strip_repo_traces() {
     [ "$d" != "/" ] && [ "$d" != "$HOME" ] || return 1
 
     local removed=() item
+    STRIP_SURVIVED=()
     for item in "${PRIVATE_DELETE[@]}"; do
+        { [ -e "$d/$item" ] || [ -L "$d/$item" ]; } || continue
+        rm -rf "${d:?}/${item:?}" 2>/dev/null
         if [ -e "$d/$item" ] || [ -L "$d/$item" ]; then
-            rm -rf "${d:?}/${item:?}" && removed+=("$item")
+            # A clone made under a different uid, or a directory left without
+            # write permission, cannot be unlinked through — but can be after
+            # a chmod. Worth one retry before giving up on it.
+            chmod -R u+rwX "${d:?}/${item:?}" 2>/dev/null || true
+            rm -rf "${d:?}/${item:?}" 2>/dev/null
+        fi
+        # Verified, not assumed. This used to record success from rm's exit
+        # status and then print "No git metadata left" regardless — the one
+        # sentence in the whole run that had to be true.
+        if [ -e "$d/$item" ] || [ -L "$d/$item" ]; then
+            STRIP_SURVIVED+=("$item")
+        else
+            removed+=("$item")
         fi
     done
 
     if [ "${#removed[@]}" -gt 0 ]; then
         substep "Removed: ${C_DIM}${removed[*]}${C_RESET}"
-    else
+    elif [ "${#STRIP_SURVIVED[@]}" -eq 0 ]; then
         substep "${C_DIM}Nothing left to remove${C_RESET}"
     fi
 
     if private_scrub; then
         substep "Scrubbed: ${C_DIM}name, address and URLs from the remaining configs${C_RESET}"
     fi
+    [ "${#STRIP_SURVIVED[@]}" -eq 0 ] || return 2
     return 0
 }
 
@@ -2752,14 +2768,32 @@ fi
 # ── Step 5d: strip repo traces (private mode) ────────────────────────────────
 if [ "$STRIP_REPO" -eq 1 ]; then
     info "Stripping repo traces..."
-    if strip_repo_traces; then
+    strip_repo_traces; _strip_rc=$?
+    case "$_strip_rc" in
+      0)
         substep "${C_DIM}~/dotfiles is now a plain folder — symlinks still resolve${C_RESET}"
         substep "${C_DIM}Re-run any time with: ${C_ACCENT}bash ~/dotfiles/install.sh${C_RESET}"
         substep "${C_DIM}Only pulling new changes needs a clone — nothing else does${C_RESET}"
-        success "No git metadata left"
-    else
+        # Gated on the specific fact, not on the general run having gone well.
+        if [ -e "$DOTFILES_DIR/.git" ]; then
+            error "\.git is still there — this checkout is still identifiable"
+            FAILED+=("private mode")
+        else
+            success "No git metadata left"
+        fi
+        ;;
+      2)
+        error "Could not remove: ${C_RED}${STRIP_SURVIVED[*]}${C_RESET}"
+        substep "Remove by hand: ${C_ACCENT}rm -rf ${DOTFILES_DIR}/{${STRIP_SURVIVED[*]// /,}}${C_RESET}"
+        substep "${C_DIM}Until then this checkout is still identifiable as a clone${C_RESET}"
+        FAILED+=("private mode")
+        ;;
+      *)
         error "Refused — ${DOTFILES_DIR} does not look like the dotfiles checkout"
-    fi
+        FAILED+=("private mode")
+        ;;
+    esac
+    unset _strip_rc
 fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
