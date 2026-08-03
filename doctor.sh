@@ -77,6 +77,9 @@ echo "dir             : $d $( [ -d "$d" ] && echo '(exists)' || echo '(MISSING)'
 echo "install.sh      : $( [ -f "$d/install.sh" ] && echo present || echo MISSING)"
 echo "git metadata    : $( [ -d "$d/.git" ] && echo present || echo 'stripped (private mode)')"
 echo "top level:"
+# shellcheck disable=SC2012  # a flat, human-readable listing is the point here;
+# find(1) output would be one path per line and much noisier to paste into a bug
+# report, which is the only thing this script exists to produce.
 ls -A "$d" 2>/dev/null | tr '\n' ' ' | sed 's/^/  /'; echo
 echo
 
@@ -85,12 +88,12 @@ echo "── stowed symlinks ─────────────────
 # design, with stow linking the files inside it — so look one level in.
 for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/starship.toml"; do
     if [ -L "$t" ]; then
-        printf "  %-26s -> %-30s %s\n" "${t#$HOME/}" "$(readlink "$t")" \
+        printf "  %-26s -> %-30s %s\n" "${t#"$HOME"/}" "$(readlink "$t")" \
             "$( [ -e "$t" ] && echo '[ok]' || echo '[BROKEN]')"
     elif [ -e "$t" ]; then
-        printf "  %-26s %s\n" "${t#$HOME/}" "(real file — NOT stowed)"
+        printf "  %-26s %s\n" "${t#"$HOME"/}" "(real file — NOT stowed)"
     else
-        printf "  %-26s %s\n" "${t#$HOME/}" "(absent)"
+        printf "  %-26s %s\n" "${t#"$HOME"/}" "(absent)"
     fi
 done
 for d in fastfetch kitty ghostty rofi btop bat ulauncher wallpapers; do
