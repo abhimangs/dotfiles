@@ -52,6 +52,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |
 | `wallpapers/` | `~/.config/wallpapers/` | — | — |
+| `bash/` | `~/.bashrc` | `bash` | apt — plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
 | `git/` | `~/.gitconfig` | `git` | apt |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
@@ -68,8 +69,57 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 - **Repo before AUR** — on Arch every install checks the official repos first and only falls back to paru for AUR-only packages
 - **paru** — installed automatically if missing on Arch (AUR helper)
 - **Shell change** — switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
+- **Reversible** — `~/.bashrc` is copied once before anything touches it, and `--restore-bash` puts it back byte for byte along with your login shell (see below)
 - **Headless aware** — on a machine with no display server, GUI configs and apps are hidden (see below)
 - **Retries** — a stale pacman db / apt index is refreshed and the install retried instead of failing; GitHub release lookups fall back to the release page when the API rate-limits
+
+### Going back to bash
+
+Selecting zsh changes your login shell and, if a session still comes up as bash,
+adds a guarded block to `~/.bashrc` that hands it over to zsh. Both are undoable:
+
+```bash
+bash ~/dotfiles/install.sh --restore-bash
+```
+
+It shows what it will do and asks before doing any of it (`--dry-run` stops after
+the preview). It removes the hand-off block, puts `~/.bashrc` back from the copy
+taken before the first run, un-stows `~/.zshrc` and `starship.toml` restoring any
+`.bak`, and sets your login shell back to bash — verifying the change by reading
+`/etc/passwd` back rather than trusting `chsh`.
+
+Through the curl bootstrap, where flags cannot be passed:
+
+```bash
+DOTFILES_RESTORE_BASH=1 curl -fsSL https://abhiman.io/linux.sh | bash
+```
+
+**The pristine copy.** The first run that touches `~/.bashrc` copies it to
+`~/.bashrc.orig`, once and only once — a later run never overwrites it, so the
+file you started with survives any number of re-installs. It is kept even when
+you choose `delete` for existing configs, and it is *not* removed by a restore,
+so restoring is repeatable. If you had no `~/.bashrc` at all, `~/.bashrc.none`
+records that and a restore installs this repo's `bash/.bashrc` instead.
+
+**Escape hatch.** If zsh is broken and you just need a bash shell:
+
+```bash
+DOTFILES_NO_ZSH=1 bash          # locally
+DOTFILES_NO_ZSH=1 ssh you@host  # over SSH
+```
+
+The hand-off block also refuses to run for non-interactive shells (`scp`, `rsync`,
+`ssh host cmd`) and verifies zsh actually starts before handing over — so a
+half-installed zsh can no longer lock you out of a machine you reach only by SSH.
+
+**Picking `bash` as a config** stows a plain `~/.bashrc`: aliases and sane
+defaults, no starship, no zoxide, no fzf, no plugin manager, and a plain prompt
+that renders on a serial console with no Nerd Font. If you pick both `bash` and
+`zsh`, the hand-off block is skipped — asking for the bash config is taken as
+meaning you want a working bash.
+
+**An existing `~/.config/starship.toml` is never replaced.** The repo's is stowed
+only when you do not already have one.
 
 ### Arch-only items
 
