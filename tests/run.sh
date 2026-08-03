@@ -186,12 +186,23 @@ if grep -q 'Interrupted' "$ipt/out.txt"; then note interrupt "says so"; else bad
 echo
 echo "── private-mode residue ─────────────────────────────────"
 # Whatever identity the checked-in .gitconfig carries must be gone afterwards,
-# along with the repo URL. Derived from the files, never hardcoded here.
+# along with this repo's own URL and the host the bootstrap is served from.
+# All three are derived from the files, never hardcoded here.
+#
+# Note what is deliberately NOT asserted: a bare 'github.com/'. The configs are
+# full of upstream URLs — zinit, catppuccin, nerd-fonts, fastfetch's schema —
+# and the installer needs them to download anything at all. Private mode
+# removes the URL that says whose this is, not every URL in the tree.
 mapfile -t IDENT < <(sed -nE 's/^[[:space:]]*(name|email)[[:space:]]*=[[:space:]]*//p' \
     "$REPO/git/.gitconfig" 2>/dev/null)
+# owner/repo out of linux.sh's REPO=, and the bootstrap host out of the README
+REPO_SLUG="$(sed -nE 's#^REPO=https?://github\.com/([^/]+/[^/ ]+)\.git.*#\1#p' \
+    "$REPO/linux.sh" 2>/dev/null | head -1)"
+BOOT_HOST="$(grep -ohE '[A-Za-z0-9.-]+/linux\.sh' "$REPO/README.md" 2>/dev/null \
+    | sed 's#/linux\.sh$##' | sort -u | head -1)"
 for scen in ubuntu-private ubuntu-private-deadgit; do
     d="$WORK/run/$scen/home/dotfiles"
-    for pat in "${IDENT[@]}" 'github.com/' 'linux.sh'; do
+    for pat in "${IDENT[@]}" "$REPO_SLUG" "$BOOT_HOST"; do
         [ -n "$pat" ] || continue
         if grep -rqiF -- "$pat" "$d" 2>/dev/null; then
             bad  "$scen" "'$pat' still present"
