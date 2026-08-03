@@ -95,6 +95,13 @@ PKGS
 
     # script(1) gives the installer a real pty, so /dev/tty resolves and the
     # keystroke file is delivered through it — the same path a human types on.
+    # `|| rc=$?` is not decoration. A bare subshell here is a plain command, so
+    # a non-zero exit — install.sh genuinely failing, timeout killing the pty,
+    # or the one scenario that is *supposed* to exit 1 — kills the whole run on
+    # the spot under errexit, before this rc is ever recorded and before any
+    # check/want prints. That is what made the suite stop dead after the
+    # scenarios header with no output at all.
+    local rc=0
     ( cd "$root/home/dotfiles" \
       && env -i \
         HOME="$root/home" \
@@ -106,8 +113,8 @@ PKGS
         STUB_ROOT="$root" STUB_APT_SRCD="$root/etc/apt/sources.list.d" \
         "$@" \
         timeout 45 script -qec "bash ./install.sh" /dev/null \
-            < "$keys" > "$root/out.txt" 2>&1 )
-    echo $? > "$root/rc"
+            < "$keys" > "$root/out.txt" 2>&1 ) || rc=$?
+    echo "$rc" > "$root/rc"
 
     [ -f "$root/state/lockpid" ] && kill "$(cat "$root/state/lockpid")" 2>/dev/null
     # The pty gives CRLF line endings; assertions anchored with $ need them gone.

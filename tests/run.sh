@@ -13,6 +13,11 @@ export WORK
 trap 'rm -rf "$WORK"' EXIT
 
 source "$HERE/stubs.sh"
+# stubs.sh sets `set -e` so its own setup aborts on a failed heredoc or mkdir.
+# It is *sourced*, though, so the flag would stay on for the rest of this file
+# — and this file is a test runner: it expects commands to fail and asserts on
+# how. Line 9 deliberately chose `-uo pipefail` without `-e`; restore that.
+set +e
 source "$HERE/harness.sh"
 
 echo "work dir: $WORK"
