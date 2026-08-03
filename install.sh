@@ -1222,6 +1222,20 @@ $HOOK_END
 EOF
 }
 
+# Selecting the bash config is an explicit request for a working bash, so the
+# hand-off hook — which exists only as a fallback for a passwd change being
+# ignored — has no business firing out of it. The login shell still becomes
+# zsh; that is the zsh package's job and is unaffected.
+#
+# Two layers, both needed. This one is the decision; ensure_zsh_autoexec's own
+# repo-symlink check is the safety net, and catches the case where bash was
+# stowed by an earlier run and only zsh is selected now. Ordering cannot fix
+# either, because the numeric fallback menu installs in the order typed.
+zsh_hook_wanted() {
+    printf '%s\n' "${SELECTED[@]}" | grep -qx bash && return 1
+    return 0
+}
+
 # Why the hook was or was not written, so the caller can say something true.
 _HOOK_STATE=""
 
@@ -1490,6 +1504,7 @@ PKG_MAP[fastfetch]="fastfetch"
 PKG_MAP[ghostty]="ghostty"
 PKG_MAP[kitty]="kitty"
 PKG_MAP[zsh]="zsh"
+PKG_MAP[bash]="bash"
 PKG_MAP[protonvpn]="proton-vpn-cli"
 PKG_MAP[starship]="starship"
 PKG_MAP[rofi]="rofi"
@@ -1666,6 +1681,7 @@ CONFIG_DESC[fastfetch]="system info display at login"
 CONFIG_DESC[ghostty]="GPU-accelerated terminal   ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[kitty]="cross-platform terminal    ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[zsh]="shell + Zinit plugins"
+CONFIG_DESC[bash]="plain bash rc      ${G_DOT}  aliases, no prompt tooling"
 CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
 CONFIG_DESC[starship]="cross-shell prompt"
 CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
@@ -1769,6 +1785,24 @@ show_plan() {
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             [[ "$cfg" == "rofi" ]] && steps+=("${C_DIM}launch: rofi -show drun${C_RESET}")
+            ;;
+          bash)
+            local brc="$HOME/.bashrc"
+            [ -e "$PRISTINE_BASHRC" ] || [ -e "$PRISTINE_ABSENT" ] \
+                || steps+=("${C_YELLOW}keep a pristine copy${C_RESET} ${C_DIM}of .bashrc (once, kept for --restore-bash)${C_RESET}")
+            if [ -L "$brc" ]; then
+                steps+=("${C_ACCENT}re-stow .bashrc${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+            elif [ -e "$brc" ]; then
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.bashrc${C_RESET} ${C_DIM}(pristine copy still kept)${C_RESET}")
+                else
+                    [ -e "${brc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.bashrc.bak → .bashrc.old.bak${C_RESET}")
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.bashrc → .bashrc.bak${C_RESET}")
+                fi
+                steps+=("${C_GREEN}stow ~/.bashrc${C_RESET}")
+            else
+                steps+=("${C_GREEN}stow ~/.bashrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+            fi
             ;;
           zsh)
             local rc="$HOME/.zshrc"
@@ -2210,11 +2244,11 @@ success "Tools verified"
 
 # ── Step 3: multi-select menu ─────────────────────────────────────────────────
 info "Select configs to install..."
-CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship rofi ulauncher git)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git)
 if [[ "$DISTRO" == "debian" ]]; then
     # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
     # still on the 1.7.x X11-only build, so rofi stays Arch-only.
-    CONFIGS=(fastfetch ghostty kitty zsh protonvpn starship ulauncher git)
+    CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship ulauncher git)
 fi
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 declare -a SELECTED=()
@@ -2596,6 +2630,23 @@ for cfg in "${SELECTED[@]}"; do
         fi
         ;;
 
+      # ── bash ─────────────────────────────────────────────────────────────
+      bash)
+        # No install step: we are running in it. PKG_MAP[bash] exists so the
+        # plan and the menus can treat this like any other config.
+        substep "${C_ACCENT}bash${C_RESET} already installed"
+        # Before backup_file, always: in delete mode that rm -rf's ~/.bashrc
+        # with no .bak, and this is the only other copy.
+        snapshot_bashrc \
+            || substep "${C_YELLOW}Could not keep a pristine copy of ~/.bashrc${C_RESET}"
+        backup_file "$HOME/.bashrc"
+        if ! stow_home "bash"; then
+            FAILED+=(bash)
+            continue
+        fi
+        substep "${C_DIM}Plain rc — no starship, no plugins. Undo with ${C_ACCENT}--restore-bash${C_RESET}"
+        ;;
+
       # ── zsh ──────────────────────────────────────────────────────────────
       zsh)
         if pkg_installed zsh; then
@@ -2659,8 +2710,14 @@ for cfg in "${SELECTED[@]}"; do
             if same_shell "$new_shell" "$zsh_path"; then
                 substep "${C_GREEN}Login shell for ${target_user} is now ${zsh_path}${C_RESET}"
                 substep "${C_DIM}Applies at next login — or run ${C_ACCENT}exec zsh${C_DIM} to switch now${C_RESET}"
-                if ensure_zsh_autoexec; then
+                if ! zsh_hook_wanted; then
+                    substep "${C_DIM}bash config selected too — leaving ~/.bashrc as a working bash${C_RESET}"
+                elif ensure_zsh_autoexec; then
                     substep "${C_DIM}Added a .bashrc fallback in case a session still starts bash${C_RESET}"
+                elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
+                    substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+                elif [ "$_HOOK_STATE" = "malformed" ]; then
+                    substep "${C_YELLOW}A hand-edited hook block is in ~/.bashrc — left alone${C_RESET}"
                 fi
                 # An SSH client with ControlMaster keeps handing out sessions from
                 # a master opened before the change, so reconnecting still lands in
@@ -2678,8 +2735,12 @@ for cfg in "${SELECTED[@]}"; do
                 fi
             else
                 error "Login shell unchanged — still ${new_shell:-unknown}"
-                if ensure_zsh_autoexec; then
+                if ! zsh_hook_wanted; then
+                    substep "${C_DIM}bash config selected too — leaving ~/.bashrc as a working bash${C_RESET}"
+                elif ensure_zsh_autoexec; then
                     substep "${C_GREEN}Added a .bashrc fallback — bash will hand over to zsh${C_RESET}"
+                elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
+                    substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
                 fi
                 substep "To fix it properly: ${C_ACCENT}sudo usermod -s ${zsh_path} ${target_user}${C_RESET}"
                 substep "${C_DIM}This sets the shell for '${target_user}'. If you SSH in as a${C_RESET}"
