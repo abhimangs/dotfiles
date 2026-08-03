@@ -114,7 +114,14 @@ strip_items() {
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
 GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop vlc)
 
-RUN_TMPDIR="$(mktemp -d /tmp/dotfiles-install_XXXXXX 2>/dev/null || echo /tmp)"
+# No fallback to a shared /tmp. Everything below writes here — the bashrc
+# rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
+# world-writable directory those become predictable paths an attacker can
+# pre-plant a symlink at. If a private temp dir cannot be made, stop.
+RUN_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-install_XXXXXX" 2>/dev/null)" || {
+    echo "Could not create a private temporary directory — refusing to run." >&2
+    exit 1
+}
 
 # Everything the run downloads goes under RUN_TMPDIR, so an interrupt mid-install
 # does not leave .deb files and unpacked tarballs behind in /tmp.
@@ -505,6 +512,7 @@ apt_drop_own_dead_source() {
             # vendor repo: the filename stem is not in apt's error text, so
             # match on the hosts the file itself points at instead.
             owner=""
+            local _h
             while IFS= read -r _h; do
                 grep -qiF "$_h" <<< "$APT_UPDATE_ERROR" && { owner="$_h"; break; }
             done < <(grep -ohE 'https?://[^ ]+' "$f" 2>/dev/null \
@@ -1215,7 +1223,7 @@ bashrc_hook_strip_to() {
         return 0
     }
     b="${range% *}"; e="${range#* }"
-    tmp="$RUN_TMPDIR/bashrc.$$"
+    tmp="$(mktemp -p "$RUN_TMPDIR" bashrc_XXXXXX)" || return 1
     awk -v b="$b" -v e="$e" 'NR<b || NR>e' "$src" > "$tmp" 2>/dev/null || return 1
     # cat rather than mv, so an existing dst keeps its inode and permissions.
     cat "$tmp" > "$dst" 2>/dev/null || { rm -f "$tmp"; return 1; }
