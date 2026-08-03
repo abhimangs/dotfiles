@@ -393,10 +393,73 @@ apt_pkg_installed() {
 #   needrestart (Ubuntu 22.04+) hooks apt and opens a full-screen "which
 #   services should be restarted?" dialog mid-install. Suspending it keeps the
 #   run non-interactive and, on a VPS, avoids bouncing sshd underneath you.
+#   Fresh images run unattended-upgrades at boot and hold the dpkg lock for
+#   minutes. DPkg::Lock::Timeout makes apt itself block until the lock frees
+#   (apt 1.9.11+, so Ubuntu 20.04 and Debian 11 onwards) instead of failing
+#   immediately and leaving us to poll.
 apt_get() {
     sudo env DEBIAN_FRONTEND=noninteractive \
              NEEDRESTART_SUSPEND=1 \
-             apt-get "$@"
+             apt-get -o DPkg::Lock::Timeout=600 "$@"
+}
+
+APT_LOCK_RE='could not get lock|unable to lock|another process (is )?using it|frontend lock|resource temporarily unavailable'
+apt_is_lock_error() { grep -qiE "$APT_LOCK_RE" <<< "$1"; }
+
+# Killing a package manager halfway leaves dpkg needing a repair pass, and
+# every apt-get after that refuses to do anything until it is run. Self-inflicted
+# by whoever force-quit the last one, but trivial to fix, so just fix it.
+apt_fix_interrupted_dpkg() {
+    grep -qiE 'dpkg was interrupted|run .?dpkg --configure -a' <<< "$1" || return 1
+    substep "${C_YELLOW}dpkg was left half-configured — repairing${C_RESET}"
+    sudo env DEBIAN_FRONTEND=noninteractive dpkg --configure -a &>/dev/null
+    substep "${C_DIM}dpkg --configure -a done${C_RESET}"
+    return 0
+}
+
+# Reached only when apt has already waited ten minutes. Deleting
+# /var/lib/dpkg/lock* is the common advice and it is wrong: the lock belongs to
+# a running process, removing the file does not release it, and doing so while
+# that process writes is how a dpkg database ends up corrupt. The only real fix
+# is for the holder to finish or be stopped.
+APT_LOCK_HANDLED=0
+apt_clear_lock() {
+    [ "$APT_LOCK_HANDLED" -eq 1 ] && return 1
+    local holder pid name w ans
+    holder=$(grep -oE 'held by process [0-9]+ \([^)]+\)' <<< "$1" | head -1)
+    pid=$(grep -oE '[0-9]+' <<< "$holder" | head -1)
+    name=$(sed -nE 's/.*\(([^)]+)\).*/\1/p' <<< "$holder")
+    [ -n "$pid" ] && [ -d "/proc/$pid" ] || return 1
+    APT_LOCK_HANDLED=1
+
+    substep "${C_YELLOW}Still locked by ${name:-a process} (pid ${pid}) after waiting${C_RESET}"
+    case "$name" in
+        unattended-upgr*|apt*|aptd*|packagekit*|dpkg*) ;;
+        *)  substep "${C_DIM}Not one of the system's own updaters — leaving it alone${C_RESET}"
+            return 1 ;;
+    esac
+    substep "${C_DIM}This is the automatic updater. Deleting the lock file will not help:${C_RESET}"
+    substep "${C_DIM}the lock is the process, not the file.${C_RESET}"
+    echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Stop it and continue? [Y/n]: ${C_RESET}"
+    read -r ans <"$TTY_IN"
+    [[ "$ans" =~ ^[Nn]$ ]] && { substep "${C_DIM}Left running${C_RESET}"; return 1; }
+
+    sudo systemctl stop unattended-upgrades.service apt-daily.service \
+        apt-daily-upgrade.service packagekit.service &>/dev/null
+    for w in 1 2 3 4 5 6 7 8 9 10; do [ -d "/proc/$pid" ] || break; sleep 2; done
+    if [ -d "/proc/$pid" ]; then
+        # Same signal systemctl would send; unattended-upgrades finishes the
+        # package it is on and exits rather than dying mid-write.
+        sudo kill -TERM "$pid" &>/dev/null
+        for w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ -d "/proc/$pid" ] || break; sleep 2; done
+    fi
+    if [ -d "/proc/$pid" ]; then
+        substep "${C_RED}It is still running — try again in a few minutes${C_RESET}"
+        return 1
+    fi
+    substep "${C_GREEN}Lock released${C_RESET}"
+    substep "${C_DIM}To stop it coming back: sudo systemctl disable --now unattended-upgrades apt-daily.timer apt-daily-upgrade.timer${C_RESET}"
+    return 0
 }
 
 APT_UPDATED=0
@@ -429,17 +492,28 @@ apt_drop_own_dead_source() {
 
 apt_update_once() {
     [ "$APT_UPDATED" -eq 1 ] && return 0
-    local out try
-    for try in 1 2 3; do
+    local out
+    if out=$(apt_get update -qq 2>&1); then
+        APT_UPDATE_ERROR=""
+        APT_UPDATED=1
+        return 0
+    fi
+    # apt has already waited out the lock by now, so anything still holding it
+    # needs dealing with rather than waiting on.
+    if apt_is_lock_error "$out" && apt_clear_lock "$out"; then
         if out=$(apt_get update -qq 2>&1); then
             APT_UPDATE_ERROR=""
             APT_UPDATED=1
             return 0
         fi
-        grep -qiE 'could not get lock|another process (is )?using it|frontend lock' <<< "$out" || break
-        substep "${C_YELLOW}apt is locked — waiting 20s (${try}/3)${C_RESET}"
-        sleep 20
-    done
+    fi
+    if apt_fix_interrupted_dpkg "$out"; then
+        if out=$(apt_get update -qq 2>&1); then
+            APT_UPDATE_ERROR=""
+            APT_UPDATED=1
+            return 0
+        fi
+    fi
     # One of ours that has gone stale? Remove it and try once more before
     # blaming the mirror — this is by far the likeliest cause of a source with
     # no Release file, and it is the only one we are entitled to fix.
@@ -498,22 +572,25 @@ APT_LAST_ERROR=""
 
 apt_install() {
     apt_update_once
-    local try out
-    # Fresh cloud images run unattended-upgrades / apt-daily at boot and hold
-    # the dpkg lock for minutes. Every apt-get in that window dies with "Could
-    # not get lock /var/lib/dpkg/lock-frontend" — the usual reason a server
-    # install fails before stow and fzf are even in place. Wait it out.
-    for try in 1 2 3 4 5; do
-        if out=$(apt_get install -y --no-install-recommends "$@" 2>&1); then
-            return 0
-        fi
-        if grep -qiE 'could not get lock|another process (is )?using it|frontend lock|resource temporarily unavailable' <<< "$out"; then
-            substep "${C_YELLOW}apt is locked by another process — waiting 20s (${try}/5)${C_RESET}"
-            sleep 20
-            continue
-        fi
-        break
-    done
+    local out
+    if out=$(apt_get install -y --no-install-recommends "$@" 2>&1); then
+        return 0
+    fi
+    # apt itself waits out the lock (DPkg::Lock::Timeout above). Getting here
+    # means something has held it for ten minutes — on a freshly booted image
+    # that is unattended-upgrades, and it needs stopping, not more waiting.
+    if apt_is_lock_error "$out" && apt_clear_lock "$out"; then
+        out=$(apt_get install -y --no-install-recommends "$@" 2>&1) && return 0
+    fi
+    if apt_fix_interrupted_dpkg "$out"; then
+        out=$(apt_get install -y --no-install-recommends "$@" 2>&1) && return 0
+    fi
+    # Still locked and the holder would not go: nothing else here can help, and
+    # the stale-index dance below would only print noise on top of it.
+    if apt_is_lock_error "$out"; then
+        APT_LAST_ERROR="$out"
+        return 1
+    fi
 
     # An index older than the mirror 404s on a superseded version.
     substep "${C_YELLOW}Stale package index — refreshing and retrying${C_RESET}"
