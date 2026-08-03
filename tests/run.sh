@@ -153,17 +153,32 @@ printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\n' > "$ipt/etc/os-rele
 printf '/bin/sh\n' > "$ipt/etc/shells"; : > "$ipt/state/installed"
 sandbox_repo "$ipt"
 mkfifo "$ipt/keys"
-( : > "$ipt/keys"; sleep 30 ) &         # hold the fifo open, send nothing
+# A real Ctrl-C, not a signal aimed at a pid: hold the fifo open, then write
+# the interrupt character into the pty and let its line discipline turn that
+# into SIGINT for the foreground process group — exactly what a keyboard does.
+# `pkill -f 'bash ./install.sh'` matched script(1) too, so the two raced and
+# the installer usually died by timeout instead of by the trap under test.
+( exec 3>"$ipt/keys"; sleep 4; printf '\003' >&3; sleep 15; exec 3>&- ) &
 holder=$!
-( cd "$ipt/home/dotfiles" && env -i HOME="$ipt/home" USER="$(id -un)" \
+# Foreground, deliberately, and with SIGINT forced back to its default.
+#
+# A non-interactive shell sets SIGINT to SIG_IGN in any child it starts
+# asynchronously, and bash will not un-ignore a signal that was already ignored
+# when it started — `trap _interrupt INT` becomes a silent no-op. That applies
+# to everything below this shell, so it bites twice: once if the pty session is
+# backgrounded here, and again if the whole suite was itself started in the
+# background (nohup, &, most CI runners). The second one is invisible and makes
+# this test pass interactively while failing in CI, which is worse than either.
+# env(1) resets the disposition for the process it execs, which fixes both.
+ENV_SIGDFL=()
+env --default-signal=INT true 2>/dev/null && ENV_SIGDFL=(--default-signal=INT)
+irc=0
+( cd "$ipt/home/dotfiles" && env -i ${ENV_SIGDFL[@]+"${ENV_SIGDFL[@]}"} \
+    HOME="$ipt/home" USER="$(id -un)" \
     PATH="$WORK/bin:$WORK/sysbin" TERM=dumb LANG=C SHELL=/bin/bash \
     STUB_STATE="$ipt/state" STUB_BIN="$WORK/bin" STUB_ROOT="$ipt" \
     timeout 60 script -qec "bash ./install.sh" /dev/null \
-        < "$ipt/keys" > "$ipt/out.txt" 2>&1 ) &
-runner=$!
-sleep 3
-pkill -INT -f 'bash ./install.sh' 2>/dev/null
-wait "$runner"; irc=$?
+        < "$ipt/keys" > "$ipt/out.txt" 2>&1 ) || irc=$?
 kill "$holder" 2>/dev/null
 if [ "$irc" = 130 ]; then note interrupt "Ctrl-C exits 130"; else bad interrupt "Ctrl-C gave exit $irc"; fi
 if grep -q 'Interrupted' "$ipt/out.txt"; then note interrupt "says so"; else bad interrupt "no message"; fi
