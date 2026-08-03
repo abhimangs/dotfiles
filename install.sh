@@ -824,7 +824,9 @@ ensure_starship_deb() {
     if apt_pkg_installed starship || command -v starship &>/dev/null; then return 0; fi
     apt_install starship
     command -v starship &>/dev/null && return 0
-    curl -sS https://starship.rs/install.sh | sh -s -- -y &>/dev/null 2>&1
+    # -f, like every other download here. Without it an HTTP error page is
+    # piped into sh instead of being treated as a failure.
+    curl -fsSL https://starship.rs/install.sh | sh -s -- -y &>/dev/null 2>&1
     command -v starship &>/dev/null
 }
 
