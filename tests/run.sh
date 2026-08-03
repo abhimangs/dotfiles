@@ -10,7 +10,14 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-tests_XXXXXX")}"
 export WORK
-trap 'rm -rf "$WORK"' EXIT
+# KEEP_WORK=1 leaves the sandbox behind. A failing scenario is close to
+# undebuggable without it: every assertion reads clean.txt, and clean.txt is
+# inside the tree this trap removes.
+if [ -n "${KEEP_WORK:-}" ]; then
+    trap 'echo; echo "work dir kept: $WORK"' EXIT
+else
+    trap 'rm -rf "$WORK"' EXIT
+fi
 
 source "$HERE/stubs.sh"
 # stubs.sh sets `set -e` so its own setup aborts on a failed heredoc or mkdir.
