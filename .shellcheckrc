@@ -1,0 +1,9 @@
+# Sourced rc files and the installer share a few deliberate patterns.
+
+# SC1091: sourced files that only exist on the target machine (fzf integration,
+# zinit, bash-completion) cannot be followed at lint time.
+disable=SC1091
+
+# SC2155: `local x=$(cmd)` masking the exit status. Flagged where it matters and
+# avoided there; the remaining uses are assignments whose status is not read.
+disable=SC2155
