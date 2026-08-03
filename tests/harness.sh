@@ -39,6 +39,24 @@ run() {                 # run <name> <distro> <keys-file> [VAR=value ...]
     : > "$root/state/installed"
     printf '/bin/sh\n/bin/bash\n' > "$root/etc/shells"
 
+    # Every Debian/Ubuntu home ships one, and the bash scenarios need something
+    # real to snapshot. Distinctive enough that a restore can be checked for it.
+    if [ "${STUB_NO_BASHRC:-0}" != 1 ]; then
+        cat > "$root/home/.bashrc" <<'BRC'
+# ~/.bashrc: the user's own, from before any of this ran
+case $- in *i*) ;; *) return ;; esac
+export EDITOR=nano
+alias ll='ls -alF'
+STUB_ORIGINAL_BASHRC=yes
+BRC
+    fi
+    # A starship.toml the user wrote themselves, which must survive untouched.
+    if [ "${STUB_PRESEED_STARSHIP:-0}" = 1 ]; then
+        mkdir -p "$root/home/.config"
+        printf '# MINE — hand written, must not be replaced\nformat = "$directory$character"\n' \
+            > "$root/home/.config/starship.toml"
+    fi
+
     case "$distro" in
         arch)   : > "$root/etc/arch-release"
                 printf 'ID=arch\nNAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\n' > "$root/etc/os-release" ;;

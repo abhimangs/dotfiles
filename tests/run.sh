@@ -116,7 +116,7 @@ nowant  ubuntu-private-deadgit 'Still present in'         'no leftover identity'
 STUB_DEAD_PPA=1 run ubuntu-deadppa ubuntu "$WORK/k-fzf" \
     STUB_FZF_PICK1="git" STUB_DEAD_PPA=1
 check   ubuntu-deadppa 0
-want    ubuntu-deadppa 'Removed a dead PPA from an earlier run' 'stale PPA cleaned up'
+want    ubuntu-deadppa 'Removed a dead source from an earlier run' 'stale PPA cleaned up'
 want    ubuntu-deadppa '\[ok\] apt ready$'                      'index healthy afterwards'
 
 # 10. unattended-upgrades sitting on the dpkg lock, and the user says yes.
@@ -141,6 +141,41 @@ STUB_DPKG_INTERRUPTED=1 run ubuntu-dpkg-broken ubuntu "$WORK/k-fzf" \
 check   ubuntu-dpkg-broken 0
 want    ubuntu-dpkg-broken 'dpkg was left half-configured'   'detected'
 want    ubuntu-dpkg-broken 'Tools verified'                  'repaired and continued'
+
+# 13. Picking bash stows the rc and keeps a pristine copy of the original.
+run ubuntu-bash ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="bash"
+check   ubuntu-bash 0
+want    ubuntu-bash 'pristine copy'   'says it is keeping one'
+d="$WORK/run/ubuntu-bash/home"
+[ -L "$d/.bashrc" ]      && note ubuntu-bash "~/.bashrc is stowed" || bad ubuntu-bash "~/.bashrc not stowed"
+[ -f "$d/.bashrc.orig" ] && note ubuntu-bash "pristine copy kept"  || bad ubuntu-bash "no pristine copy"
+grep -q 'hand interactive bash to zsh' "$d/.bashrc.orig" 2>/dev/null \
+    && bad ubuntu-bash "pristine copy carries a hook" || note ubuntu-bash "pristine copy is hook-free"
+
+# 14. bash and zsh together: the hand-off hook must not be written into the
+#     rc we just stowed, which is a symlink into the checkout.
+run ubuntu-bash-zsh ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="bash zsh"
+check   ubuntu-bash-zsh 0
+want    ubuntu-bash-zsh 'leaving ~/.bashrc as a working bash' 'hook skipped'
+d="$WORK/run/ubuntu-bash-zsh/home/dotfiles/bash/.bashrc"
+if [ -f "$d" ] && ! grep -q 'hand interactive bash to zsh' "$d"; then
+    note ubuntu-bash-zsh "repo bash/.bashrc not written into"
+else
+    bad  ubuntu-bash-zsh "hook leaked into the repo's bash/.bashrc"
+fi
+
+# 15. An existing starship.toml is the user's, and is left where it is.
+STUB_PRESEED_STARSHIP=1 run ubuntu-keepstar ubuntu "$WORK/k-fzf" \
+    STUB_FZF_PICK1="starship"
+check   ubuntu-keepstar 0
+want    ubuntu-keepstar 'Keeping your existing' 'existing starship.toml kept'
+if [ -f "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
+   && ! [ -L "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
+   && grep -q 'MINE' "$WORK/run/ubuntu-keepstar/home/.config/starship.toml"; then
+    note ubuntu-keepstar "still their own file, untouched"
+else
+    bad  ubuntu-keepstar "their starship.toml was replaced"
+fi
 
 echo
 echo "── interrupt ────────────────────────────────────────────"
