@@ -114,7 +114,13 @@ RUN_TMPDIR="$(mktemp -d /tmp/dotfiles-install_XXXXXX 2>/dev/null || echo /tmp)"
 # Everything the run downloads goes under RUN_TMPDIR, so an interrupt mid-install
 # does not leave .deb files and unpacked tarballs behind in /tmp.
 _cleanup() {
-    [ -n "${_SUDO_KEEPALIVE:-}" ] && kill "$_SUDO_KEEPALIVE" 2>/dev/null
+    # Kill the sleep the keepalive forked before the loop itself: killing only
+    # the subshell reparents a live sleep to init, where it sits for up to four
+    # minutes after we are gone.
+    if [ -n "${_SUDO_KEEPALIVE:-}" ]; then
+        pkill -P "$_SUDO_KEEPALIVE" 2>/dev/null
+        kill "$_SUDO_KEEPALIVE" 2>/dev/null
+    fi
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
     echo -ne "\033[0m"
 }
@@ -1842,7 +1848,12 @@ else
     fi
     success "Authenticated"
 
-    ( while true; do sudo -v; sleep 240; done ) &>/dev/null &
+    # </dev/null matters as much as the output redirect: without it the loop
+    # inherits this terminal, and the sleep it forks keeps that fd open after
+    # the installer exits. Anything reading the other end — script(1), a CI
+    # runner, a parent that waits for EOF — then hangs for the rest of the
+    # sleep rather than finishing when we do.
+    ( while true; do sudo -v; sleep 240; done ) </dev/null &>/dev/null &
     _SUDO_KEEPALIVE=$!
 fi
 
