@@ -118,7 +118,18 @@ _cleanup() {
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
     echo -ne "\033[0m"
 }
-trap _cleanup EXIT INT TERM
+
+# A trap that only cleans up does not stop anything: bash runs the handler and
+# then carries on with the next command, so Ctrl-C during a wait printed the
+# cleanup and went straight back to waiting. Interrupt has to exit — the EXIT
+# trap then does the cleanup exactly once.
+_interrupt() {
+    trap - INT TERM
+    echo -e "\n${C_MAIN:-}${C_BOLD:-} ${G_END:-} ${C_RED:-}${G_FAIL:-} ${C_RESET:-}Interrupted — nothing further was changed.\n"
+    exit 130
+}
+trap _cleanup EXIT
+trap _interrupt INT TERM
 
 # ── Interactive input source ──────────────────────────────────────────────────
 # Every prompt must read from the terminal, never stdin: reached through
