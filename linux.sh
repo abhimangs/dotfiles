@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-REPO=https://github.com/abhimansundararajan/dotfiles.git
+REPO=https://github.com/abhimangs/dotfiles.git
 
 # set -eu catches HOME being unset, but not HOME being set and empty — and an
 # empty one makes DIR "/dotfiles", pointing the rm and mv below at the root of

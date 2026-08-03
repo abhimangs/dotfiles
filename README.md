@@ -15,7 +15,7 @@ Works on Arch Linux, Debian, and Ubuntu, as a normal user or as root. Every run 
 Or clone manually:
 
 ```bash
-git clone https://github.com/abhimansundararajan/dotfiles.git ~/dotfiles
+git clone https://github.com/abhimangs/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 bash install.sh
 ```
