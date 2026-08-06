@@ -52,7 +52,7 @@ case "$1" in
         exec "$@" ;;
     kill) exec "$@" ;;
     env|apt-get|apt|apt-cache|dpkg|dpkg-query|pacman|paru|pacman-key|systemctl|\
-    add-apt-repository|chsh|usermod|flatpak|update-alternatives)
+    add-apt-repository|chsh|usermod|flatpak|update-alternatives|tee|install)
         exec "$@" ;;
     *)  # never run anything else with pretend privileges
         exit 0 ;;
@@ -181,8 +181,17 @@ w flatpak              <<< '#!/bin/sh
 exit 0'
 w unzip                <<< '#!/bin/sh
 exit 0'
-w gpg                  <<< '#!/bin/sh
-cat > /dev/null; exit 0'
+w gpg <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+    *--show-keys*)
+        f="${!#}"
+        [ -s "$f" ] && echo "pub:-:::::::::::::::::"
+        exit 0 ;;
+    *--dearmor*) cat; exit 0 ;;
+    *) cat > /dev/null; exit 0 ;;
+esac
+EOF
 # Real enough to be worth asserting against: links a package's top-level
 # entries into the target and -D removes links that point back into it. A bare
 # `exit 0` meant no scenario ever produced a symlink, so nothing about stowing,
@@ -275,7 +284,17 @@ for a in "$@"; do
     esac
 done
 case "$url" in *deb.debian.org|*archive.ubuntu.com) exit 0 ;; esac
-if [ -n "$out" ]; then : > "$out"; exit 0; fi
+if [ -n "$out" ]; then
+    # Keyring/signing-key fetches need real (non-empty) bytes — apt_install_keyring
+    # rejects an empty download before gpg ever sees it. Everything else on the -o
+    # path (installer scripts, .deb files, font zips) stays an empty stand-in;
+    # nothing currently asserts on their content.
+    case "$url" in
+        */gpg|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
+        *) : > "$out" ;;
+    esac
+    exit 0
+fi
 case "$url" in
     *starship.rs/install.sh) tool=starship ;;
     *opencode.ai/install)    tool=opencode ;;

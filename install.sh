@@ -1017,6 +1017,79 @@ ensure_claude_desktop_deb() {
     apt_pkg_installed claude-desktop
 }
 
+# ── Docker Engine (Debian/Ubuntu) ─────────────────────────────────────────────
+# docker.io and the old standalone docker-compose ship different binaries at
+# the same paths docker-ce's own packages use — apt refuses to overwrite files
+# it does not own, so anything on this list has to go first (Docker's own
+# documented pre-install step, not a guess).
+ensure_docker_deb() {
+    apt_pkg_installed docker-ce && return 0
+    ensure_apt_deps
+
+    local pkg
+    for pkg in docker.io docker-doc docker-compose docker-compose-v2 docker-buildx podman-docker containerd runc; do
+        apt_pkg_installed "$pkg" && sudo apt-get remove -y "$pkg" &>/dev/null 2>&1
+    done
+
+    local host="debian"
+    [ "$IS_UBUNTU" -eq 1 ] && host="ubuntu"
+    apt_install_keyring "https://download.docker.com/linux/${host}/gpg" \
+        /etc/apt/keyrings/docker.asc --armored || return 1
+    local codename; codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
+    echo "deb [arch=$(deb_arch) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${host} ${codename} stable" \
+        | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    APT_UPDATED=0
+    apt_update_once
+    apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    apt_pkg_installed docker-ce
+}
+
+# ── Docker post-install (Arch + Debian/Ubuntu) ───────────────────────────────
+# nftables-only hosts without the iptable_nat/ip6table_nat kernel modules
+# loaded fail dockerd's own NAT chain setup — journalctl shows "CHAIN_ADD
+# failed ... chain PREROUTING". Hit on real hardware, not hypothetical: one
+# modprobe + retry is the known fix.
+docker_start_daemon() {
+    sudo systemctl enable --now docker &>/dev/null 2>&1
+    systemctl is-active --quiet docker && return 0
+
+    if sudo journalctl -u docker.service -n 50 --no-pager 2>/dev/null \
+        | grep -qiE 'CHAIN_ADD failed|iptables.*nat table'; then
+        substep "${C_YELLOW}docker.service failed — missing iptable_nat/ip6table_nat kernel modules${C_RESET}"
+        sudo systemctl reset-failed docker &>/dev/null 2>&1
+        sudo modprobe iptable_nat ip6table_nat &>/dev/null 2>&1
+        sudo systemctl start docker &>/dev/null 2>&1
+        systemctl is-active --quiet docker && return 0
+    fi
+    return 1
+}
+
+# Group membership, bringing the service up, and WSL — which has no systemd
+# running by default, so docker.service has nothing to be enabled into.
+docker_postinstall() {
+    sudo usermod -aG docker "$USER" &>/dev/null || true
+    substep "${C_DIM}${USER} added to the docker group — takes effect on your next login${C_RESET}"
+
+    if [ -d /run/systemd/system ]; then
+        if docker_start_daemon; then
+            substep "${C_GREEN}docker.service is active${C_RESET}"
+        else
+            substep "${C_YELLOW}docker.service did not start — check: sudo systemctl status docker${C_RESET}"
+        fi
+    elif [ "$IS_WSL" -eq 1 ]; then
+        if grep -q systemd /etc/wsl.conf 2>/dev/null; then
+            substep "${C_YELLOW}systemd is configured in /etc/wsl.conf but not active yet — run 'wsl --shutdown' from Windows, then reopen this terminal${C_RESET}"
+        elif [ ! -e /etc/wsl.conf ]; then
+            printf '[boot]\nsystemd=true\n' | sudo tee /etc/wsl.conf >/dev/null
+            substep "${C_YELLOW}Enabled systemd in /etc/wsl.conf — run 'wsl --shutdown' from Windows, reopen this terminal, then re-run to start docker${C_RESET}"
+        else
+            substep "${C_YELLOW}Add 'systemd=true' under [boot] in /etc/wsl.conf, then 'wsl --shutdown' and reopen${C_RESET}"
+        fi
+    else
+        substep "${C_YELLOW}No systemd here — start dockerd through your init system${C_RESET}"
+    fi
+}
+
 # ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
 FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
 MAPLE_FONT_DIR_DEB="$HOME/.local/share/fonts/MapleMono"
@@ -1602,14 +1675,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse notion obsidian vlc flatpak)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse vlc flatpak)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -1633,6 +1706,7 @@ APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[flatpak]="Flatpak"
+APP_LABEL[docker]="Docker + Compose"
 
 # paru-y forces a db refresh first (Brave bumps versions faster than a stale
 # db notices); paru and pacman both resolve through arch_install — repo first,
@@ -1653,6 +1727,7 @@ APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[flatpak]="pacman"
+APP_TYPE[docker]="pacman"
 
 APP_PKG[brave-beta]="brave-origin-beta-bin"
 APP_PKG[brave-stable]="brave-origin-bin"
@@ -1665,6 +1740,11 @@ APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
 APP_PKG[vlc]="vlc"
 APP_PKG[flatpak]="flatpak"
+# docker-compose and docker-buildx are pulled in as a post-install step (see
+# the "docker" branch after the install loop) — pacman needs all three in one
+# transaction to resolve shared deps cleanly, and app_pkg_name only carries one
+# name, so this is the anchor package used for the before/after installed check.
+APP_PKG[docker]="docker"
 
 # Installer bin dirs, exported before running them: opencode, codex and kimi
 # all append a PATH block to ~/.zshrc, which is a stow symlink into this repo —
@@ -1698,6 +1778,7 @@ APP_PKG_DEB[brave-beta]="brave-origin-beta"
 APP_PKG_DEB[vscode]="code"
 APP_PKG_DEB[vscode-insiders]="code-insiders"
 APP_PKG_DEB[claude-desktop]="claude-desktop"
+APP_PKG_DEB[docker]="docker-ce"
 
 declare -A APP_TYPE_DEB
 APP_TYPE_DEB[brave-stable]="brave"
@@ -1711,6 +1792,7 @@ APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
+APP_TYPE_DEB[docker]="docker"
 # vlc/flatpak fall through to the "apt" default below
 
 app_pkg_name() {
@@ -2702,7 +2784,7 @@ for _k in "${APPS_LIST[@]}"; do
         paru-y|paru) _tl="paru"   ;;
         pacman)      _tl="pacman" ;;
         curl)        _tl="curl"   ;;
-        apt|brave|vscode|claude-desktop) _tl="apt" ;;
+        apt|brave|vscode|claude-desktop|docker) _tl="apt" ;;
         *)           _tl="$_rt" ;;
     esac
     _app_lines+=("${_k}"$'\t'"$(printf '%-22s  %s  %s' "${APP_LABEL[$_k]}" "$G_DOT" "$_tl")")
@@ -3283,12 +3365,19 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 vscode) ensure_vscode_deb ;;
                 vscode-insiders) ensure_vscode_insiders_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
+                docker) ensure_docker_deb ;;
             esac
             if pkg_installed "$_pkg"; then
                 if [[ "$app" == "flatpak" ]]; then
                     substep "Adding Flathub remote..."
                     ensure_flathub_remote \
                         || substep "${C_YELLOW}Could not add Flathub — add it manually${C_RESET}"
+                elif [[ "$app" == "docker" ]]; then
+                    if [[ "$DISTRO" == "arch" ]]; then
+                        substep "Installing docker-compose and docker-buildx..."
+                        pacman_install docker-compose docker-buildx &>/dev/null 2>&1
+                    fi
+                    docker_postinstall
                 fi
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")

@@ -181,6 +181,62 @@ else
 fi
 
 echo
+echo "── docker app selection ─────────────────────────────────"
+# 16. Docker: the first-ever exercise of the "applications" fzf menu in this
+#     suite (no earlier scenario picked one, so this also proves the menu
+#     itself works, not just docker). Arch takes the plain pacman path —
+#     docker, docker-compose and docker-buildx are all in the official repo,
+#     no bespoke bootstrap needed.
+run arch-docker arch "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+check   arch-docker 0
+want    arch-docker 'Docker \+ Compose.*done' 'app reported installed'
+d="$WORK/run/arch-docker"
+for p in docker docker-compose docker-buildx; do
+    grep -qxF "$p" "$d/state/installed" \
+        && note arch-docker "$p installed" || bad arch-docker "$p missing"
+done
+grep -q 'usermod -aG docker' "$d/state/sudo.log" \
+    && note arch-docker "user added to docker group" || bad arch-docker "no usermod call"
+grep -q 'systemctl enable --now docker' "$d/state/sudo.log" \
+    && note arch-docker "docker.service enabled" || bad arch-docker "no systemctl enable call"
+
+# 17. Debian: needs the full repo bootstrap first — GPG key, sources.list.d
+#     entry, apt update — before docker-ce is even installable. This is also
+#     the first scenario to exercise apt_install_keyring end to end.
+run debian-docker debian "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+check   debian-docker 0
+want    debian-docker 'Docker \+ Compose.*done' 'app reported installed'
+d="$WORK/run/debian-docker"
+for p in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
+    grep -qxF "$p" "$d/state/installed" \
+        && note debian-docker "$p installed" || bad debian-docker "$p missing"
+done
+src="$d/etc/apt/sources.list.d/docker.list"
+if [ -f "$src" ] && grep -q 'download.docker.com/linux/debian' "$src" && grep -q 'bookworm' "$src"; then
+    note debian-docker "docker.list points at the debian repo + codename"
+else
+    bad  debian-docker "docker.list missing or wrong host/codename"
+fi
+[ -s "$d/etc/apt/keyrings/docker.asc" ] \
+    && note debian-docker "keyring written" || bad debian-docker "keyring missing"
+grep -q 'usermod -aG docker' "$d/state/sudo.log" \
+    && note debian-docker "user added to docker group" || bad debian-docker "no usermod call"
+grep -q 'systemctl enable --now docker' "$d/state/sudo.log" \
+    && note debian-docker "docker.service enabled" || bad debian-docker "no systemctl enable call"
+
+# 18. Ubuntu: same repo bootstrap, but the ubuntu host + noble codename, so a
+#     copy-paste of the debian URL would go undetected without this.
+run ubuntu-docker ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+check   ubuntu-docker 0
+d="$WORK/run/ubuntu-docker"
+src="$d/etc/apt/sources.list.d/docker.list"
+if [ -f "$src" ] && grep -q 'download.docker.com/linux/ubuntu' "$src" && grep -q 'noble' "$src"; then
+    note ubuntu-docker "docker.list points at the ubuntu repo + codename"
+else
+    bad  ubuntu-docker "docker.list missing or wrong host/codename"
+fi
+
+echo
 echo "── restore bash ─────────────────────────────────────────"
 # --restore-bash is the undo for the zsh setup, and the last thing between a
 # botched zsh install and a box you cannot get a usable shell on over SSH. It
