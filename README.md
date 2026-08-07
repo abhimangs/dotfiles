@@ -26,10 +26,15 @@ bash install.sh
 |------|--------|
 | `--dry-run` | Walks the menus and prints the full plan, then exits without changing anything |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
+| `--restore-bash` | Undoes the zsh setup — rc files, the `.bashrc` hand-off hook and the login shell. Runs alone, skipping every menu |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
+| `-h`, `--help` | Prints the above and exits |
 
-Each flag has an environment equivalent — `DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR` — because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
+Anything else is rejected with exit 2 rather than ignored — a mistyped `--dryrun`
+would otherwise have run a real install.
+
+Each flag has an environment equivalent — `DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR` — because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
 
 ```bash
 DOTFILES_DRY_RUN=1 curl -fsSL https://abhiman.io/linux.sh | bash

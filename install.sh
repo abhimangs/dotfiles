@@ -13,6 +13,70 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${
     exit 1
 fi
 
+# ── Arguments ─────────────────────────────────────────────────────────────────
+# Parsed before distro detection, so --help answers on a machine this installer
+# does not support rather than being pre-empted by the "Arch, Debian and Ubuntu
+# only" exit.
+#
+# A case, not a list of tests. Unrecognised flags used to be ignored in silence,
+# which meant `--dryrun` — or any other near miss — ran a real install, and a
+# real install can delete existing configs. Anything unknown is now an error.
+DRY_RUN=0
+FORCE_GUI=0
+RESTORE_BASH=0
+OPT_ASCII=0
+OPT_NO_COLOR=0
+
+usage() {
+    cat <<'USAGE'
+Dotfiles installer — Arch Linux, Debian and Ubuntu.
+
+  bash install.sh [options]
+
+Options:
+  --dry-run        Print the plan and exit without changing anything.
+  --gui            Offer the GUI configs and apps even with no display server.
+  --restore-bash   Undo the zsh setup: the rc files, the .bashrc hand-off hook
+                   and the login shell. Runs alone and skips every menu.
+  --ascii          Plain ASCII instead of Nerd Font glyphs.
+  --no-color       No colour. NO_COLOR is honoured too.
+  -h, --help       This text.
+
+Reached through the hosted bootstrap there is no argv to put a flag in, so each
+one also has an environment variable:
+
+  DOTFILES_DRY_RUN   DOTFILES_GUI     DOTFILES_RESTORE_BASH
+  DOTFILES_ASCII     DOTFILES_NO_COLOR
+
+  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
+USAGE
+}
+
+for _arg in "$@"; do
+    case "$_arg" in
+        --dry-run)      DRY_RUN=1 ;;
+        --gui)          FORCE_GUI=1 ;;
+        --restore-bash) RESTORE_BASH=1 ;;
+        --ascii)        OPT_ASCII=1 ;;
+        --no-color)     OPT_NO_COLOR=1 ;;
+        -h|--help)      usage; exit 0 ;;
+        *)
+            echo "Unknown option: $_arg" >&2
+            echo "" >&2
+            usage >&2
+            exit 2 ;;
+    esac
+done
+unset _arg
+
+# The environment is the only channel that survives `curl … | bash`.
+# (Verified against the hosted copy, which is deployed by hand and can lag.)
+[ -n "${DOTFILES_DRY_RUN:-}" ]      && DRY_RUN=1
+[ -n "${DOTFILES_GUI:-}" ]          && FORCE_GUI=1
+[ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
+[ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
+[ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
+
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
 IS_UBUNTU=0
@@ -44,25 +108,6 @@ fi
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 START_TS=$SECONDS
-
-DRY_RUN=0
-FORCE_GUI=0
-RESTORE_BASH=0
-for _arg in "$@"; do
-    [[ "$_arg" == "--dry-run" ]] && DRY_RUN=1
-    [[ "$_arg" == "--gui"     ]] && FORCE_GUI=1
-    [[ "$_arg" == "--restore-bash" ]] && RESTORE_BASH=1
-done
-unset _arg
-# linux.sh does `exec bash install.sh "$@"`, but nothing can put arguments there
-# when it is reached the documented way: `curl … | bash` gives bash the script on
-# stdin, and there is no argv to forward. The environment does survive, so every
-# flag has an env equivalent, and that is the only way to pass one through the
-# bootstrap:  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
-# (Verified against the hosted copy, which is deployed by hand and can lag.)
-[ -n "${DOTFILES_DRY_RUN:-}" ] && DRY_RUN=1
-[ -n "${DOTFILES_GUI:-}" ]     && FORCE_GUI=1
-[ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
@@ -176,13 +221,8 @@ fi
 # back to plain ASCII. --ascii and --no-color force it; NO_COLOR is honoured.
 USE_COLOR=1
 USE_GLYPHS=1
-for _arg in "$@"; do
-    [[ "$_arg" == "--ascii" ]]    && USE_GLYPHS=0
-    [[ "$_arg" == "--no-color" ]] && USE_COLOR=0
-done
-unset _arg
-[ -n "${DOTFILES_ASCII:-}" ]    && USE_GLYPHS=0
-[ -n "${DOTFILES_NO_COLOR:-}" ] && USE_COLOR=0
+[ "$OPT_ASCII" -eq 1 ]    && USE_GLYPHS=0
+[ "$OPT_NO_COLOR" -eq 1 ] && USE_COLOR=0
 [ -n "${NO_COLOR:-}" ] && USE_COLOR=0
 case "${TERM:-}" in
     dumb|linux|vt*|"") USE_COLOR=0; USE_GLYPHS=0 ;;
