@@ -72,7 +72,10 @@ fi
 echo
 
 echo "── dotfiles checkout ─────────────────────────────────"
-d="$HOME/dotfiles"
+# Where this script actually is, not where it is usually cloned. Reporting
+# "$HOME/dotfiles (MISSING)" while running from inside the checkout is the kind
+# of wrong answer that sends someone debugging the wrong thing.
+d="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 echo "dir             : $d $( [ -d "$d" ] && echo '(exists)' || echo '(MISSING)')"
 echo "install.sh      : $( [ -f "$d/install.sh" ] && echo present || echo MISSING)"
 echo "git metadata    : $( [ -d "$d/.git" ] && echo present || echo 'stripped (private mode)')"
