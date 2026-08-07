@@ -293,6 +293,30 @@ substep() { echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW} ${C_RESET}$
 success() { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}$1\n"; }
 
+# ── fzf multi-select ─────────────────────────────────────────────────────────
+# Three menus (configs, dep tools, apps), one widget. Lines arrive on stdin and
+# the chosen ones come back out; every menu puts the key in the first field, so
+# callers pipe the result through awk to recover it.
+#   fzf_pick <height> <min-height> <header> [extra fzf args...]
+fzf_pick() {
+    local height="$1" minh="$2" header="$3"; shift 3
+    # shellcheck disable=SC2086  # _FZF_COLOR_OPT is deliberately one bare word
+    fzf --multi \
+        --height="$height" \
+        --min-height="$minh" \
+        --reverse \
+        --border=rounded \
+        --prompt="  " \
+        --pointer="$G_ARROW" \
+        --marker="$G_OK" \
+        ${_FZF_COLOR_OPT} \
+        --header="$header" \
+        --bind='enter:toggle+down' \
+        --bind='ctrl-j:accept' \
+        --bind='ctrl-a:select-all' \
+        "$@"
+}
+
 # ── Package helpers ───────────────────────────────────────────────────────────
 # Some tools can land outside the package manager entirely — starship's own
 # install script and the lazygit tarball drop plain binaries into /usr/local/bin,
@@ -2667,21 +2691,9 @@ if command -v fzf &>/dev/null; then
         _cfg_lines+=("$(printf '%-11s  %s  %s' "$_c" "$G_DOT" "${CONFIG_DESC[$_c]}")")
     done
     mapfile -t SELECTED < <(
-        printf '%s\n' "${_cfg_lines[@]}" | \
-        fzf --multi \
-            --height=40% \
-            --min-height=12 \
-            --reverse \
-            --border=rounded \
-            --prompt="  " \
-            --pointer="$G_ARROW" \
-            --marker="$G_OK" \
-            ${_FZF_COLOR_OPT} \
-            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all\n' \
-            --bind='enter:toggle+down' \
-            --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all' | \
-        awk '{print $1}'
+        printf '%s\n' "${_cfg_lines[@]}" \
+        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all\n' \
+        | awk '{print $1}'
     )
     unset _cfg_lines _c
     echo ""
@@ -2755,21 +2767,9 @@ if command -v fzf &>/dev/null; then
         _dep_lines+=("$(printf '%-10s  %s  %s' "$_dd" "$G_DOT" "${DEP_DESC[$_dd]}")")
     done
     mapfile -t DEPS < <(
-        printf '%s\n' "${_dep_lines[@]}" | \
-        fzf --multi \
-            --height=40% \
-            --min-height=12 \
-            --reverse \
-            --border=rounded \
-            --prompt="  " \
-            --pointer="$G_ARROW" \
-            --marker="$G_OK" \
-            ${_FZF_COLOR_OPT} \
-            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-            --bind='enter:toggle+down' \
-            --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all' | \
-        awk '{print $1}'
+        printf '%s\n' "${_dep_lines[@]}" \
+        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
+        | awk '{print $1}'
     )
     unset _dep_lines _dd
 else
@@ -2836,23 +2836,10 @@ unset _rt
 
 if command -v fzf &>/dev/null; then
     mapfile -t APPS < <(
-        printf '%s\n' "${_app_lines[@]}" | \
-        fzf --multi \
-            --delimiter=$'\t' \
-            --with-nth=2 \
-            --height=45% \
-            --min-height=14 \
-            --reverse \
-            --border=rounded \
-            --prompt="  " \
-            --pointer="$G_ARROW" \
-            --marker="$G_OK" \
-            ${_FZF_COLOR_OPT} \
-            --header=$'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-            --bind='enter:toggle+down' \
-            --bind='ctrl-j:accept' \
-            --bind='ctrl-a:select-all' | \
-        awk -F'\t' '{print $1}'
+        printf '%s\n' "${_app_lines[@]}" \
+        | fzf_pick 45% 14 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
+              --delimiter=$'\t' --with-nth=2 \
+        | awk -F'\t' '{print $1}'
     )
     echo ""
 else
