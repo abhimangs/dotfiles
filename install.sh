@@ -3444,7 +3444,7 @@ if [ "$STRIP_REPO" -eq 1 ]; then
         substep "${C_DIM}Only pulling new changes needs a clone — nothing else does${C_RESET}"
         # Gated on the specific fact, not on the general run having gone well.
         if [ -e "$DOTFILES_DIR/.git" ]; then
-            error "\.git is still there — this checkout is still identifiable"
+            error ".git is still there — this checkout is still identifiable"
             FAILED+=("private mode")
         else
             success "No git metadata left"
