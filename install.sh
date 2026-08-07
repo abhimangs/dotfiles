@@ -1068,7 +1068,10 @@ ensure_docker_deb() {
 
     local pkg
     for pkg in docker.io docker-doc docker-compose docker-compose-v2 docker-buildx podman-docker containerd runc; do
-        apt_pkg_installed "$pkg" && sudo apt-get remove -y "$pkg" &>/dev/null 2>&1
+        # apt_get, not a bare sudo apt-get: removing containerd or docker.io is
+        # exactly where debconf or needrestart opens a dialog, and where the
+        # dpkg lock is still held by whatever ran before us.
+        apt_pkg_installed "$pkg" && apt_get remove -y "$pkg" &>/dev/null 2>&1
     done
 
     local host="debian"
