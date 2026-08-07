@@ -352,12 +352,11 @@ want    restore-nobashrc-undo 'there was no ~/.bashrc to restore' 'plan takes th
 grep -q 'hand interactive bash to zsh' "$rb_none/.bashrc" 2>/dev/null \
     && bad  restore-nobashrc-undo "hook block still in ~/.bashrc" \
     || note restore-nobashrc-undo "no hook left behind"
-# Currently RED, and it is install.sh that is wrong, not this assertion.
 # Stripping the hook out of the file the installer created leaves the file
 # itself behind (1 byte, the newline the block was appended after), and stow
 # refuses to write over a real file — so `stow_home bash` in restore_bash's
-# `repo` branch conflicts and loses, while the run still prints "bash restored".
-# The leftover has to be cleared before bash/.bashrc is laid down.
+# `repo` branch would conflict and lose while the run still printed "bash
+# restored". restore_bash clears that leftover first; this is what holds it to it.
 if [ -e "$rb_none/.bashrc" ] && cmp -s "$rb_none/.bashrc" "$REPO/bash/.bashrc"; then
     note restore-nobashrc-undo "repo bash/.bashrc laid down"
 else
