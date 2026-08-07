@@ -1976,8 +1976,7 @@ show_plan() {
     if [[ "$BACKUP_MODE" != "delete" ]]; then
         local _o
         for _o in "$HOME"/.zshrc.old.bak "$HOME"/.bashrc.old.bak \
-                  "$HOME"/.gitconfig.old.bak "$HOME"/.config/*.old.bak \
-                  "$HOME"/.config/*/../*.old.bak; do
+                  "$HOME"/.gitconfig.old.bak "$HOME"/.config/*.old.bak; do
             [ -e "$_o" ] || continue
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
             break
@@ -1996,7 +1995,9 @@ show_plan() {
         fi
 
         case "$cfg" in
-          ghostty|kitty)
+          # One arm for all four: same target shape (~/.config/<name>/), same
+          # backup rules. The two that differ do so by one line each at the end.
+          fastfetch|ghostty|kitty|rofi)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -2012,7 +2013,9 @@ show_plan() {
             else
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
-            if [ "$wallpaper_stowed" -eq 0 ]; then
+            # needs_wallpaper is what the install loop branches on too, so the
+            # plan cannot drift from it the way a second hardcoded list would.
+            if needs_wallpaper "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
                 local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
                 if [ ! -f "$wp" ]; then
                     steps+=("${C_GREEN}stow wallpapers${C_RESET}")
@@ -2020,23 +2023,6 @@ show_plan() {
                     steps+=("${C_DIM}wallpaper already in place${C_RESET}")
                 fi
                 wallpaper_stowed=1
-            fi
-            ;;
-          fastfetch|rofi)
-            target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
-                    ! -type l ! -type d 2>/dev/null | grep -q .; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
-                else
-                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
-            elif [ -e "$target" ]; then
-                steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             [[ "$cfg" == "rofi" ]] && steps+=("${C_DIM}launch: rofi -show drun${C_RESET}")
             ;;
