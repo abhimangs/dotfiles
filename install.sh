@@ -317,6 +317,55 @@ fzf_pick() {
         "$@"
 }
 
+# ── Two-option picker ────────────────────────────────────────────────────────
+# Both of the questions asked before the menus — privacy, and what happens to
+# existing configs — are the same widget: two rows, arrows or the label's first
+# letter to move, Enter to confirm. The cursor *is* the selection; there is
+# nothing to toggle, which is why space is only a redraw.
+# Answer lands in PICK2 as 0 or 1.
+#   pick2 <label0> <desc0> <colour0> <label1> <desc1> <colour1>
+PICK2=0
+_pick2_draw() {
+    local m0="( )" m1="( )" a0="  " a1="  "
+    if [ "$1" -eq 0 ]; then
+        m0="(${G_PICK})"; a0="${_P2_C0}${G_ARROW}${C_RESET} "
+    else
+        m1="(${G_PICK})"; a1="${_P2_C1}${G_ARROW}${C_RESET} "
+    fi
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
+        "$a0" "$m0" "$_P2_L0" "$_P2_D0"
+    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
+        "$a1" "$m1" "$_P2_L1" "$_P2_D1"
+}
+pick2() {
+    _P2_L0="$1" _P2_D0="$2" _P2_C0="$3"
+    _P2_L1="$4" _P2_D1="$5" _P2_C1="$6"
+    local key esc lc
+    PICK2=0
+    _pick2_draw "$PICK2"
+    while true; do
+        printf "\033[2A"
+        IFS= read -n 1 -rs key <"$TTY_IN"
+        case "$key" in
+            $'\n'|$'\r'|'') _pick2_draw "$PICK2"; break ;;
+            $'\033')
+                IFS= read -n 2 -rs -t 0.1 esc <"$TTY_IN" || true
+                case "$esc" in
+                    '[A'|'[D') PICK2=0 ;;
+                    '[B'|'[C') PICK2=1 ;;
+                esac
+                _pick2_draw "$PICK2" ;;
+            *)
+                # k/p and b/d are just the labels' initials — nothing to pass in.
+                lc="${key,,}"
+                if   [ "$lc" = "${_P2_L0:0:1}" ]; then PICK2=0
+                elif [ "$lc" = "${_P2_L1:0:1}" ]; then PICK2=1
+                fi
+                _pick2_draw "$PICK2" ;;
+        esac
+    done
+}
+
 # ── Package helpers ───────────────────────────────────────────────────────────
 # Some tools can land outside the package manager entirely — starship's own
 # install script and the lazygit tarball drop plain binaries into /usr/local/bin,
@@ -2420,93 +2469,28 @@ echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Configs keep working and install.sh stays, so it can be re-run.${C_RESET}"
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
 
-_pv_cur=0
-_pv_row() {
-    local mark="  "
-    [ "$1" -eq "$2" ] && mark="$3${G_ARROW}${C_RESET} "
-    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
-        "$mark" "$4" "$5" "$6"
-}
-_pv_draw() {
-    local m0="( )" m1="( )"
-    [ "$STRIP_REPO" -eq 0 ] && m0="(${G_PICK})" || m1="(${G_PICK})"
-    _pv_row 0 "$1" "$C_GREEN" "$m0" "keep"    "leave it as a normal checkout"
-    _pv_row 1 "$1" "$C_RED"   "$m1" "private" "remove and scrub everything above"
-}
-_pv_draw $_pv_cur
-
-while true; do
-    printf "\033[2A"
-    IFS= read -n 1 -rs _pv_key <"$TTY_IN"
-    case "$_pv_key" in
-        $'\n'|$'\r'|'') _pv_draw $_pv_cur; break ;;
-        ' ')     STRIP_REPO=$_pv_cur; _pv_draw $_pv_cur ;;
-        'k'|'K') STRIP_REPO=0; _pv_cur=0; _pv_draw $_pv_cur ;;
-        'p'|'P') STRIP_REPO=1; _pv_cur=1; _pv_draw $_pv_cur ;;
-        $'\033')
-            IFS= read -n 2 -rs -t 0.1 _pv_esc <"$TTY_IN" || true
-            case "$_pv_esc" in
-                '[A'|'[D') _pv_cur=0 ;;
-                '[B'|'[C') _pv_cur=1 ;;
-            esac
-            STRIP_REPO=$_pv_cur
-            _pv_draw $_pv_cur ;;
-        *) _pv_draw $_pv_cur ;;
-    esac
-done
+pick2 "keep"    "leave it as a normal checkout"      "$C_GREEN" \
+      "private" "remove and scrub everything above"  "$C_RED"
+STRIP_REPO=$PICK2
 
 if [ "$STRIP_REPO" -eq 1 ]; then
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private — traces removed at the end of the run\n"
 else
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} keep\n"
 fi
-unset -f _pv_draw _pv_row
-unset _pv_cur _pv_key _pv_esc
 
 # ── Existing configs: backup or delete ───────────────────────────────────────
-BACKUP_MODE="backup"
-_bm_sel=0
-
-_bm_draw() {
-    local m0="( )" m1="( )"
-    [ "$1" -eq 0 ] && m0="(${G_PICK})" || m1="(${G_PICK})"
-    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
-        "$( [ "$1" -eq 0 ] && printf '%b' "${C_GREEN}${G_ARROW}${C_RESET} " || printf '  ')" \
-        "$m0" "backup" "move to .bak, safe and reversible"
-    printf " ${C_MAIN}${C_BOLD}${G_MID}${C_RESET}  %b%b %-8s ${C_DIM}${G_DOT}  %-42s${C_RESET}\n" \
-        "$( [ "$1" -eq 1 ] && printf '%b' "${C_RED}${G_ARROW}${C_RESET} " || printf '  ')" \
-        "$m1" "delete" "wipe cleanly, no backup kept"
-}
-
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
-_bm_draw $_bm_sel
+pick2 "backup" "move to .bak, safe and reversible" "$C_GREEN" \
+      "delete" "wipe cleanly, no backup kept"      "$C_RED"
 
-while true; do
-    printf "\033[2A"
-    IFS= read -n 1 -rs _bm_key <"$TTY_IN"
-    case "$_bm_key" in
-        $'\n'|$'\r'|'') _bm_draw $_bm_sel; break ;;
-        'b'|'B') _bm_sel=0; _bm_draw $_bm_sel ;;
-        'd'|'D') _bm_sel=1; _bm_draw $_bm_sel ;;
-        $'\033')
-            IFS= read -n 2 -rs -t 0.1 _bm_esc <"$TTY_IN" || true
-            case "$_bm_esc" in
-                '[A'|'[D') _bm_sel=0 ;;
-                '[B'|'[C') _bm_sel=1 ;;
-            esac
-            _bm_draw $_bm_sel ;;
-        *) _bm_draw $_bm_sel ;;
-    esac
-done
-
-if [ "$_bm_sel" -eq 1 ]; then
+if [ "$PICK2" -eq 1 ]; then
     BACKUP_MODE="delete"
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
 else
+    BACKUP_MODE="backup"
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
 fi
-unset -f _bm_draw
-unset _bm_sel _bm_key _bm_esc
 
 # ── Privileges ────────────────────────────────────────────────────────────────
 # VPS and container images normally drop you straight into root, and plenty of
