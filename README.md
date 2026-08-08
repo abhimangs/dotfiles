@@ -64,7 +64,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 
 ## Installer features
 
-- **fzf TUI** — multi-select configs with a live preview pane
+- **fzf TUI** — multi-select configs with a live preview pane; every menu is skippable (Esc), so an apps-only run never touches a dotfile
 - **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree (all of them come automatically with zsh — see below)
 - **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
@@ -229,7 +229,7 @@ amd64 and arm64 are fully supported on all three distros; 32-bit ARM (`armhf`/`a
 
 [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop.
 
-Fonts are installed on every run, whatever you select — the configs reference them by name, so picking only zsh or starship used to leave a terminal with no font to render. They are skipped where they cannot do anything: no display server, or WSL. ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
+Fonts are installed on every run that installs a config, whatever you select — the configs reference them by name, so picking only zsh or starship used to leave a terminal with no font to render. They are skipped where they cannot do anything: no display server, WSL, or a run that skipped the config menu entirely. ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
 
 | Font | Arch | Debian/Ubuntu |
 |------|------|---------------|

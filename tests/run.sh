@@ -32,11 +32,19 @@ echo
 
 # Keystroke scripts. Prompt order:
 #   privacy (1 key) · existing configs (1 key) · [menus] · Proceed?
-printf '\n\n\n'        > "$WORK/k-fzf"      # menus answered by the fzf stub
-printf '\n\n2\n\n\n\n' > "$WORK/k-num"      # numeric menu: item 2, skip, skip, proceed
-printf 'p\n\n\n'       > "$WORK/k-private"  # private mode, then fzf menus
-printf '\n\ny\n'       > "$WORK/k-lock-yes" # ... then "yes, stop the updater"
-printf '\n\nn\n'       > "$WORK/k-lock-no"  # ... then "no, leave it"
+#
+# Both single-key prompts come first for a reason: `read -n 1` switches the tty
+# to raw mode and the pending input queue is dropped with it, so a keystroke
+# written minutes earlier is gone by the time a later pick2 asks for it.
+# Trailing Enters are padding: `script` delivers EOF to exactly one read and
+# blocks every one after it, so a file that runs out one prompt early hangs for
+# the full timeout instead of failing an assertion. Every prompt past the last
+# meaningful key defaults to yes on Enter.
+printf '\n\n\n\n\n'        > "$WORK/k-fzf"      # menus answered by the fzf stub
+printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numeric menu: config 2, skip, skip
+printf 'p\n\n\n\n\n'       > "$WORK/k-private"  # private mode, then fzf menus
+printf '\n\ny\n\n\n\n'     > "$WORK/k-lock-yes" # ... then "yes, stop the updater"
+printf '\n\nn\n\n\n\n'     > "$WORK/k-lock-no"  # ... then "no, leave it"
 # --restore-bash skips every prompt above it and asks exactly one question.
 printf '\n\n'          > "$WORK/k-restore"    # Proceed? → yes
 printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
@@ -179,6 +187,24 @@ if [ -f "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
 else
     bad  ubuntu-keepstar "their starship.toml was replaced"
 fi
+
+# 15b. Apps without dotfiles: the config menu is skippable, so nothing of the
+#      user's is touched and the backup question is never asked.
+run ubuntu-appsonly ubuntu "$WORK/k-fzf" STUB_FZF_PICK3="docker"
+check   ubuntu-appsonly 0
+want    ubuntu-appsonly 'No configs selected'      'empty config menu accepted'
+want    ubuntu-appsonly 'nothing names them'       'fonts skipped with no configs'
+nowant  ubuntu-appsonly 'Nothing selected'         'run continues to the apps'
+d="$WORK/run/ubuntu-appsonly/home"
+[ -e "$d/.zshrc" ] || [ -e "$d/.config/starship.toml" ] \
+    && bad ubuntu-appsonly "a config was stowed anyway" \
+    || note ubuntu-appsonly "no config stowed"
+
+# 15c. ... but three empty menus still means there is nothing to do.
+run ubuntu-nothing ubuntu "$WORK/k-fzf"
+check   ubuntu-nothing 0
+want    ubuntu-nothing 'Nothing selected'          'empty run stops'
+nowant  ubuntu-nothing 'Installation plan'         'stops before the plan'
 
 echo
 echo "── docker app selection ─────────────────────────────────"

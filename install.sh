@@ -2135,7 +2135,9 @@ show_plan() {
     # Fonts — installed on every run, so they get their own plan entry
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}fonts${C_RESET}"
-    if [ "$IS_WSL" -eq 1 ]; then
+    if [ "${#cfgs[@]}" -eq 0 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — no configs selected, nothing asks for them${C_RESET}"
+    elif [ "$IS_WSL" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — WSL, install them on Windows${C_RESET}"
     elif [ "$IS_HEADLESS" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — no display server${C_RESET}"
@@ -2466,6 +2468,11 @@ else
 fi
 
 # ── Existing configs: backup or delete ───────────────────────────────────────
+# Stays here, before the menus, even though it only matters once a config is
+# selected: both single-key prompts have to be asked back to back at the very
+# start. A `read -n 1` puts the terminal in raw mode, which discards whatever is
+# already sitting in the input queue — harmless for a human typing, fatal for
+# anything feeding keystrokes from a file (see tests/harness.sh).
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
 pick2 "backup" "move to .bak, safe and reversible" "$C_GREEN" \
       "delete" "wipe cleanly, no backup kept"      "$C_RED"
@@ -2662,7 +2669,7 @@ if command -v fzf &>/dev/null; then
     done
     mapfile -t SELECTED < <(
         printf '%s\n' "${_cfg_lines[@]}" \
-        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all\n' \
+        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
         | awk '{print $1}'
     )
     unset _cfg_lines _c
@@ -2676,8 +2683,8 @@ else
             _c="${CONFIGS[$_i]}"
             printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-11s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_c" "${CONFIG_DESC[$_c]}"
         done
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All${C_RESET}"
-        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 4 or a): ${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 4 or a, Enter=skip): ${C_RESET}"
         read -r RAW <"$TTY_IN"
     echo ""
 
@@ -2685,6 +2692,9 @@ else
             SELECTED=("${CONFIGS[@]}")
             break
         fi
+        # Same as Esc in the fzf menu: no configs is a valid answer — apps and
+        # dep tools are still ahead.
+        [ -z "$RAW" ] && break
 
         valid=true
         tmp=()
@@ -2711,9 +2721,11 @@ else
     done
 fi
 
+# No configs is a normal answer: "install these apps, leave my dotfiles alone".
+# The run only stops if nothing at all is picked, which is checked after the
+# apps menu.
 if [ "${#SELECTED[@]}" -eq 0 ]; then
-    error "Nothing selected. Exiting."
-    exit 0
+    success "${C_DIM}No configs selected — nothing of yours will be touched${C_RESET}"
 fi
 
 # .zshrc ends with `eval "$(starship init zsh)"` — the entire prompt is
@@ -2724,7 +2736,7 @@ if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
     SELECTED+=(starship)
     substep "${C_DIM}zsh draws its prompt with starship — adding starship${C_RESET}"
 fi
-success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
+[ "${#SELECTED[@]}" -gt 0 ] && success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
 
 # ── Dep tools sub-menu (always shown) ────────────────────────────────────────
 DEPS=()
@@ -2845,6 +2857,13 @@ else
     success "${C_DIM}No apps selected${C_RESET}"
 fi
 
+# Three empty menus in a row means the answer was "nothing" — there is no plan
+# to show and no reason to ask for sudo again.
+if [ "${#SELECTED[@]}" -eq 0 ] && [ "${#DEPS[@]}" -eq 0 ] && [ "${#APPS[@]}" -eq 0 ]; then
+    error "Nothing selected. Exiting."
+    exit 0
+fi
+
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
 show_plan "${SELECTED[@]}"
 
@@ -2859,7 +2878,13 @@ FAILED=()
 # starship alone used to leave a terminal with no font to render. Skipped only
 # where they cannot do anything — no display server, or WSL, where the terminal
 # is a Windows program and the Linux filesystem is the wrong place for them.
-if [ "$IS_WSL" -eq 1 ]; then
+if [ "${#SELECTED[@]}" -eq 0 ]; then
+    # "Every run" is really "every run that installs a config" — the configs are
+    # what name these fonts. An apps-only run has nothing to render with them.
+    info "Fonts..."
+    substep "${C_DIM}No configs selected — nothing names them, skipping${C_RESET}"
+    success "Skipped"
+elif [ "$IS_WSL" -eq 1 ]; then
     info "Fonts..."
     substep "${C_YELLOW}WSL — install the fonts on Windows, not here${C_RESET}"
     substep "${C_DIM}Get JetBrainsMono Nerd Font and Maple Mono, install them in${C_RESET}"
