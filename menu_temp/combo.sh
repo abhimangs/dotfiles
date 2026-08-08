@@ -81,7 +81,45 @@ declare -A SEC_BLURB=(
 )
 
 fld() { cut -d'|' -f"$2" <<<"$1"; }
-installed() { command -v "$1" &>/dev/null; }
+
+# ── install state ────────────────────────────────────────────────────────────
+# Two package-manager dumps at startup instead of a query per row: 35 rows would
+# otherwise mean 70 forks before the menu can draw. "update" is what the local
+# db already knows — no sync, no network, so it costs nothing and is honest
+# about being as fresh as your last -Sy.
+build_states() {
+    [ -n "$STATE" ] || return 0
+    if command -v pacman &>/dev/null; then
+        pacman -Q  2>/dev/null > "$STATE/pkgs" || : > "$STATE/pkgs"
+        pacman -Qu 2>/dev/null > "$STATE/upd"  || : > "$STATE/upd"
+    elif command -v dpkg-query &>/dev/null; then
+        dpkg-query -W -f '${Package} ${Version}\n' 2>/dev/null > "$STATE/pkgs" || : > "$STATE/pkgs"
+        apt list --upgradable 2>/dev/null | sed 's|/.*||' > "$STATE/upd" || : > "$STATE/upd"
+    else
+        : > "$STATE/pkgs"; : > "$STATE/upd"
+    fi
+}
+
+installed() {                   # installed <package>
+    [ -n "$STATE" ] && grep -q "^$1 " "$STATE/pkgs" 2>/dev/null && return 0
+    command -v "$1" &>/dev/null
+}
+upgradable() { [ -n "$STATE" ] && grep -qE "^$1( |$)" "$STATE/upd" 2>/dev/null; }
+
+pkg_state() {                   # pkg_state <package> -> new|update|installed
+    if ! installed "$1"; then echo new
+    elif upgradable "$1";  then echo update
+    else                        echo installed
+    fi
+}
+
+state_cell() {                  # state_cell <package>  (11 columns, coloured)
+    case "$(pkg_state "$1")" in
+        new)       printf '%s%-11s%s' "$DIM"    "○ new"       "$R" ;;
+        update)    printf '%s%-11s%s' "$YELLOW" "↑ update"    "$R" ;;
+        installed) printf '%s%-11s%s' "$GREEN"  "● installed" "$R" ;;
+    esac
+}
 
 # key → any field, for the preview callbacks
 lookup() {                      # lookup <key> <field-number>
@@ -104,19 +142,46 @@ lookup() {                      # lookup <key> <field-number>
 # The tick is ours, not fzf's marker: selection lives in a state file so that
 # switching sections can reload the list without losing anything.
 row() {                         # row <item> <group-label-or-empty>
-    local mark=""
+    local key mark="" tint="$DIM" name_c="${B}${TEXT}"
+    key=$(fld "$1" 1)
     if [ -n "$STATE" ]; then
-        is_selected "$(fld "$1" 1)" && mark="${GREEN}[✔]${R}" || mark="${DIM}[ ]${R}"
+        if is_selected "$key"; then
+            # A ticked row reads as one green block: box, name and description.
+            # Only the tick was green before, which is easy to miss at a glance.
+            mark="${GREEN}${B}[✔]${R}"; tint="$GREEN"; name_c="${GREEN}${B}"
+        else
+            mark="${DIM}[ ]${R}"
+        fi
     fi
-    printf '%s\t%s\t%s %s%-10s%s %s  %s%-20s%s %s%s%s\n' \
-        "$(fld "$1" 1)" "$(fld "$1" 5)" "$mark" \
+    printf '%s\t%s\t%s %s%-10s%s %s  %s%-20s%s %s %s%s%s\n' \
+        "$key" "$(fld "$1" 5)" "$mark" \
         "$TEAL" "$2" "$R" "$(fld "$1" 2)" \
-        "${B}${TEXT}" "$(fld "$1" 3)" "$R" \
-        "$DIM" "$(fld "$1" 4)" "$R"
+        "$name_c" "$(fld "$1" 3)" "$R" \
+        "$(state_cell "$(fld "$1" 7)")" \
+        "$tint" "$(fld "$1" 4)" "$R"
 }
 
-rows_for() {                    # rows_for <section|all>
+rows_for() {                    # rows_for <section|selected|all>
     local it sec grp last=""
+    if [ "$1" = "selected" ]; then
+        local -a keys=(); mapfile -t keys < <(selected_keys)
+        if [ "${#keys[@]}" -eq 0 ]; then
+            # Keyless, so ticking it does nothing — an empty list with no
+            # explanation reads as a broken menu.
+            printf '\t%s\t   %s\n' "selected" "${DIM}nothing ticked yet — ← or f1 to go back${R}"
+            return
+        fi
+        local k
+        for k in "${keys[@]}"; do
+            for it in "${ITEMS[@]}"; do
+                [ "$(fld "$it" 1)" = "$k" ] || continue
+                sec=$(fld "$it" 5)
+                if [ "$sec" != "$last" ]; then row "$it" "$sec"; last="$sec"
+                else                           row "$it" ""; fi
+            done
+        done
+        return
+    fi
     for it in "${ITEMS[@]}"; do
         sec=$(fld "$it" 5)
         [ "$1" = "all" ] || [ "$sec" = "$1" ] || continue
@@ -128,6 +193,17 @@ rows_for() {                    # rows_for <section|all>
             row "$it" ""
         fi
     done
+}
+
+# Ticking the last row asked for a cursor one past the end, and fzf then had no
+# current item at all: accept returned nothing and exited 1, so a whole run's
+# ticks came back empty. Clamp to the list that is about to be loaded.
+clamp_pos() {                   # clamp_pos <1-based row>
+    local want="$1" n
+    n=$(rows_for "$(cur_section)" | grep -c .)
+    [ "$want" -gt "$n" ] && want="$n"
+    [ "$want" -lt 1 ]    && want=1
+    echo "$want"
 }
 
 # ── selection state ──────────────────────────────────────────────────────────
@@ -205,11 +281,12 @@ pv() {                          # pv <current-key> [selected keys...]
             esac
             printf ' %s %s\n' "${DIM}stows  ${R}" "$target"
         fi
-        if installed "$pkg"; then
-            printf ' %s %s\n' "${DIM}state  ${R}" "${GREEN}● already installed${R}"
-        else
-            printf ' %s %s\n' "${DIM}state  ${R}" "${YELLOW}○ will be installed${R}"
-        fi
+        case "$(pkg_state "$pkg")" in
+            installed) printf ' %s %s\n' "${DIM}state  ${R}" "${GREEN}● already installed${R}" ;;
+            update)    printf ' %s %s\n' "${DIM}state  ${R}" "${YELLOW}↑ installed, update available${R}"
+                       printf ' %s %s\n' "${DIM}       ${R}" "${DIM}per the local package db${R}" ;;
+            new)       printf ' %s %s\n' "${DIM}state  ${R}" "${DIM}○ will be installed${R}" ;;
+        esac
         case "$key" in
             ghostty|kitty|rofi) printf ' %s %s\n' "${DIM}font   ${R}" "JetBrainsMono Nerd Font" ;;
             zsh)                printf ' %s %s\n' "${DIM}pulls  ${R}" "starship + every tool" ;;
@@ -229,18 +306,20 @@ pv() {                          # pv <current-key> [selected keys...]
 
     printf '\n%s\n' "${DIM}${rule}${R}"
     if [ "$#" -eq 0 ]; then
-        printf ' %s\n' "${DIM}nothing selected yet${R}"
-        printf ' %s\n' "${DIM}enter adds the row you are on${R}"
+        printf ' %s\n' "${DIM}nothing ticked yet${R}"
+        printf ' %s\n' "${DIM}enter ticks the row you are on${R}"
         return
     fi
-    printf ' %s\n\n' "${GREEN}${B}selected (${#})${R}"
-    local k s
+    printf ' %s\n\n' "${GREEN}${B}TICKED  ${#}${R}"
+    local k s n
     for s in "${SECTIONS[@]}"; do
-        local first=1
+        n=0
+        for k in "$@"; do [ "$(lookup "$k" 5)" = "$s" ] && n=$((n + 1)); done
+        [ "$n" -eq 0 ] && continue
+        printf ' %s %s\n' "${TEAL}${s}${R}" "${DIM}${n}${R}"
         for k in "$@"; do
             [ "$(lookup "$k" 5)" = "$s" ] || continue
-            [ "$first" -eq 1 ] && { printf ' %s\n' "${DIM}${s}${R}"; first=0; }
-            printf '   %s %s\n' "${GREEN}✔${R}" "$(lookup "$k" 3)"
+            printf '   %s %s%s%s\n' "${GREEN}✔${R}" "$GREEN" "$(lookup "$k" 3)" "$R"
         done
     done
 }
@@ -252,18 +331,30 @@ pv() {                          # pv <current-key> [selected keys...]
 #
 # Called back by fzf's `transform`: prints the action to run, given the query
 # that is on screen now.
-TABS=(dotfiles tools apps)
+TABS=(dotfiles tools apps selected)
 
-# The three sections drawn as a bar, the current one lit. This is the header,
-# redrawn on every switch — there is no "everything" stop, so the bar always
-# says exactly what the list is showing.
+# How many of a section are ticked — drawn into the tab itself, so a section you
+# are not looking at can still tell you it has something in it.
+sec_count() {                   # sec_count <section>
+    local it n=0
+    if [ "$1" = "selected" ]; then selected_keys | grep -c . ; return; fi
+    for it in "${ITEMS[@]}"; do
+        [ "$(fld "$it" 5)" = "$1" ] || continue
+        is_selected "$(fld "$it" 1)" && n=$((n + 1))
+    done
+    echo "$n"
+}
+
+# The four sections drawn as a bar, the current one lit, each with its count.
 tab_bar() {                     # tab_bar <active>
-    local t out=""
+    local t n out=""
     for t in "${TABS[@]}"; do
+        n=$(sec_count "$t")
+        [ "$n" -eq 0 ] && n="" || n=" ${n}"
         if [ "$t" = "$1" ]; then
-            out+="${MAUVE}${B} ▌ ${t} ${R}"
+            out+="${MAUVE}${B} ▌ ${t}${n} ${R}"
         else
-            out+="${DIM}   ${t} ${R}"
+            out+="${DIM}   ${t}${n} ${R}"
         fi
     done
     printf '%s' "$out"
@@ -292,7 +383,7 @@ tab_to() {                      # tab_to <section>
     # typed in one section should not follow them into the next.
     # `first` lands the cursor on the top row; change-header: swallows the rest
     # of the line, so it goes last.
-    printf "change-query()+reload(%s --rows-cur)+first+change-list-label( %s )+change-header:%s\n" \
+    printf "change-query()+reload-sync(%s --rows-cur)+first+change-list-label( %s )+change-header:%s\n" \
         "$SELF" "$1" "$(tab_bar "$1")"
 }
 
@@ -306,11 +397,16 @@ case "${1:-}" in
     --rows-cur) rows_for "$(cur_section)"; exit 0 ;;
     --toggle)   # <key> <0-based row index>
         toggle_key "${2:-}"
-        printf 'reload(%s --rows-cur)+pos(%d)+refresh-preview\n' "$SELF" "$(( ${3:-0} + 2 ))"
+        # reload-sync, not reload: reload is asynchronous, so pos() ran against
+        # the old list and the incoming one put the cursor back on row 1.
+        # change-header: eats the rest of the line, so it stays last.
+        printf 'reload-sync(%s --rows-cur)+pos(%d)+refresh-preview+change-header:%s\n' \
+            "$SELF" "$(clamp_pos "$(( ${3:-0} + 2 ))")" "$(tab_bar "$(cur_section)")"
         exit 0 ;;
     --toggle-all)
         toggle_section
-        printf 'reload(%s --rows-cur)+pos(%d)+refresh-preview\n' "$SELF" "$(( ${2:-0} + 1 ))"
+        printf 'reload-sync(%s --rows-cur)+pos(%d)+refresh-preview+change-header:%s\n' \
+            "$SELF" "$(clamp_pos "$(( ${2:-0} + 1 ))")" "$(tab_bar "$(cur_section)")"
         exit 0 ;;
     --selected) selected_keys; exit 0 ;;
 esac
@@ -370,11 +466,17 @@ variant_single() {
 # so nothing is lost, and the search box stays the user's: typing filters inside
 # the current section only.
 variant_tabs() {
-    COMBO_STATE="$(mktemp -d "${TMPDIR:-/tmp}/combo-menu.XXXXXX")"
+    # A pre-set COMBO_STATE is kept and not cleaned up — that is the hook for
+    # looking at what the ticks actually did after a run.
+    local own=0
+    if [ -z "${COMBO_STATE:-}" ]; then
+        COMBO_STATE="$(mktemp -d "${TMPDIR:-/tmp}/combo-menu.XXXXXX")"; own=1
+    fi
     export COMBO_STATE
     STATE="$COMBO_STATE"; SEL="$STATE/selected"; CUR="$STATE/section"
     : > "$SEL"; printf 'dotfiles\n' > "$CUR"
-    trap 'rm -rf "$COMBO_STATE"' EXIT
+    build_states
+    [ "$own" -eq 1 ] && trap 'rm -rf "$COMBO_STATE"' EXIT
 
     # Accept vs abort is the whole reason this reads fzf's exit code rather than
     # its output: esc must return nothing even though the state file is full.
@@ -388,7 +490,7 @@ variant_tabs() {
         --input-label=" search this section " --input-label-pos=3 \
         --header-label=" sections " --header="$(tab_bar dotfiles)" \
         --footer-label=" keys " \
-        --footer="← → section   enter tick   ctrl-a all in section   ctrl-j confirm   esc cancel" \
+        --footer="← → section   f1-f4 jump   enter tick   ctrl-a all in section   ctrl-j confirm   esc cancel" \
         --preview="$SELF --preview {1}" \
         --preview-window='right,42%,border-left' --preview-label=" details · selected " \
         --prompt="  " --pointer="❯" --ghost="type to filter this section" \
@@ -402,6 +504,8 @@ variant_tabs() {
         --bind="f1:transform:$SELF --tab-to dotfiles" \
         --bind="f2:transform:$SELF --tab-to tools" \
         --bind="f3:transform:$SELF --tab-to apps" \
+        --bind="f4:transform:$SELF --tab-to selected" \
+        --bind="ctrl-s:transform:$SELF --tab-to selected" \
         --bind='ctrl-j:accept' \
         >/dev/null
     local rc=$?
