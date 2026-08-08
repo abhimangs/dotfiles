@@ -1,5 +1,31 @@
 # menu_temp — throwaway menu gallery
 
+## combo.sh — 6 + 10 + 1 + 2, arranged three ways
+
+```bash
+bash ~/dotfiles/menu_temp/combo.sh      # asks which arrangement
+bash ~/dotfiles/menu_temp/combo.sh 1    # one by one  — three full-screen steps
+bash ~/dotfiles/menu_temp/combo.sh 2    # one screen  — all three in a single list
+bash ~/dotfiles/menu_temp/combo.sh 3    # tabs        — alt-1/2/3 switches section
+```
+
+Same look in all three: full screen with every section boxed (6), border labels
+and footer keys and a live count (1), details for the row you are on (2), and
+everything you have selected so far listed by name underneath (10).
+
+The three sections are **dotfiles**, **tools**, **apps**, in that order, and
+inside each one the rows are grouped (shells → terminals → desktop → tools;
+files → navigation → git → system; browsers → editors → CLIs → desktop →
+system) with the likeliest pick first. Group headings are rows with no key, so
+selecting one — or hitting `ctrl-a` — never puts a heading in your cart.
+
+In arrangement 3 the tabs are fzf's own filter driven by a hidden field, so
+switching sections never reloads the list and never drops a mark.
+
+---
+
+## The original ten
+
 Ten designs for the installer's config picker. Nothing here is wired into
 `install.sh`; delete the folder when you have picked one.
 
