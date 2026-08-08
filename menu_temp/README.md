@@ -1,57 +1,61 @@
 # menu_temp — throwaway menu gallery
 
-## combo.sh — 6 + 10 + 1 + 2, tabbed
+## fast.sh — the one to look at
 
 ```bash
-bash ~/dotfiles/menu_temp/combo.sh      # the tabbed one
-bash ~/dotfiles/menu_temp/combo.sh 1    # same look as three separate steps
-bash ~/dotfiles/menu_temp/combo.sh 2    # same look as one flat list
+bash ~/dotfiles/menu_temp/fast.sh
 ```
 
-Four tabs — **dotfiles · tools · apps · selected** — one on screen at a time,
-never all of them. Opens on dotfiles. Each tab carries its own count, so a
-section you are not looking at can still tell you it has something in it.
+No fzf. fzf was never the slow part — the wiring around it was: every tick
+forked a callback that re-read the item table with `cut` (seven subshells a
+row), re-rendered the list twice and re-ran the preview. Hundreds of processes
+per keystroke.
+
+Here **nothing forks after startup**. The table is parsed once into arrays, a
+frame is a string built in bash and written with one `printf`, and a keypress
+redraws in **1.4 ms** (200 frames measured at 0.28 s). First frame is up in
+~60 ms: "what is installed" is a 20 ms local query, and the slower "what has an
+update" runs in the background and fills the rows in when it lands — which
+matters most on Debian, where `apt list --upgradable` can take seconds.
 
 | key | |
 |---|---|
-| `←` `→` | previous / next tab (wraps; `tab` / `shift-tab` do the same) |
-| `f1` `f2` `f3` `f4` | jump to dotfiles / tools / apps / selected (`ctrl-s` also opens selected) |
-| `enter` | tick the row, and move to the next one |
-| `ctrl-a` | tick everything in this section — again to untick |
-| `ctrl-j` | confirm |
-| `esc` | cancel, selecting nothing |
+| `←` `→` | previous / next menu (wraps; `tab` too) |
+| `↑` `↓` `PgUp` `PgDn` | move |
+| `f1`–`f4` | jump to dotfiles / tools / apps / selected (`ctrl-s` also) |
+| `space` | tick the row, and move to the next |
+| `ctrl-a` | tick everything in this menu — again to untick |
+| type | search this menu only; `esc` clears it |
+| `enter` | confirm |
+| `esc` | cancel |
 
-`ctrl-1`…`ctrl-4` are not bindable — terminals cannot send them distinctly — so
-the number keys are F-keys.
+Space ticks and Enter confirms rather than the other way round: depending on the
+terminal's `icrnl`, Enter arrives as `\r` or as `\n`, so nothing else can safely
+own either.
 
-**The tick is loud.** A ticked row turns green end to end — box, name and
-description — not just a small mark. The **selected** tab lists everything
-ticked across all three sections, grouped, and unticking works there too.
+Three menus — **dotfiles · tools · apps** — plus **selected**, which lists what
+is ticked across all three and unticks from there. No sub-groups and no icons:
+plain names only. A ticked row goes green end to end, and every row says what it
+will do — `new`, `installed`, or `update`.
 
-**Every row says what it will do**: `○ new`, `● installed`, or `↑ update` when
-the package is installed but the local package db has a newer version. Two
-dumps at startup (`pacman -Q` / `-Qu`, or dpkg/apt) rather than a query per row
-— 35 rows would otherwise be 70 forks before the menu can draw. No sync, no
-network: it is exactly as fresh as your last `-Sy`.
+**Columns line up because every padded cell is ASCII.** `printf` pads `%s` by
+bytes, so `● installed` (13 bytes, 11 columns) and `○ new` (7 bytes, 5 columns)
+came out different widths and the description column stepped in and out — and a
+Nerd Font glyph is two columns wide while `printf` counts it as one, which is
+what made the old name column ragged. Colour carries what the symbols did.
 
-**Search is scoped.** The box searches the section you are on, nothing else —
-typing `notion` in dotfiles finds nothing. Switching tabs clears it.
+---
 
-**How it works.** The tab and the ticks are ours, not fzf's: the current section
-and the ticked keys live in a temp dir, a switch reloads the list from them, and
-the `[✔]` in each row is drawn from that file. fzf's own marks cannot survive a
-reload, and the other way to filter — putting the section in the query — is
-exactly what collided with typing. `esc` still returns nothing: the wrapper
-reads fzf's exit code, not the state file.
+## combo.sh — the fzf version, kept for comparison
 
-Two things that had to be right for ticking to feel normal: `reload-sync`, not
-`reload` — the async one let `pos()` run against the old list, which is why the
-cursor snapped back to row 1 — and clamping that position to the list about to
-be loaded, or ticking the last row left fzf with no current item at all and
-confirmed nothing.
+```bash
+bash ~/dotfiles/menu_temp/combo.sh    # tabs, via fzf
+bash ~/dotfiles/menu_temp/combo.sh 1  # three separate steps
+bash ~/dotfiles/menu_temp/combo.sh 2  # one flat list
+```
 
-Set `COMBO_STATE=/some/dir` to keep the state dir after the run instead of
-having it cleaned up.
+Same four tabs and the same information, built on fzf. It is the slow one, and
+it is here only to compare the look against `fast.sh`.
 
 ---
 
