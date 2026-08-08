@@ -2060,7 +2060,7 @@ ensure_zsh_autoexec() {
 # Two kinds of target. Repo scaffolding is deleted outright — it has no value
 # once the configs are stowed. Live configs are scrubbed instead: they have to
 # keep working, they just must not carry a name, an address or a URL.
-PRIVATE_DELETE=(.git .github .gitignore .gitattributes
+PRIVATE_DELETE=(menu_temp .git .github .gitignore .gitattributes
                 README.md CLAUDE.md LICENSE LICENSE.md linux.sh)
 
 # file → what is taken out of it

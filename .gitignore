@@ -21,3 +21,6 @@ CLAUDE.md
 
 # Ulauncher generated files
 ulauncher/user-themes/*/generated.css
+
+# Scratch: the menu designs this repo's menu was chosen from. Local only.
+menu_temp/
