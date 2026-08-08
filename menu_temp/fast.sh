@@ -53,13 +53,13 @@ ITEMS=(
 "lazygit|lazygit|git TUI → lg|tools|lazygit"
 "btop|btop|resource monitor|tools|btop"
 
-"brave-stable|Brave Origin Stable|chromium browser, no telemetry|apps|brave-browser"
-"brave-beta|Brave Origin Beta|the beta channel of the same|apps|brave-browser-beta"
-"vscode|Visual Studio Code|the editor|apps|code"
-"vscode-insiders|VS Code Insiders|nightly channel|apps|code-insiders"
+"brave-stable|Brave Origin Stable|chromium browser, no telemetry|apps|brave-origin-bin"
+"brave-beta|Brave Origin Beta|the beta channel of the same|apps|brave-origin-beta-bin"
+"vscode|Visual Studio Code|the editor|apps|visual-studio-code-bin"
+"vscode-insiders|VS Code Insiders|nightly channel|apps|visual-studio-code-insiders-bin"
 "antigravity-ide|Antigravity IDE|agentic IDE|apps|antigravity"
 "obsidian|Obsidian|markdown knowledge base|apps|obsidian"
-"notion|Notion|workspace|apps|notion-app"
+"notion|Notion|workspace|apps|notion-app-electron"
 "claude-code|Claude Code CLI|agentic coding in the terminal|apps|claude"
 "codex-cli|Codex CLI|OpenAI's coding agent|apps|codex"
 "antigravity-cli|Antigravity CLI|the CLI half of Antigravity|apps|antigravity"
@@ -94,6 +94,12 @@ parse_items() {
 # immediately either way.
 UPD_READY=""
 
+# The CLI installers drop binaries into their own directories, which are not
+# necessarily on the PATH of the shell running this — install.sh searches these
+# explicitly for the same reason.
+CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin"
+app_present() { PATH="${CURL_APP_PATH}:$PATH" command -v "$1" &>/dev/null; }
+
 scan_installed() {
     local -A have=()
     local name k p
@@ -105,7 +111,7 @@ scan_installed() {
     fi
     for k in "${ORDER[@]}"; do
         p=${PKG[$k]}
-        if [ -n "${have[$p]:-}" ] || command -v "$p" &>/dev/null; then
+        if [ -n "${have[$p]:-}" ] || app_present "$p"; then
             PSTATE[$k]=installed
         else
             PSTATE[$k]=new
@@ -443,7 +449,7 @@ draw() {
     for (( i = 0; i < ${#L[@]}; i++ )); do
         frame+="${L[$i]} ${Rr[$i]:-}"$'\033[K\n'
     done
-    frame+="  ${DIM}← → menu   ↑ ↓ move   space / enter tick   ctrl-a all   ctrl-d confirm   esc cancel${R}"
+    frame+="  ${DIM}← → menu   ↑ ↓ move   space / enter tick   ctrl-a all   ctrl-d review, then run   esc cancel${R}"
     frame+=$'\033[K\033[J'
     printf '%s' "$frame"
 }
@@ -520,7 +526,11 @@ loop() {
             # on the terminal's icrnl, and ctrl-j is \n either way, so nothing
             # else can own either byte — confirm gets its own key.
             ' '|$'\r'|$'\n') toggle_cur ;;
-            $'\004')         CONFIRMED=1; return 0 ;;              # ctrl-d
+            # ctrl-d from a menu goes to `selected` first — one look at the
+            # whole list before anything runs. ctrl-d again, from there, runs it.
+            $'\004')         if [ "${TABS[$TAB]}" = selected ]; then
+                              CONFIRMED=1; return 0
+                          else switch_tab 3; fi ;;
             $'\001')      toggle_all ;;                            # ctrl-a
             $'\023')      switch_tab 3 ;;                          # ctrl-s
             $'\011')      switch_tab +1 ;;                         # tab
