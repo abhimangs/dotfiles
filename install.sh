@@ -408,19 +408,25 @@ pacman_install() {
     sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1
 }
 
-_paru_run_robust() {
+# Whichever helper this machine ended up with — set by the AUR bootstrap in
+# step 1, which prefers one that is already installed. paru and yay take the
+# same flags for everything below, so nothing else has to care which it is.
+AUR_HELPER=""
+aur_ready() { [ -n "$AUR_HELPER" ] && command -v "$AUR_HELPER" &>/dev/null; }
+
+_aur_run_robust() {
     local sync_flag="${1:-}"   # "" | "y" | "yy"
     local pkg="$2"
 
-    # paru is absent when the AUR bootstrap was skipped — as root, where
-    # makepkg refuses to build. Fail cleanly here instead of leaking
+    # No helper when the AUR bootstrap was skipped — as root, where makepkg
+    # refuses to build. Fail cleanly here instead of leaking
     # "paru: command not found" from every attempt below.
-    if ! command -v paru &>/dev/null; then
+    if ! aur_ready; then
         substep "${C_YELLOW}No AUR helper available — ${pkg} needs one${C_RESET}"
         return 1
     fi
 
-    local tmplog; tmplog=$(mktemp -p "$RUN_TMPDIR" paru_XXXXXX.log)
+    local tmplog; tmplog=$(mktemp -p "$RUN_TMPDIR" aur_XXXXXX.log)
 
     # ── preflight: stale pacman lock ─────────────────────────────────────────
     if [ -f /var/lib/pacman/db.lck ]; then
@@ -428,7 +434,7 @@ _paru_run_robust() {
         sudo rm -f /var/lib/pacman/db.lck
     fi
 
-    local _flags=( paru -S"${sync_flag}" --needed --noconfirm --removemake --cleanafter )
+    local _flags=( "$AUR_HELPER" -S"${sync_flag}" --needed --noconfirm --removemake --cleanafter )
 
     # ── attempt 1: normal install ─────────────────────────────────────────────
     if "${_flags[@]}" "$pkg" >"$tmplog" 2>&1; then
@@ -460,8 +466,8 @@ _paru_run_robust() {
     if grep -qiE 'corrupted|invalid.*database|unexpected EOF|error.*opening.*database' <<< "$err"; then
         substep "${C_YELLOW}Corrupt cache/database — cleaning and force-resyncing${C_RESET}"
         sudo pacman -Sc --noconfirm &>/dev/null 2>&1 || true
-        paru -Sc --noconfirm &>/dev/null 2>&1 || true
-        if paru -Syy --needed --noconfirm --removemake --cleanafter "$pkg" >"$tmplog" 2>&1; then
+        "$AUR_HELPER" -Sc --noconfirm &>/dev/null 2>&1 || true
+        if "$AUR_HELPER" -Syy --needed --noconfirm --removemake --cleanafter "$pkg" >"$tmplog" 2>&1; then
             rm -f "$tmplog"; return 0
         fi
         err=$(<"$tmplog")
@@ -470,8 +476,9 @@ _paru_run_robust() {
     # ── attempt 5: stale AUR clone ───────────────────────────────────────────
     if grep -qiE 'git.*error|could not.*fetch|unable to.*clone|not a git repo' <<< "$err"; then
         substep "${C_YELLOW}Stale AUR clone — clearing cache and retrying${C_RESET}"
-        local _clone="${XDG_CACHE_HOME:-$HOME/.cache}/paru/clone/${pkg}"
-        [ -d "$_clone" ] && rm -rf "$_clone"
+        # paru keeps clones one level deeper than yay; neither has to exist.
+        rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/paru/clone/${pkg}" \
+               "${XDG_CACHE_HOME:-$HOME/.cache}/yay/${pkg}"
         if "${_flags[@]}" "$pkg" >"$tmplog" 2>&1; then
             rm -f "$tmplog"; return 0
         fi
@@ -485,8 +492,8 @@ _paru_run_robust() {
     return 1
 }
 
-paru_install()   { _paru_run_robust ""  "$1"; }
-paru_install_y() { _paru_run_robust "y" "$1"; }
+aur_install()   { _aur_run_robust ""  "$1"; }
+aur_install_y() { _aur_run_robust "y" "$1"; }
 
 # Official repos first, AUR only as a fallback. Repo packages are signed,
 # prebuilt and install in seconds, where the AUR builds from source — and some
@@ -498,8 +505,8 @@ arch_install() {
     if pacman -Si "$pkg" &>/dev/null; then
         pacman_install "$pkg" && return 0
     fi
-    command -v paru &>/dev/null || return 1
-    paru_install "$pkg"
+    aur_ready || return 1
+    aur_install "$pkg"
 }
 
 # ── Debian/Ubuntu (apt) package helpers ──────────────────────────────────────
@@ -2536,8 +2543,14 @@ fi
 # ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
 if [[ "$DISTRO" == "arch" ]]; then
     info "Checking AUR helper..."
-    if command -v paru &>/dev/null; then
-        substep "paru already installed"
+    # Either helper does everything this script asks of one, so an existing
+    # install wins over a new one — no reason to build paru on a yay machine.
+    for _h in paru yay; do
+        command -v "$_h" &>/dev/null && { AUR_HELPER="$_h"; break; }
+    done
+    unset _h
+    if [ -n "$AUR_HELPER" ]; then
+        substep "${AUR_HELPER} already installed"
         success "AUR helper ready"
     else
         if [ "$IS_ROOT" -eq 1 ]; then
@@ -2551,7 +2564,7 @@ if [[ "$DISTRO" == "arch" ]]; then
             substep "${C_DIM}and re-run this script as that user.${C_RESET}"
             success "Continuing without an AUR helper"
         else
-        substep "paru not found — installing..."
+        substep "No AUR helper found — installing paru..."
         substep "Checking internet connection..."
         if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
             error "No internet connection — paru requires internet to install."
@@ -2567,27 +2580,37 @@ if [[ "$DISTRO" == "arch" ]]; then
         # /tmp/paru-build is shared across users, and the EXIT trap cleans this
         # up if the build is interrupted between the two rm -rf calls.
         _paru_build="$RUN_TMPDIR/paru-build"
-        substep "Cloning paru from AUR..."
-        rm -rf "$_paru_build"
-        if ! git clone https://aur.archlinux.org/paru.git "$_paru_build" &>/dev/null 2>&1; then
-            error "Failed to clone paru. Check your internet connection."
-            exit 1
-        fi
 
-        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru — output shown below (takes 2–4 min)${C_RESET}\n"
-        if ! (cd "$_paru_build" && makepkg -si --noconfirm); then
-            error "paru build failed."
-            exit 1
-        fi
-        echo ""
+        # paru-bin is the same paru, prebuilt. Building from source drags in the
+        # whole rust toolchain — 300+ MB and 2–4 minutes of compiling — for an
+        # identical binary, so that is the fallback, not the default.
+        for _src in paru-bin paru; do
+            substep "Cloning ${C_ACCENT}${_src}${C_RESET} from AUR..."
+            rm -rf "$_paru_build"
+            if ! git clone "https://aur.archlinux.org/${_src}.git" "$_paru_build" &>/dev/null 2>&1; then
+                substep "${C_YELLOW}Could not clone ${_src}${C_RESET}"
+                continue
+            fi
+            if [[ "$_src" == "paru" ]]; then
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru from source — output below (takes 2–4 min)${C_RESET}\n"
+                (cd "$_paru_build" && makepkg -si --noconfirm) || true
+                echo ""
+            else
+                substep "Installing prebuilt paru..."
+                (cd "$_paru_build" && makepkg -si --noconfirm) &>/dev/null 2>&1 || true
+            fi
+            command -v paru &>/dev/null && break
+            substep "${C_YELLOW}${_src} did not install${C_RESET}"
+        done
 
         rm -rf "$_paru_build"
-        unset _paru_build
+        unset _paru_build _src
 
         if ! command -v paru &>/dev/null; then
             error "paru installation failed — binary not found after build."
             exit 1
         fi
+        AUR_HELPER="paru"
         success "paru installed"
         fi
     fi
@@ -2806,7 +2829,7 @@ _app_lines=()
 for _k in "${APPS_LIST[@]}"; do
     _rt="$(app_type_resolved "$_k")"
     case "$_rt" in
-        paru-y|paru) _tl="paru"   ;;
+        paru-y|paru) _tl="${AUR_HELPER:-AUR}" ;;
         pacman)      _tl="pacman" ;;
         curl)        _tl="curl"   ;;
         apt|brave|vscode|claude-desktop|docker) _tl="apt" ;;
@@ -3378,7 +3401,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
             fi
             case "$_type" in
-                paru-y) paru_install_y "$_pkg" ;;
+                paru-y) aur_install_y "$_pkg" ;;
                 pacman|paru) arch_install "$_pkg" ;;
                 apt)    apt_install "$_pkg" ;;
                 brave)

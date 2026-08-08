@@ -132,6 +132,7 @@ PKGS
     # tool (STUB_NO_FZF) to exercise a fallback path.
     cp -a "$WORK/bin" "$root/bin"
     [ "${STUB_NO_FZF:-0}" = 1 ] && rm -f "$root/bin/fzf"
+    [ "${STUB_YAY_ONLY:-0}" = 1 ] && rm -f "$root/bin/paru"
     [ "${STUB_DEAD_GIT:-0}" = 1 ] && {
         printf '#!/bin/sh\nexit 0\n' > "$root/bin/git"; chmod +x "$root/bin/git"; }
 

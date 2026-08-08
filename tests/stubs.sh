@@ -268,6 +268,8 @@ case "${1:-}" in
 esac
 EOF
 cp "$BIN/pacman" "$BIN/paru"
+# yay takes the same flags; scenarios that want a yay-only box delete paru.
+cp "$BIN/pacman" "$BIN/yay"
 
 # ── curl ─────────────────────────────────────────────────────────────────────
 # Connectivity probes succeed; vendor install scripts are synthesised so the
@@ -383,12 +385,14 @@ wt git <<'EOF'
 exec /usr/bin/git "$@"
 EOF
 
-# ── a system bin mirror without fzf ──────────────────────────────────────────
-# so "fzf is not installed yet" is actually true inside a scenario
+# ── a system bin mirror without fzf or the AUR helpers ───────────────────────
+# so "fzf is not installed yet" is actually true inside a scenario — and so a
+# host that happens to have paru or yay cannot leak one into a sandbox that is
+# meant to be without it (the stub PATH provides its own).
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf) continue ;; esac
+    case "$b" in fzf|paru|yay) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done

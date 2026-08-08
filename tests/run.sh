@@ -106,6 +106,14 @@ run arch-desktop arch "$WORK/k-fzf" \
 check   arch-desktop 0
 want    arch-desktop 'Tools verified'                     'pacman path works'
 
+# 5b. Arch box that already has yay: it is used as-is, no paru is built.
+STUB_YAY_ONLY=1 run arch-yay arch "$WORK/k-fzf" \
+    STUB_FZF_PICK1="git" STUB_YAY_ONLY=1
+check   arch-yay 0
+want    arch-yay 'yay already installed'          'existing helper reused'
+nowant  arch-yay 'installing paru'                'no bootstrap'
+nowant  arch-yay 'Cloning'                        'nothing cloned from the AUR'
+
 # 6. WSL: real Ubuntu userland, no Linux-side fonts worth installing.
 run ubuntu-wsl ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh" WSL_DISTRO_NAME=Ubuntu
 check   ubuntu-wsl 0

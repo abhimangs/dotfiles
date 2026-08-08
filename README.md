@@ -71,8 +71,8 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
 - **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
-- **Repo before AUR** — on Arch every install checks the official repos first and only falls back to paru for AUR-only packages
-- **paru** — installed automatically if missing on Arch (AUR helper)
+- **Repo before AUR** — on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
+- **paru or yay** — whichever is already installed is used; if neither is, paru is bootstrapped (`paru-bin` first, so there is no rust toolchain to compile)
 - **Shell change** — switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
 - **Reversible** — `~/.bashrc` is copied once before anything touches it, and `--restore-bash` puts it back byte for byte along with your login shell (see below)
 - **Headless aware** — on a machine with no display server, GUI configs and apps are hidden (see below)
