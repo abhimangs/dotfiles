@@ -1,26 +1,45 @@
 # menu_temp — throwaway menu gallery
 
-## combo.sh — 6 + 10 + 1 + 2, arranged three ways
+## combo.sh — 6 + 10 + 1 + 2, tabbed
 
 ```bash
-bash ~/dotfiles/menu_temp/combo.sh      # asks which arrangement
-bash ~/dotfiles/menu_temp/combo.sh 1    # one by one  — three full-screen steps
-bash ~/dotfiles/menu_temp/combo.sh 2    # one screen  — all three in a single list
-bash ~/dotfiles/menu_temp/combo.sh 3    # tabs        — alt-1/2/3 switches section
+bash ~/dotfiles/menu_temp/combo.sh      # the tabbed one
+bash ~/dotfiles/menu_temp/combo.sh 1    # same look as three separate steps
+bash ~/dotfiles/menu_temp/combo.sh 2    # same look as one flat list
 ```
 
-Same look in all three: full screen with every section boxed (6), border labels
-and footer keys and a live count (1), details for the row you are on (2), and
-everything you have selected so far listed by name underneath (10).
+Three sections — **dotfiles · tools · apps** — drawn as tabs at the top, one on
+screen at a time, never all of them. Opens on dotfiles.
 
-The three sections are **dotfiles**, **tools**, **apps**, in that order, and
-inside each one the rows are grouped (shells → terminals → desktop → tools;
-files → navigation → git → system; browsers → editors → CLIs → desktop →
-system) with the likeliest pick first. Group headings are rows with no key, so
-selecting one — or hitting `ctrl-a` — never puts a heading in your cart.
+| key | |
+|---|---|
+| `←` `→` | previous / next section (wraps, and `tab` / `shift-tab` do the same) |
+| `f1` `f2` `f3` | jump straight to dotfiles / tools / apps |
+| `enter` | toggle the row |
+| `ctrl-a` | select everything in the current section |
+| `ctrl-j` | confirm |
+| `esc` | skip |
 
-In arrangement 3 the tabs are fzf's own filter driven by a hidden field, so
-switching sections never reloads the list and never drops a mark.
+Selections survive switching sections, and what you have picked is listed by
+name — grouped by section — under the details pane, and again after you
+confirm.
+
+The look: full screen with every section boxed and the section name on the list
+border (6), border labels, footer keys and a live count (1), details for the row
+you are on (2), running list of what is selected (10).
+
+Rows are ordered deliberately, not alphabetically — `--no-sort` keeps that order
+even while a section filter is active. Group names (shells, terminals, browsers…)
+are a left-hand column printed on the first row of each group rather than heading
+rows: fzf has no inert rows, so a heading would be selectable and would land
+under the cursor.
+
+**How the tabs work.** The section is a hidden field on every row, repeated 500
+columns to the right of the visible text; switching sections just sets fzf's own
+query to that section, so nothing reloads and no mark is ever dropped.
+`--no-hscroll` and an empty `--ellipsis` keep the parked copy off screen. It has
+to live in the displayed field because `--nth` applies to the *transformed* line
+— the real hidden fields are unreachable to a query.
 
 ---
 

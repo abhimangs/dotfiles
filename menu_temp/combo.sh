@@ -41,9 +41,9 @@ ITEMS=(
 "kitty||kitty|cross-platform terminal|dotfiles|terminals|kitty"
 "rofi|󰍉|rofi|keyboard-driven launcher|dotfiles|desktop|rofi"
 "ulauncher|󰀻|ulauncher|app launcher|dotfiles|desktop|ulauncher"
-"git||git|git config → ~/.gitconfig|dotfiles|tools|git"
-"fastfetch|󰋼|fastfetch|system info display at login|dotfiles|tools|fastfetch"
-"protonvpn|󰖂|protonvpn|ProtonVPN wrapper script|dotfiles|tools|proton-vpn-cli"
+"git||git|git config → ~/.gitconfig|dotfiles|utilities|git"
+"fastfetch|󰋼|fastfetch|system info display at login|dotfiles|utilities|fastfetch"
+"protonvpn|󰖂|protonvpn|ProtonVPN wrapper script|dotfiles|utilities|proton-vpn-cli"
 # tools
 "bat||bat|cat with syntax highlighting|tools|files|bat"
 "eza|󰉋|eza|modern ls → ls ll lt la|tools|files|eza"
@@ -96,12 +96,22 @@ lookup() {                      # lookup <key> <field-number>
 # Tab-delimited: key <TAB> section <TAB> what is drawn. fzf shows field 3 only,
 # so the key never has to be parsed back out of the pretty text — and the icon,
 # whose width varies by font, is never inside a padded field.
-row() {                         # row <item>
-    local key name desc sec
-    key=$(fld "$1" 1); name=$(fld "$1" 3); desc=$(fld "$1" 4); sec=$(fld "$1" 5)
-    printf '%s\t%s\t%s  %s%-20s%s %s%s%s\n' \
-        "$key" "$sec" "$(fld "$1" 2)" \
-        "${B}${TEXT}" "$name" "$R" "$DIM" "$desc" "$R"
+#
+# The group name is a column, printed on the first row of each group, rather
+# than a heading row: fzf has no inert rows, so a heading would be selectable,
+# would land under the cursor, and would need filtering back out of ctrl-a.
+# The section is repeated at the far right of the *displayed* field, 500
+# columns out. It is what the section tabs match on, and it has to live in the
+# display because --nth applies to the transformed line, not the original — so
+# the hidden field 2 is unreachable to a query. Parked past any real terminal
+# width, with --no-hscroll and an empty --ellipsis, it never appears on screen.
+row() {                         # row <item> <group-label-or-empty>
+    printf '%s\t%s\t%s%-10s%s %s  %s%-20s%s %s%s%s%500s%s\n' \
+        "$(fld "$1" 1)" "$(fld "$1" 5)" \
+        "$TEAL" "$2" "$R" "$(fld "$1" 2)" \
+        "${B}${TEXT}" "$(fld "$1" 3)" "$R" \
+        "$DIM" "$(fld "$1" 4)" "$R" \
+        "" "$(fld "$1" 5)"
 }
 
 rows_for() {                    # rows_for <section|all>
@@ -109,14 +119,13 @@ rows_for() {                    # rows_for <section|all>
     for it in "${ITEMS[@]}"; do
         sec=$(fld "$it" 5)
         [ "$1" = "all" ] || [ "$sec" = "$1" ] || continue
-        grp="${sec}/$(fld "$it" 6)"
-        if [ "$grp" != "$last" ]; then
-            # A heading is a real row (fzf has no inert ones) but it carries no
-            # key, so selecting it yields nothing and the cart stays clean.
-            printf '\t%s\t%s\n' "$sec" "  ${TEAL}$(fld "$it" 6)${R}"
-            last="$grp"
+        grp="$(fld "$it" 6)"
+        if [ "${sec}/${grp}" != "$last" ]; then
+            row "$it" "$grp"
+            last="${sec}/${grp}"
+        else
+            row "$it" ""
         fi
-        row "$it"
     done
 }
 
@@ -182,7 +191,63 @@ pv() {                          # pv <current-key> [selected keys...]
     done
 }
 
-case "${1:-}" in --preview) shift; pv "$@"; exit 0 ;; esac
+# ── section switching (arrangement 3) ────────────────────────────────────────
+# Ghostty (and most terminals) bind alt+1..9 to "go to tab N" and swallow them
+# before fzf ever sees the key, so tab/shift-tab and F1-F4 are the real
+# controls; alt-1/2/3 stay bound for terminals that do pass them through.
+#
+# Called back by fzf's `transform`: prints the action to run, given the query
+# that is on screen now.
+TABS=(dotfiles tools apps)
+
+# The three sections drawn as a bar, the current one lit. This is the header,
+# redrawn on every switch — there is no "everything" stop, so the bar always
+# says exactly what the list is showing.
+tab_bar() {                     # tab_bar <active>
+    local t out=""
+    for t in "${TABS[@]}"; do
+        if [ "$t" = "$1" ]; then
+            out+="${MAUVE}${B} ▌ ${t} ${R}"
+        else
+            out+="${DIM}   ${t} ${R}"
+        fi
+    done
+    printf '%s' "$out"
+}
+
+tab_index() {                   # tab_index <query>
+    local i
+    for i in "${!TABS[@]}"; do
+        case "$1" in *"${TABS[$i]}"*) echo "$i"; return ;; esac
+    done
+    echo 0
+}
+
+# Called back by fzf's `transform`: prints the actions to run, given the query
+# on screen now. Wraps around — three sections, no fourth state.
+tab_step() {                    # tab_step <query> <+1|-1>
+    local cur n
+    cur=$(tab_index "$1")
+    n=$(( (cur + $2 + ${#TABS[@]}) % ${#TABS[@]} ))
+    tab_to "${TABS[$n]}"
+}
+
+tab_to() {                      # tab_to <section>
+    # `first` puts the cursor on the top row of the section just switched to —
+    # without it fzf keeps the old row index and you land mid-list.
+    # change-header: swallows the rest of the line, so it goes last.
+    printf "change-query('%s )+change-list-label( %s )+first+change-header:%s\n" \
+        "$1" "$1" "$(tab_bar "$1")"
+}
+
+case "${1:-}" in
+    --preview)  shift; pv "$@"; exit 0 ;;
+    --next-tab) tab_step "${2:-}"  1; exit 0 ;;
+    --prev-tab) tab_step "${2:-}" -1; exit 0 ;;
+    --tab-to)   tab_to  "${2:-dotfiles}"; exit 0 ;;
+    --tab-bar)  tab_bar "${2:-dotfiles}"; echo; exit 0 ;;
+    --rows)     rows_for "${2:-all}"; exit 0 ;;
+esac
 
 # ── the shared look ──────────────────────────────────────────────────────────
 # One place, so the three arrangements below differ only in their labels and
@@ -191,7 +256,7 @@ pick() {                        # pick <list-label> <header> [extra fzf args...]
     local list_label="$1" header="$2"; shift 2
     fzf --multi --ansi --height=100% --reverse \
         --style=full:rounded --color="$FZF_CLR" --highlight-line \
-        --delimiter=$'\t' --with-nth=3 --nth=3 \
+        --delimiter=$'\t' --with-nth=3 \
         --border-label=" dotfiles installer " --border-label-pos=3 \
         --list-label=" ${list_label} " --list-label-pos=3 \
         --input-label=" filter " --input-label-pos=3 \
@@ -200,6 +265,7 @@ pick() {                        # pick <list-label> <header> [extra fzf args...]
         --preview="$SELF --preview {1} {+1}" \
         --preview-window='right,42%,border-left' --preview-label=" details · selected " \
         --prompt="  " --pointer="❯" --marker="✔" --info=inline-right \
+        --no-sort --cycle --scroll-off=3 --no-hscroll --ellipsis='' \
         --bind='enter:toggle+down' --bind='ctrl-j:accept' --bind='ctrl-a:select-all' \
         "$@" \
     | cut -f1 | grep -v '^$'
@@ -233,19 +299,26 @@ variant_single() {
 }
 
 # ── 3 · tabs ─────────────────────────────────────────────────────────────────
-# One list, one pass, but a key per section. The "tabs" are fzf's own filter
-# driven by a hidden field, so switching never reloads and never drops a mark.
+# One list, one pass, one section on screen at a time — there is no "show
+# everything" state. The tabs are fzf's own filter driven by the hidden section
+# field, so switching never reloads the list and never drops a mark.
 variant_tabs() {
     mapfile -t chosen < <(
         rows_for all \
-        | pick "dotfiles │ tools │ apps" \
-               "alt-1 dotfiles   alt-2 tools   alt-3 apps   alt-0 all of them" \
-               --nth=2,3 \
-               --bind="alt-1:change-query('dotfiles )" \
-               --bind="alt-2:change-query('tools )" \
-               --bind="alt-3:change-query('apps )" \
-               --bind='alt-0:change-query()' \
-               --footer="alt-1/2/3 section   enter toggle   ctrl-j confirm   esc skip"
+        | pick "dotfiles" "$(tab_bar dotfiles)" \
+               --header-label=" sections " \
+               --query="'dotfiles " \
+               --bind="right:transform:$SELF --next-tab {q}" \
+               --bind="left:transform:$SELF --prev-tab {q}" \
+               --bind="tab:transform:$SELF --next-tab {q}" \
+               --bind="shift-tab:transform:$SELF --prev-tab {q}" \
+               --bind="f1:transform:$SELF --tab-to dotfiles" \
+               --bind="f2:transform:$SELF --tab-to tools" \
+               --bind="f3:transform:$SELF --tab-to apps" \
+               --bind="alt-1:transform:$SELF --tab-to dotfiles" \
+               --bind="alt-2:transform:$SELF --tab-to tools" \
+               --bind="alt-3:transform:$SELF --tab-to apps" \
+               --footer="← → section   enter toggle   ctrl-a all in section   ctrl-j confirm   esc skip"
     )
     summary "${chosen[@]}"
 }
@@ -274,14 +347,6 @@ case "${1:-}" in
     1) variant_steps  ;;
     2) variant_single ;;
     3) variant_tabs   ;;
-    "")
-        printf '\n  %s\n\n' "${MAUVE}${B}three arrangements, one look${R}"
-        printf '   %s  one by one   %s\n' "${MAUVE}1${R}" "${DIM}three full-screen steps${R}"
-        printf '   %s  one screen   %s\n' "${MAUVE}2${R}" "${DIM}all three sections in a single list${R}"
-        printf '   %s  tabs         %s\n' "${MAUVE}3${R}" "${DIM}one screen, alt-1/2/3 switches section${R}"
-        printf '\n  %s' "${DIM}which? [1/2/3]: ${R}"
-        read -r n </dev/tty
-        case "$n" in 1) variant_steps ;; 2) variant_single ;; 3) variant_tabs ;; *) echo ;; esac
-        ;;
+    "")  variant_tabs ;;
     *) echo "usage: bash combo.sh [1|2|3]" ;;
 esac
