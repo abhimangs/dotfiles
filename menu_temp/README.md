@@ -15,10 +15,10 @@ screen at a time, never all of them. Opens on dotfiles.
 |---|---|
 | `←` `→` | previous / next section (wraps, and `tab` / `shift-tab` do the same) |
 | `f1` `f2` `f3` | jump straight to dotfiles / tools / apps |
-| `enter` | toggle the row |
-| `ctrl-a` | select everything in the current section |
+| `enter` | tick the row |
+| `ctrl-a` | tick everything in this section — again to untick |
 | `ctrl-j` | confirm |
-| `esc` | skip |
+| `esc` | cancel, selecting nothing |
 
 Selections survive switching sections, and what you have picked is listed by
 name — grouped by section — under the details pane, and again after you
@@ -34,12 +34,15 @@ are a left-hand column printed on the first row of each group rather than headin
 rows: fzf has no inert rows, so a heading would be selectable and would land
 under the cursor.
 
-**How the tabs work.** The section is a hidden field on every row, repeated 500
-columns to the right of the visible text; switching sections just sets fzf's own
-query to that section, so nothing reloads and no mark is ever dropped.
-`--no-hscroll` and an empty `--ellipsis` keep the parked copy off screen. It has
-to live in the displayed field because `--nth` applies to the *transformed* line
-— the real hidden fields are unreachable to a query.
+**Search is scoped.** The box searches the section you are on, nothing else —
+typing `notion` in dotfiles finds nothing. Switching sections clears it.
+
+**How it works.** The tab and the ticks are ours, not fzf's: the current section
+and the selected keys live in a temp dir, a switch reloads the list from them,
+and the `[✔]` in each row is drawn from that file. fzf's own marks cannot
+survive a reload, and the other way to filter — putting the section in the query
+— is exactly what collided with typing. `esc` still returns nothing: the wrapper
+reads fzf's exit code, not the state file.
 
 ---
 

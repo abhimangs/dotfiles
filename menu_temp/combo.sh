@@ -100,18 +100,19 @@ lookup() {                      # lookup <key> <field-number>
 # The group name is a column, printed on the first row of each group, rather
 # than a heading row: fzf has no inert rows, so a heading would be selectable,
 # would land under the cursor, and would need filtering back out of ctrl-a.
-# The section is repeated at the far right of the *displayed* field, 500
-# columns out. It is what the section tabs match on, and it has to live in the
-# display because --nth applies to the transformed line, not the original — so
-# the hidden field 2 is unreachable to a query. Parked past any real terminal
-# width, with --no-hscroll and an empty --ellipsis, it never appears on screen.
+#
+# The tick is ours, not fzf's marker: selection lives in a state file so that
+# switching sections can reload the list without losing anything.
 row() {                         # row <item> <group-label-or-empty>
-    printf '%s\t%s\t%s%-10s%s %s  %s%-20s%s %s%s%s%500s%s\n' \
-        "$(fld "$1" 1)" "$(fld "$1" 5)" \
+    local mark=""
+    if [ -n "$STATE" ]; then
+        is_selected "$(fld "$1" 1)" && mark="${GREEN}[✔]${R}" || mark="${DIM}[ ]${R}"
+    fi
+    printf '%s\t%s\t%s %s%-10s%s %s  %s%-20s%s %s%s%s\n' \
+        "$(fld "$1" 1)" "$(fld "$1" 5)" "$mark" \
         "$TEAL" "$2" "$R" "$(fld "$1" 2)" \
         "${B}${TEXT}" "$(fld "$1" 3)" "$R" \
-        "$DIM" "$(fld "$1" 4)" "$R" \
-        "" "$(fld "$1" 5)"
+        "$DIM" "$(fld "$1" 4)" "$R"
 }
 
 rows_for() {                    # rows_for <section|all>
@@ -129,10 +130,59 @@ rows_for() {                    # rows_for <section|all>
     done
 }
 
+# ── selection state ──────────────────────────────────────────────────────────
+# fzf's own marks cannot survive the reload that a section switch needs, and
+# putting the section in the query — the other way to filter — collides with
+# whatever the user types. So the tab and the ticks are ours, and the search box
+# is left alone: typing only ever searches inside the section on screen.
+STATE="${COMBO_STATE:-}"
+SEL="$STATE/selected"
+CUR="$STATE/section"
+
+is_selected() { [ -n "$STATE" ] && grep -qxF "$1" "$SEL" 2>/dev/null; }
+cur_section() { cat "$CUR" 2>/dev/null || echo dotfiles; }
+
+toggle_key() {                  # toggle_key <key>
+    [ -n "$1" ] || return 0
+    if is_selected "$1"; then
+        grep -vxF "$1" "$SEL" > "$SEL.tmp" 2>/dev/null || :
+        mv "$SEL.tmp" "$SEL"
+    else
+        printf '%s\n' "$1" >> "$SEL"
+    fi
+}
+
+section_keys() {                # section_keys <section>
+    local it
+    for it in "${ITEMS[@]}"; do
+        [ "$(fld "$it" 5)" = "$1" ] && printf '%s\n' "$(fld "$it" 1)"
+    done
+}
+
+# ctrl-a: everything in this section, or nothing if it is already everything.
+toggle_section() {
+    local sec k all=1
+    sec=$(cur_section)
+    while read -r k; do is_selected "$k" || { all=0; break; }; done < <(section_keys "$sec")
+    while read -r k; do
+        if [ "$all" -eq 1 ]; then is_selected "$k" && toggle_key "$k"
+        else is_selected "$k" || toggle_key "$k"; fi
+    done < <(section_keys "$sec")
+}
+
+# Selections in the order they are declared, not the order they were clicked.
+selected_keys() {
+    local it
+    for it in "${ITEMS[@]}"; do
+        is_selected "$(fld "$it" 1)" && printf '%s\n' "$(fld "$it" 1)"
+    done
+}
+
 # ── preview: details (design 2) over the cart (design 10) ────────────────────
 pv() {                          # pv <current-key> [selected keys...]
     local key="${1:-}"; shift || true
     local w="${FZF_PREVIEW_COLUMNS:-40}"
+    local -a sel=()
     local rule; rule=$(printf '─%.0s' $(seq 1 "$w"))
 
     if [ -n "$key" ]; then
@@ -168,9 +218,13 @@ pv() {                          # pv <current-key> [selected keys...]
         printf '\n %s\n' "${DIM}a heading — nothing to install${R}"
     fi
 
-    local -a sel=()
-    local a
-    for a in "$@"; do [ -n "$a" ] && sel+=("$a"); done
+    if [ -n "$STATE" ]; then
+        mapfile -t sel < <(selected_keys)
+    else
+        # arrangements 1 and 2 still use fzf's own marks, handed in as {+1}
+        local a; sel=()
+        for a in "$@"; do [ -n "$a" ] && sel+=("$a"); done
+    fi
     set -- "${sel[@]}"
 
     printf '\n%s\n' "${DIM}${rule}${R}"
@@ -215,38 +269,50 @@ tab_bar() {                     # tab_bar <active>
     printf '%s' "$out"
 }
 
-tab_index() {                   # tab_index <query>
+tab_index() {                   # tab_index <section>
     local i
     for i in "${!TABS[@]}"; do
-        case "$1" in *"${TABS[$i]}"*) echo "$i"; return ;; esac
+        [ "${TABS[$i]}" = "$1" ] && { echo "$i"; return; }
     done
     echo 0
 }
 
 # Called back by fzf's `transform`: prints the actions to run, given the query
 # on screen now. Wraps around — three sections, no fourth state.
-tab_step() {                    # tab_step <query> <+1|-1>
+tab_step() {                    # tab_step <+1|-1>
     local cur n
-    cur=$(tab_index "$1")
-    n=$(( (cur + $2 + ${#TABS[@]}) % ${#TABS[@]} ))
+    cur=$(tab_index "$(cur_section)")
+    n=$(( (cur + $1 + ${#TABS[@]}) % ${#TABS[@]} ))
     tab_to "${TABS[$n]}"
 }
 
 tab_to() {                      # tab_to <section>
-    # `first` puts the cursor on the top row of the section just switched to —
-    # without it fzf keeps the old row index and you land mid-list.
-    # change-header: swallows the rest of the line, so it goes last.
-    printf "change-query('%s )+change-list-label( %s )+first+change-header:%s\n" \
-        "$1" "$1" "$(tab_bar "$1")"
+    printf '%s\n' "$1" > "$CUR"
+    # The query is cleared because it belongs to the user, not to us: a search
+    # typed in one section should not follow them into the next.
+    # `first` lands the cursor on the top row; change-header: swallows the rest
+    # of the line, so it goes last.
+    printf "change-query()+reload(%s --rows-cur)+first+change-list-label( %s )+change-header:%s\n" \
+        "$SELF" "$1" "$(tab_bar "$1")"
 }
 
 case "${1:-}" in
     --preview)  shift; pv "$@"; exit 0 ;;
-    --next-tab) tab_step "${2:-}"  1; exit 0 ;;
-    --prev-tab) tab_step "${2:-}" -1; exit 0 ;;
+    --next-tab) tab_step  1; exit 0 ;;
+    --prev-tab) tab_step -1; exit 0 ;;
     --tab-to)   tab_to  "${2:-dotfiles}"; exit 0 ;;
     --tab-bar)  tab_bar "${2:-dotfiles}"; echo; exit 0 ;;
     --rows)     rows_for "${2:-all}"; exit 0 ;;
+    --rows-cur) rows_for "$(cur_section)"; exit 0 ;;
+    --toggle)   # <key> <0-based row index>
+        toggle_key "${2:-}"
+        printf 'reload(%s --rows-cur)+pos(%d)+refresh-preview\n' "$SELF" "$(( ${3:-0} + 2 ))"
+        exit 0 ;;
+    --toggle-all)
+        toggle_section
+        printf 'reload(%s --rows-cur)+pos(%d)+refresh-preview\n' "$SELF" "$(( ${2:-0} + 1 ))"
+        exit 0 ;;
+    --selected) selected_keys; exit 0 ;;
 esac
 
 # ── the shared look ──────────────────────────────────────────────────────────
@@ -300,26 +366,48 @@ variant_single() {
 
 # ── 3 · tabs ─────────────────────────────────────────────────────────────────
 # One list, one pass, one section on screen at a time — there is no "show
-# everything" state. The tabs are fzf's own filter driven by the hidden section
-# field, so switching never reloads the list and never drops a mark.
+# everything" state. Switching reloads the list; the ticks live in a state file,
+# so nothing is lost, and the search box stays the user's: typing filters inside
+# the current section only.
 variant_tabs() {
-    mapfile -t chosen < <(
-        rows_for all \
-        | pick "dotfiles" "$(tab_bar dotfiles)" \
-               --header-label=" sections " \
-               --query="'dotfiles " \
-               --bind="right:transform:$SELF --next-tab {q}" \
-               --bind="left:transform:$SELF --prev-tab {q}" \
-               --bind="tab:transform:$SELF --next-tab {q}" \
-               --bind="shift-tab:transform:$SELF --prev-tab {q}" \
-               --bind="f1:transform:$SELF --tab-to dotfiles" \
-               --bind="f2:transform:$SELF --tab-to tools" \
-               --bind="f3:transform:$SELF --tab-to apps" \
-               --bind="alt-1:transform:$SELF --tab-to dotfiles" \
-               --bind="alt-2:transform:$SELF --tab-to tools" \
-               --bind="alt-3:transform:$SELF --tab-to apps" \
-               --footer="← → section   enter toggle   ctrl-a all in section   ctrl-j confirm   esc skip"
-    )
+    COMBO_STATE="$(mktemp -d "${TMPDIR:-/tmp}/combo-menu.XXXXXX")"
+    export COMBO_STATE
+    STATE="$COMBO_STATE"; SEL="$STATE/selected"; CUR="$STATE/section"
+    : > "$SEL"; printf 'dotfiles\n' > "$CUR"
+    trap 'rm -rf "$COMBO_STATE"' EXIT
+
+    # Accept vs abort is the whole reason this reads fzf's exit code rather than
+    # its output: esc must return nothing even though the state file is full.
+    rows_for dotfiles \
+    | fzf --ansi --height=100% --reverse \
+        --style=full:rounded --color="$FZF_CLR" --highlight-line \
+        --delimiter=$'\t' --with-nth=3 \
+        --no-sort --cycle --scroll-off=3 \
+        --border-label=" dotfiles installer " --border-label-pos=3 \
+        --list-label=" dotfiles " --list-label-pos=3 \
+        --input-label=" search this section " --input-label-pos=3 \
+        --header-label=" sections " --header="$(tab_bar dotfiles)" \
+        --footer-label=" keys " \
+        --footer="← → section   enter tick   ctrl-a all in section   ctrl-j confirm   esc cancel" \
+        --preview="$SELF --preview {1}" \
+        --preview-window='right,42%,border-left' --preview-label=" details · selected " \
+        --prompt="  " --pointer="❯" --ghost="type to filter this section" \
+        --info=inline-right \
+        --bind="enter:transform:$SELF --toggle {1} {n}" \
+        --bind="ctrl-a:transform:$SELF --toggle-all {n}" \
+        --bind="right:transform:$SELF --next-tab" \
+        --bind="left:transform:$SELF --prev-tab" \
+        --bind="tab:transform:$SELF --next-tab" \
+        --bind="shift-tab:transform:$SELF --prev-tab" \
+        --bind="f1:transform:$SELF --tab-to dotfiles" \
+        --bind="f2:transform:$SELF --tab-to tools" \
+        --bind="f3:transform:$SELF --tab-to apps" \
+        --bind='ctrl-j:accept' \
+        >/dev/null
+    local rc=$?
+
+    local -a chosen=()
+    [ "$rc" -eq 0 ] && mapfile -t chosen < <(selected_keys)
     summary "${chosen[@]}"
 }
 
