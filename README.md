@@ -29,12 +29,17 @@ bash install.sh
 | `--restore-bash` | Undoes the zsh setup — rc files, the `.bashrc` hand-off hook and the login shell. Runs alone, skipping every menu |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
+| `--configs=LIST` | Skip the menu and take these configs — comma-separated, or `all` |
+| `--tools=LIST` | Same for the dep tools |
+| `--apps=LIST` | Same for the applications |
 | `-h`, `--help` | Prints the above and exits |
+
+Any of the three selection flags may be left out, which means "none of those" — `--apps=docker` on its own installs Docker and touches no dotfile. An unknown name exits 2 with the list of real ones rather than quietly installing nothing.
 
 Anything else is rejected with exit 2 rather than ignored — a mistyped `--dryrun`
 would otherwise have run a real install.
 
-Each flag has an environment equivalent — `DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR` — because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
+Each flag has an environment equivalent — `DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS` — because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
 
 ```bash
 DOTFILES_DRY_RUN=1 curl -fsSL https://abhiman.io/linux.sh | bash
@@ -64,9 +69,9 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 
 ## Installer features
 
-- **fzf TUI** — multi-select configs with a live preview pane; every menu is skippable (Esc), so an apps-only run never touches a dotfile
-- **Dep tools menu** — select bat, eza, fd, zoxide, thefuck, lazygit, btop, tree (all of them come automatically with zsh — see below)
-- **App menu** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
+- **One menu** — dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
+- **Dep tools tab** — bat, eza, fd, zoxide, thefuck, lazygit, btop, tree (all of them come automatically with zsh — see below)
+- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
@@ -77,6 +82,27 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 - **Reversible** — `~/.bashrc` is copied once before anything touches it, and `--restore-bash` puts it back byte for byte along with your login shell (see below)
 - **Headless aware** — on a machine with no display server, GUI configs and apps are hidden (see below)
 - **Retries** — a stale pacman db / apt index is refreshed and the install retried instead of failing; GitHub release lookups fall back to the release page when the API rate-limits
+
+### The menu
+
+One screen, four tabs — **dotfiles · tools · apps · selected** — and only one of them on screen at a time.
+
+| key | |
+|---|---|
+| `←` `→` | previous / next tab (wraps; `tab` too) |
+| `↑` `↓` `PgUp` `PgDn` | move |
+| `f1`–`f4` | jump straight to a tab (`ctrl-s` opens **selected**) |
+| `space` or `enter` | tick the row, and move to the next |
+| `ctrl-a` | tick everything in this tab — again to untick |
+| type | search this tab only; `esc` clears the search |
+| `ctrl-d` | review everything ticked; `ctrl-d` again starts the install |
+| `esc` | cancel the run |
+
+Every row says what will happen to it — `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
+
+It is drawn by the installer rather than by fzf. fzf is still installed — the zsh config uses it for `Ctrl-T`/`Alt-C` — but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
+
+On a terminal that genuinely cannot draw it — no tty, no window size, `TERM=dumb` — the installer falls back to numbered lists. `--ascii` and `--no-color` do *not* trigger the fallback; the menu adapts.
 
 ### Going back to bash
 
