@@ -93,6 +93,7 @@ printf '\n\nn\n\n\n\n'     > "$WORK/k-lock-no"  # ... then "no, leave it"
 # --restore-bash skips every prompt above it and asks exactly one question.
 printf '\n\n'          > "$WORK/k-restore"    # Proceed? → yes
 printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
+printf '\n\033[B\n\n\n'    > "$WORK/k-del"       # keep · delete · then the plan
 
 echo "── static ───────────────────────────────────────────────"
 for f in install.sh linux.sh doctor.sh; do
@@ -344,6 +345,14 @@ STUB_NO_SIZE=1 STUB_TERM=xterm-256color run tui-nosize ubuntu "$WORK/k-num" STUB
 check   tui-nosize 0
 want    tui-nosize 'cannot draw the menu'      'declined to draw'
 want    tui-nosize 'Choice \(e.g. 1 4'         'numbered list instead'
+
+# bat and btop carry a theme as well as a binary, so picking them touches
+# ~/.config — which delete mode removes with no .bak. The plan has to say so
+# before the Proceed prompt, not after the fact.
+STUB_PRESEED_BTOP=1 RUN_ARGS="--dry-run --tools=btop" run dep-config-plan ubuntu "$WORK/k-del"
+check   dep-config-plan 0
+want    dep-config-plan 'delete.*~/.config/btop'   'the plan warns before deleting a dep config'
+want    dep-config-plan 'stow → ~/.config/btop'    'and says it stows the theme'
 
 echo
 echo "── selection flags ──────────────────────────────────────"

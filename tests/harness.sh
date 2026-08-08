@@ -151,6 +151,11 @@ PKGS
         sleep 600 & echo $! > "$root/state/lockpid"
     fi
     [ "${STUB_DPKG_INTERRUPTED:-0}" = 1 ] && : > "$root/state/dpkg-interrupted"
+    # A real ~/.config/btop with a real file in it, so the delete/backup branch
+    # for a dep tool's config is actually reachable.
+    [ "${STUB_PRESEED_BTOP:-0}" = 1 ] && {
+        mkdir -p "$root/home/.config/btop"
+        echo 'color_theme = "mine"' > "$root/home/.config/btop/btop.conf"; }
     return 0
 }
 

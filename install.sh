@@ -2226,14 +2226,16 @@ stow_config() {
                 ! -type l ! -type d 2>/dev/null | grep -q .; then
             if [[ "$BACKUP_MODE" == "delete" ]]; then
                 rm -rf "$target"
-                substep "Deleted ${C_ACCENT}${name}${C_RESET}"
+                # The path, not the bare name: "Deleted btop" in the middle of
+                # the dep-tool installs reads like the tool was removed.
+                substep "Deleted ${C_ACCENT}~/.config/${name}${C_RESET}"
             else
                 if [ -e "$bak" ]; then
                     [ -e "$oldbak" ] && rm -rf "$oldbak"
                     mv "$bak" "$oldbak"
                 fi
                 mv "$target" "$bak"
-                substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+                substep "Backed up ${C_ACCENT}~/.config/${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
             fi
         fi
         # Only symlinks / empty dir: nothing to do — stow_to -D cleans ours
@@ -2253,13 +2255,14 @@ backup_file() {
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
     local name; name="$(basename "$target")"
+    local shown="${target/#$HOME/\~}"
 
     if [ -L "$target" ]; then
         rm "$target"
     elif [ -e "$target" ]; then
         if [[ "$BACKUP_MODE" == "delete" ]]; then
             rm -rf "$target"
-            substep "Deleted ${C_ACCENT}${name}${C_RESET}"
+            substep "Deleted ${C_ACCENT}${shown}${C_RESET}"
         else
             if [ -e "$bak" ]; then
                 [ -e "$oldbak" ] && rm -rf "$oldbak"
@@ -2267,7 +2270,7 @@ backup_file() {
                 substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
             fi
             mv "$target" "$bak"
-            substep "Backed up ${C_ACCENT}${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+            substep "Backed up ${C_ACCENT}${shown}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
         fi
     fi
 }
@@ -2734,12 +2737,30 @@ show_plan() {
     if [ "${#DEPS[@]}" -gt 0 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
+        local _dc _dtarget
         for _d in "${DEPS[@]}"; do
             if pkg_installed "$(dep_pkg_name "$_d")"; then
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
             fi
+            # Two of these carry a config as well as a binary, and in delete
+            # mode that means an rm -rf of ~/.config/<tool> with no .bak. The
+            # plan used to say only "already installed" and then delete it.
+            for _dc in "${DEP_HAS_CONFIG[@]}"; do
+                [ "$_d" = "$_dc" ] || continue
+                [ -d "$DOTFILES_DIR/$_d" ] || continue
+                _dtarget="$HOME/.config/$_d"
+                if [ -d "$_dtarget" ] && find "$_dtarget" -mindepth 1 -maxdepth 3 \
+                        ! -type l ! -type d 2>/dev/null | grep -q .; then
+                    if [[ "$BACKUP_MODE" == "delete" ]]; then
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}~/.config/${_d}${C_RESET}"
+                    else
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}~/.config/${_d} → ${_d}.bak${C_RESET}"
+                    fi
+                fi
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ~/.config/${_d}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
+            done
         done
     fi
 
