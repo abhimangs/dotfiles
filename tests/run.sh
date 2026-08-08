@@ -362,6 +362,15 @@ check   flags-typo 2
 want    flags-typo 'Unknown config'            'named the bad value'
 want    flags-typo 'available:'                'listed the real ones'
 
+# --dry-run with a named selection: the whole plan, nothing written.
+RUN_ARGS="--dry-run --configs=zsh --apps=docker" run flags-dry ubuntu "$WORK/k-sel"
+check   flags-dry 0
+want    flags-dry 'Installation plan'          'the plan was printed'
+want    flags-dry 'dry run'                    'and stopped there'
+d="$WORK/run/flags-dry/home"
+[ -e "$d/.zshrc" ] && bad flags-dry "a dry run stowed something" \
+                   || note flags-dry "nothing written"
+
 # "all" is the shorthand the numbered list has always had.
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
 check   flags-all 0
