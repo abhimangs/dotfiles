@@ -26,6 +26,9 @@ FORCE_GUI=0
 RESTORE_BASH=0
 OPT_ASCII=0
 OPT_NO_COLOR=0
+PICK_CONFIGS=""
+PICK_TOOLS=""
+PICK_APPS=""
 
 usage() {
     cat <<'USAGE'
@@ -40,6 +43,10 @@ Options:
                    and the login shell. Runs alone and skips every menu.
   --ascii          Plain ASCII instead of Nerd Font glyphs.
   --no-color       No colour. NO_COLOR is honoured too.
+  --configs=LIST   Skip the menu and take these configs. Comma-separated,
+                   or "all". --tools=LIST and --apps=LIST do the same for the
+                   dep tools and the applications. Any of the three may be
+                   left out, which means "none of those".
   -h, --help       This text.
 
 Reached through the hosted bootstrap there is no argv to put a flag in, so each
@@ -47,6 +54,7 @@ one also has an environment variable:
 
   DOTFILES_DRY_RUN   DOTFILES_GUI     DOTFILES_RESTORE_BASH
   DOTFILES_ASCII     DOTFILES_NO_COLOR
+  DOTFILES_CONFIGS   DOTFILES_TOOLS   DOTFILES_APPS
 
   DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
 USAGE
@@ -59,6 +67,9 @@ for _arg in "$@"; do
         --restore-bash) RESTORE_BASH=1 ;;
         --ascii)        OPT_ASCII=1 ;;
         --no-color)     OPT_NO_COLOR=1 ;;
+        --configs=*)    PICK_CONFIGS="${_arg#*=}" ;;
+        --tools=*)      PICK_TOOLS="${_arg#*=}" ;;
+        --apps=*)       PICK_APPS="${_arg#*=}" ;;
         -h|--help)      usage; exit 0 ;;
         *)
             echo "Unknown option: $_arg" >&2
@@ -76,6 +87,9 @@ unset _arg
 [ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
 [ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
 [ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
+[ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
+[ -n "${DOTFILES_TOOLS:-}" ]        && PICK_TOOLS="$DOTFILES_TOOLS"
+[ -n "${DOTFILES_APPS:-}" ]         && PICK_APPS="$DOTFILES_APPS"
 
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
@@ -174,6 +188,8 @@ _cleanup() {
     # Kill the sleep the keepalive forked before the loop itself: killing only
     # the subshell reparents a live sleep to init, where it sits for up to four
     # minutes after we are gone.
+    # First, so an interrupt inside the menu leaves a terminal that still echoes.
+    tui_cleanup 2>/dev/null
     if [ -n "${_SUDO_KEEPALIVE:-}" ]; then
         pkill -P "$_SUDO_KEEPALIVE" 2>/dev/null
         kill "$_SUDO_KEEPALIVE" 2>/dev/null
@@ -237,31 +253,40 @@ if [ "$USE_GLYPHS" -eq 1 ]; then
     G_TOP='╭─' ; G_MID='│'  ; G_END='╰─'
     G_ARROW='❯'; G_OK='✔'   ; G_FAIL='✘'
     G_INFO='󰓅' ; G_SUM='󰄴'  ; G_RULE='─' ; G_DOT='·' ; G_PICK='●'
+    # Menu-only glyphs. Every one of these is a single column wide, which the
+    # menu's padding depends on — G_OK is not reused for the checkbox because
+    # its ASCII form is '[ok]', four columns inside a three-column box.
+    G_BTL='╭'  ; G_BTR='╮' ; G_BBL='╰' ; G_BBR='╯' ; G_BH='─' ; G_BV='│'
+    G_TAB='▌'  ; G_TICK='✔'; G_ELLIPSIS='…'
+    G_LEFT='←' ; G_RIGHT='→' ; G_UP='↑' ; G_DOWN='↓'
 else
     G_TOP='+-' ; G_MID='|'  ; G_END='+-'
     G_ARROW='>'; G_OK='[ok]'; G_FAIL='[!]'
     G_INFO='*' ; G_SUM='='  ; G_RULE='-' ; G_DOT='.' ; G_PICK='x'
+    G_BTL='+'  ; G_BTR='+' ; G_BBL='+' ; G_BBR='+' ; G_BH='-' ; G_BV='|'
+    G_TAB='>'  ; G_TICK='x'; G_ELLIPSIS='~'
+    G_LEFT='<' ; G_RIGHT='>' ; G_UP='^' ; G_DOWN='v'
 fi
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-C_MAIN='\033[38;2;202;169;224m'
-C_ACCENT='\033[38;2;145;177;240m'
-C_DIM='\033[38;2;129;122;150m'
-C_GREEN='\033[38;2;166;209;137m'
-C_YELLOW='\033[38;2;229;200;144m'
-C_RED='\033[38;2;231;130;132m'
-C_TEAL='\033[38;2;148;226;213m'
-C_BOLD='\033[1m'
-C_RESET='\033[0m'
+# $'…', so these hold a real escape character rather than the four letters
+# \033 waiting for an `echo -e` to expand them. Every `echo -e` here is unchanged
+# by that — it passes a real escape straight through — and the menu, which
+# builds a whole frame and writes it with one `printf '%s'`, would otherwise
+# print the escapes as visible text.
+C_MAIN=$'\033[38;2;202;169;224m'
+C_ACCENT=$'\033[38;2;145;177;240m'
+C_DIM=$'\033[38;2;129;122;150m'
+C_GREEN=$'\033[38;2;166;209;137m'
+C_YELLOW=$'\033[38;2;229;200;144m'
+C_RED=$'\033[38;2;231;130;132m'
+C_TEAL=$'\033[38;2;148;226;213m'
+C_BOLD=$'\033[1m'
+C_RESET=$'\033[0m'
 
 if [ "$USE_COLOR" -eq 0 ]; then
     C_MAIN='' C_ACCENT='' C_DIM='' C_GREEN='' C_YELLOW='' C_RED='' C_TEAL='' C_BOLD='' C_RESET=''
 fi
-
-# Full Catppuccin Mocha fzf theme
-_FZF_CLR="bg+:#313244,bg:#1e1e2e,fg:#cdd6f4,fg+:#cdd6f4,hl:#f38ba8,hl+:#f38ba8,prompt:#cba6f7,pointer:#f5e0dc,marker:#a6e3a1,border:#585b70,header:#94e2d5,info:#cba6f7,spinner:#f5e0dc,separator:#585b70,gutter:#1e1e2e"
-_FZF_COLOR_OPT="--color=${_FZF_CLR}"
-[ "$USE_COLOR" -eq 0 ] && _FZF_COLOR_OPT="--no-color"
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
 header() {
@@ -293,28 +318,550 @@ substep() { echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW} ${C_RESET}$
 success() { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}$1\n"; }
 
-# ── fzf multi-select ─────────────────────────────────────────────────────────
-# Three menus (configs, dep tools, apps), one widget. Lines arrive on stdin and
-# the chosen ones come back out; every menu puts the key in the first field, so
-# callers pipe the result through awk to recover it.
-#   fzf_pick <height> <min-height> <header> [extra fzf args...]
-fzf_pick() {
-    local height="$1" minh="$2" header="$3"; shift 3
-    # shellcheck disable=SC2086  # _FZF_COLOR_OPT is deliberately one bare word
-    fzf --multi \
-        --height="$height" \
-        --min-height="$minh" \
-        --reverse \
-        --border=rounded \
-        --prompt="  " \
-        --pointer="$G_ARROW" \
-        --marker="$G_OK" \
-        ${_FZF_COLOR_OPT} \
-        --header="$header" \
-        --bind='enter:toggle+down' \
-        --bind='ctrl-j:accept' \
-        --bind='ctrl-a:select-all' \
-        "$@"
+# ── The menu ─────────────────────────────────────────────────────────────────
+# One screen with four tabs — dotfiles, tools, apps, and what you have ticked.
+# It replaces three separate fzf multi-selects, and it is drawn here rather than
+# shelled out to because the shelling out was the slow part: a redraw is string
+# building plus one write, with no process started after the first frame.
+#
+# Two rules keep the columns straight, and both were bugs first:
+#   · anything that gets padded is ASCII. printf pads %s by bytes, so a cell
+#     holding ● or a Nerd Font glyph comes out a different width than one that
+#     does not, and every column after it steps sideways.
+#   · colour wraps an already-padded plain string, never goes inside one.
+TUI_ROWS=24; TUI_COLS=80
+TUI_NAMEW=20; TUI_STATEW=10
+
+# stty, not tput: tput needs a terminfo entry for $TERM and fails outright on a
+# terminal it has never heard of, and a frame drawn to the wrong size wraps
+# every line and scrolls the screen to pieces.
+tui_size() {
+    local sz=""
+    sz=$(stty size <"$TTY_IN" 2>/dev/null) || sz=""
+    if [[ "$sz" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+        TUI_ROWS=${BASH_REMATCH[1]}; TUI_COLS=${BASH_REMATCH[2]}
+    else
+        TUI_ROWS=$(tput lines 2>/dev/null) || return 1
+        TUI_COLS=$(tput cols  2>/dev/null) || return 1
+    fi
+    [[ "$TUI_ROWS" =~ ^[0-9]+$ ]] && [[ "$TUI_COLS" =~ ^[0-9]+$ ]] || return 1
+    (( TUI_ROWS >= 14 )) && (( TUI_COLS >= 60 ))
+}
+
+# Deliberately hard to fail into the fallback: colour and glyphs are adapted
+# rather than bailed on, so only a terminal that genuinely cannot show this —
+# no tty, no size, or one that says outright that it cannot draw — gets the
+# numbered list instead.
+tui_available() {
+    [ -r "$TTY_IN" ] || return 1
+    case "${TERM:-}" in ''|dumb|unknown) return 1 ;; esac
+    tui_size
+}
+
+# ── item table ───────────────────────────────────────────────────────────────
+# Built once from the same arrays and maps the rest of the script uses, so a new
+# config or app shows up here by being added there.
+declare -a T_KEY=() T_NAME=() T_DESC=() T_SEC=() T_PKG=() T_TICK=()
+declare -a T_STATE=() T_CELL=() T_NPAD_ON=() T_NPAD_OFF=()
+
+tui_add() {                     # tui_add <key> <name> <desc> <section> <package>
+    T_KEY+=("$1"); T_NAME+=("$2"); T_DESC+=("$3"); T_SEC+=("$4"); T_PKG+=("$5")
+    T_TICK+=(0);   T_STATE+=(new)
+}
+
+tui_build_items() {
+    local k
+    for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "${PKG_MAP[$k]}"; done
+    for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(dep_pkg_name "$k")"; done
+    for k in "${APPS_LIST[@]}"; do
+        local _p
+        if [[ "$(app_type_resolved "$k")" == "curl" ]]; then
+            _p="${APP_BIN[$k]:-$k}"
+        else
+            _p="$(app_pkg_name "$k")"
+        fi
+        tui_add "$k" "${APP_LABEL[$k]}" "${APP_DESC[$k]:-}" apps "$_p"
+    done
+}
+
+# ── install state ────────────────────────────────────────────────────────────
+# Split by cost. "What is installed" is a single local dump and happens before
+# the first frame; "what has an update" costs ~170ms on pacman and seconds on
+# `apt list --upgradable`, so it runs in the background and the rows fill in
+# when it lands. The menu is usable immediately either way.
+TUI_UPD_READY=""
+
+tui_scan_installed() {
+    local -A have=()
+    local name i p
+    if [[ "$DISTRO" == "arch" ]]; then
+        while read -r name _; do have[$name]=1; done < <(pacman -Q 2>/dev/null)
+    else
+        while read -r name _; do have[$name]=1; done \
+            < <(dpkg-query -W -f '${Package} ${Status}\n' 2>/dev/null | grep ' installed$')
+    fi
+    for i in "${!T_KEY[@]}"; do
+        p="${T_PKG[$i]}"
+        if [ -n "${have[$p]:-}" ] || curl_app_installed "$p" \
+           || { [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null; }; then
+            T_STATE[$i]=installed
+        else
+            T_STATE[$i]=new
+        fi
+    done
+}
+
+tui_start_upgrade_scan() {
+    local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" upd_XXXXXX)
+    TUI_UPD_READY="${tmp}.ready"
+    {
+        if [[ "$DISTRO" == "arch" ]]; then
+            pacman -Qu 2>/dev/null | cut -d' ' -f1 > "$tmp"
+        else
+            apt list --upgradable 2>/dev/null | cut -d/ -f1 > "$tmp"
+        fi
+        # Renamed only once complete, so a half-written file is never read.
+        mv "$tmp" "$TUI_UPD_READY"
+    } &
+}
+
+tui_apply_upgrades() {
+    local -A upd=()
+    local name i
+    while read -r name; do [ -n "$name" ] && upd[$name]=1; done < "$TUI_UPD_READY"
+    rm -f "$TUI_UPD_READY"
+    for i in "${!T_KEY[@]}"; do
+        [ "${T_STATE[$i]}" = installed ] && [ -n "${upd[${T_PKG[$i]}]:-}" ] && T_STATE[$i]=update
+    done
+    tui_build_cells
+}
+
+# ── cells ────────────────────────────────────────────────────────────────────
+# The padded name and the state column are the same strings every redraw, so
+# they are built once per state change instead of once per frame.
+tui_pad() {                     # tui_pad <var> <text> <width>
+    local _p_t=$2 _p_w=$3
+    (( ${#_p_t} > _p_w )) && _p_t="${_p_t:0:_p_w-1}$G_ELLIPSIS"
+    printf -v "$1" '%-*s' "$_p_w" "$_p_t"
+}
+
+tui_build_cells() {
+    local i c
+    T_CELL=(); T_NPAD_ON=(); T_NPAD_OFF=()
+    for i in "${!T_KEY[@]}"; do
+        case "${T_STATE[$i]}" in
+            installed) tui_pad c 'installed' $TUI_STATEW; T_CELL+=("${C_GREEN}${c}${C_RESET}")  ;;
+            update)    tui_pad c 'update'    $TUI_STATEW; T_CELL+=("${C_YELLOW}${c}${C_RESET}") ;;
+            *)         tui_pad c 'new'       $TUI_STATEW; T_CELL+=("${C_DIM}${c}${C_RESET}")    ;;
+        esac
+        tui_pad c "${T_NAME[$i]}" $TUI_NAMEW
+        T_NPAD_ON+=("${C_GREEN}${C_BOLD}${c}${C_RESET}")
+        T_NPAD_OFF+=("${c}")
+    done
+}
+
+# ── view ─────────────────────────────────────────────────────────────────────
+TUI_TABS=(dotfiles tools apps selected)
+TUI_TAB=0; TUI_CUR=0; TUI_TOP=0; TUI_FILTER=""; TUI_TOTAL=0
+declare -a TUI_VIEW=()
+declare -A TUI_CNT=()
+
+tui_build_view() {
+    TUI_VIEW=(); TUI_TOTAL=0
+    local sec=${TUI_TABS[$TUI_TAB]} i f=${TUI_FILTER,,} hay
+    for i in "${!T_KEY[@]}"; do
+        if [ "$sec" = selected ]; then
+            [ "${T_TICK[$i]}" = 1 ] || continue
+        else
+            [ "${T_SEC[$i]}" = "$sec" ] || continue
+        fi
+        TUI_TOTAL=$(( TUI_TOTAL + 1 ))
+        if [ -n "$f" ]; then
+            hay="${T_NAME[$i]} ${T_DESC[$i]}"
+            [[ "${hay,,}" == *"$f"* ]] || continue
+        fi
+        TUI_VIEW+=("$i")
+    done
+    (( TUI_CUR >= ${#TUI_VIEW[@]} )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 ))
+    (( TUI_CUR < 0 )) && TUI_CUR=0
+}
+
+tui_recount() {
+    local i s
+    for s in "${TUI_TABS[@]}"; do TUI_CNT[$s]=0; done
+    TUI_CNT[total]=0
+    for i in "${!T_KEY[@]}"; do
+        [ "${T_TICK[$i]}" = 1 ] || continue
+        s=${T_SEC[$i]}
+        TUI_CNT[$s]=$(( ${TUI_CNT[$s]} + 1 ))
+        TUI_CNT[selected]=$(( ${TUI_CNT[selected]} + 1 ))
+        TUI_CNT[total]=$(( ${TUI_CNT[total]} + 1 ))
+    done
+}
+
+# ── boxes ────────────────────────────────────────────────────────────────────
+tui_rep() {                     # tui_rep <var> <char> <n>
+    local _r_o
+    (( $3 <= 0 )) && { printf -v "$1" '%s' ""; return; }
+    printf -v _r_o '%*s' "$3" ''
+    [ "$2" = ' ' ] || _r_o=${_r_o// /$2}
+    printf -v "$1" '%s' "$_r_o"
+}
+
+tui_box_top() {                 # tui_box_top <var> <width> <label>
+    local _b_f
+    if [ -n "$3" ]; then
+        tui_rep _b_f "$G_BH" $(( $2 - 6 - ${#3} ))
+        printf -v "$1" '%s%s%s %s%s%s %s%s%s%s' \
+            "$C_DIM" "$G_BTL" "$G_BH" "$C_TEAL" "$3" "$C_DIM" "$G_BH" "$_b_f" "$G_BTR" "$C_RESET"
+    else
+        tui_rep _b_f "$G_BH" $(( $2 - 2 ))
+        printf -v "$1" '%s%s%s%s%s' "$C_DIM" "$G_BTL" "$_b_f" "$G_BTR" "$C_RESET"
+    fi
+}
+
+tui_box_bottom() {              # tui_box_bottom <var> <width>
+    local _b_f; tui_rep _b_f "$G_BH" $(( $2 - 2 ))
+    printf -v "$1" '%s%s%s%s%s' "$C_DIM" "$G_BBL" "$_b_f" "$G_BBR" "$C_RESET"
+}
+
+# A content row: border, space, body, padding, space, border. The body arrives
+# already coloured, with its *plain* length, which is what the padding uses.
+tui_box_row() {                 # tui_box_row <var> <width> <body> <plain-length>
+    local _b_p="" _b_n=$(( $2 - 4 - $4 ))
+    (( _b_n > 0 )) && printf -v _b_p '%*s' "$_b_n" ''
+    printf -v "$1" '%s%s%s %s%s %s%s%s' \
+        "$C_DIM" "$G_BV" "$C_RESET" "$3" "$_b_p" "$C_DIM" "$G_BV" "$C_RESET"
+}
+
+# ── right pane ───────────────────────────────────────────────────────────────
+# Kept as plain text plus a colour so it can be truncated to the pane width
+# without cutting an escape sequence in half.
+declare -a TUI_PTXT=() TUI_PCLR=() TUI_PLBL=()
+tui_pane_add() { TUI_PTXT+=("$1"); TUI_PCLR+=("$2"); TUI_PLBL+=("${3:-0}"); }
+
+tui_pane_build() {              # tui_pane_build <item index or empty>
+    local idx=${1:-} i s key
+    TUI_PTXT=(); TUI_PCLR=(); TUI_PLBL=()
+    if [ -n "$idx" ]; then
+        key="${T_KEY[$idx]}"
+        tui_pane_add "${T_NAME[$idx]}" "${C_ACCENT}${C_BOLD}"
+        [ -n "${T_DESC[$idx]}" ] && tui_pane_add "${T_DESC[$idx]}" "$C_DIM"
+        tui_pane_add "" "$C_RESET"
+        tui_pane_add "menu     ${T_SEC[$idx]}" "$C_RESET" 9
+        tui_pane_add "package  ${T_PKG[$idx]}" "$C_RESET" 9
+        if [ "${T_SEC[$idx]}" = dotfiles ]; then
+            local _t
+            case "$key" in
+                zsh)       _t="~/.zshrc" ;;
+                bash)      _t="~/.bashrc" ;;
+                git)       _t="~/.gitconfig" ;;
+                starship)  _t="~/.config/starship.toml" ;;
+                protonvpn) _t="~/scripts/pvpn/pvpn.zsh" ;;
+                *)         _t="~/.config/${key}/" ;;
+            esac
+            tui_pane_add "stows    ${_t}" "$C_RESET" 9
+            [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
+        fi
+        case "${T_STATE[$idx]}" in
+            installed) tui_pane_add "state    already installed"         "$C_GREEN"  9 ;;
+            update)    tui_pane_add "state    installed, update waiting" "$C_YELLOW" 9 ;;
+            *)         tui_pane_add "state    will be installed"         "$C_DIM"    9 ;;
+        esac
+    fi
+    tui_pane_add "" "$C_RESET"
+    tui_pane_add "TICKED  ${TUI_CNT[total]}" "${C_GREEN}${C_BOLD}"
+    tui_pane_add "" "$C_RESET"
+    if [ "${TUI_CNT[total]}" = 0 ]; then
+        tui_pane_add "space or enter ticks a row" "$C_DIM"
+        return
+    fi
+    for s in dotfiles tools apps; do
+        [ "${TUI_CNT[$s]}" = 0 ] && continue
+        tui_pane_add "${s} ${TUI_CNT[$s]}" "$C_TEAL"
+        for i in "${!T_KEY[@]}"; do
+            [ "${T_TICK[$i]}" = 1 ] && [ "${T_SEC[$i]}" = "$s" ] \
+                && tui_pane_add "  ${G_TICK} ${T_NAME[$i]}" "$C_GREEN"
+        done
+    done
+}
+
+# The separator is whatever is left over, so the bar fills its box exactly and
+# can never overflow it and push the border out.
+tui_tab_bar() {                 # tui_tab_bar <var> <plain-length var> <inner width>
+    local i t n out="" base=0 sep gap label
+    local -a labels=()
+    for i in "${!TUI_TABS[@]}"; do
+        t=${TUI_TABS[$i]}; n=${TUI_CNT[$t]:-0}
+        [ "$n" = 0 ] && n="" || n=" $n"
+        labels+=("${t}${n}")
+        base=$(( base + 2 + ${#t} + ${#n} ))
+    done
+    sep=$(( ($3 - base) / ${#TUI_TABS[@]} ))
+    (( sep < 1 )) && sep=1
+    (( sep > 5 )) && sep=5
+    tui_rep gap ' ' "$sep"
+    for i in "${!TUI_TABS[@]}"; do
+        label=${labels[$i]}
+        if [ "$i" = "$TUI_TAB" ]; then out+="${C_ACCENT}${C_BOLD}${G_TAB} ${label}${C_RESET}${gap}"
+        else                           out+="${C_DIM}  ${label}${C_RESET}${gap}"
+        fi
+    done
+    printf -v "$1" '%s' "$out"
+    printf -v "$2" '%s' "$(( base + sep * ${#TUI_TABS[@]} ))"
+}
+
+tui_draw() {
+    local lw=$(( TUI_COLS * 60 / 100 ))
+    local rw=$(( TUI_COLS - lw - 1 ))
+    (( rw > 46 )) && { rw=46; lw=$(( TUI_COLS - rw - 1 )); }
+    (( rw < 24 )) && { rw=24; lw=$(( TUI_COLS - rw - 1 )); }
+    local liw=$(( lw - 4 )) riw=$(( rw - 4 ))
+    local descw=$(( liw - 2 - 3 - 1 - TUI_NAMEW - 1 - TUI_STATEW - 1 ))
+    (( descw < 6 )) && descw=6
+
+    local body=$(( TUI_ROWS - 10 ))
+    (( body < 3 )) && body=3
+    (( TUI_CUR < TUI_TOP )) && TUI_TOP=$TUI_CUR
+    (( TUI_CUR >= TUI_TOP + body )) && TUI_TOP=$(( TUI_CUR - body + 1 ))
+    (( TUI_TOP < 0 )) && TUI_TOP=0
+
+    tui_recount
+    tui_pane_build "${TUI_VIEW[$TUI_CUR]:-}"
+
+    local -a LFT=() RGT=()
+    local t bar barlen line plain n gap sp i idx mark name cell desc tint cursor
+
+    tui_box_top t "$lw" "search"; LFT+=("$t")
+    if [ -n "$TUI_FILTER" ]; then
+        plain="${TUI_FILTER}"; printf -v line '%s%s%s' "$C_RESET" "$plain" "$C_RESET"
+    else
+        plain="type to search this menu"; printf -v line '%s%s%s' "$C_DIM" "$plain" "$C_RESET"
+    fi
+    n="${#TUI_VIEW[@]}/${TUI_TOTAL}"
+    gap=$(( liw - ${#plain} - ${#n} )); (( gap < 1 )) && gap=1
+    tui_rep sp ' ' "$gap"
+    tui_box_row t "$lw" "${line}${sp}${C_DIM}${n}${C_RESET}" $(( ${#plain} + gap + ${#n} )); LFT+=("$t")
+    tui_box_bottom t "$lw"; LFT+=("$t")
+
+    tui_box_top t "$lw" "menus"; LFT+=("$t")
+    tui_tab_bar bar barlen "$liw"
+    tui_box_row t "$lw" "$bar" "$barlen"; LFT+=("$t")
+    tui_box_bottom t "$lw"; LFT+=("$t")
+
+    tui_box_top t "$lw" "${TUI_TABS[$TUI_TAB]}"; LFT+=("$t")
+    for (( i = TUI_TOP; i < TUI_TOP + body; i++ )); do
+        if (( i >= ${#TUI_VIEW[@]} )); then
+            tui_box_row t "$lw" "" 0
+        else
+            idx=${TUI_VIEW[$i]}
+            if [ "${T_TICK[$idx]}" = 1 ]; then
+                mark="${C_GREEN}${C_BOLD}[${G_TICK}]${C_RESET}"; tint="$C_GREEN"; name=${T_NPAD_ON[$idx]}
+            else
+                mark="${C_DIM}[ ]${C_RESET}"; tint="$C_DIM"; name=${T_NPAD_OFF[$idx]}
+            fi
+            cell=${T_CELL[$idx]}
+            desc=${T_DESC[$idx]}
+            (( ${#desc} > descw )) && desc="${desc:0:descw-1}$G_ELLIPSIS"
+            if (( i == TUI_CUR )); then cursor="${C_ACCENT}${G_ARROW}${C_RESET} "; else cursor="  "; fi
+            tui_box_row t "$lw" "${cursor}${mark} ${name} ${cell} ${tint}${desc}${C_RESET}" \
+                $(( 2 + 3 + 1 + TUI_NAMEW + 1 + TUI_STATEW + 1 + ${#desc} ))
+        fi
+        LFT+=("$t")
+    done
+    tui_box_bottom t "$lw"; LFT+=("$t")
+
+    tui_box_top t "$rw" "details"; RGT+=("$t")
+    for (( i = 0; i < ${#LFT[@]} - 2; i++ )); do
+        plain="${TUI_PTXT[$i]:-}"
+        (( ${#plain} > riw )) && plain="${plain:0:riw-1}$G_ELLIPSIS"
+        if (( ${TUI_PLBL[$i]:-0} > 0 )); then
+            tui_box_row t "$rw" \
+                "${C_DIM}${plain:0:${TUI_PLBL[$i]}}${C_RESET}${TUI_PCLR[$i]}${plain:${TUI_PLBL[$i]}}${C_RESET}" \
+                "${#plain}"
+        else
+            tui_box_row t "$rw" "${TUI_PCLR[$i]:-}${plain}${C_RESET}" "${#plain}"
+        fi
+        RGT+=("$t")
+    done
+    tui_box_bottom t "$rw"; RGT+=("$t")
+
+    # One write per frame: no flicker, nothing half-drawn.
+    local frame=$'\033[H'
+    for (( i = 0; i < ${#LFT[@]}; i++ )); do
+        frame+="${LFT[$i]} ${RGT[$i]:-}"$'\033[K\n'
+    done
+    frame+="  ${C_DIM}${G_LEFT} ${G_RIGHT} menu   ${G_UP} ${G_DOWN} move   space tick   ctrl-a all   ctrl-d review, then install   esc cancel${C_RESET}"
+    frame+=$'\033[K\033[J'
+    printf '%s' "$frame"
+}
+
+# ── input ────────────────────────────────────────────────────────────────────
+tui_switch_tab() {              # tui_switch_tab <+1|-1|index>
+    case "$1" in
+        +1) TUI_TAB=$(( (TUI_TAB + 1) % ${#TUI_TABS[@]} )) ;;
+        -1) TUI_TAB=$(( (TUI_TAB - 1 + ${#TUI_TABS[@]}) % ${#TUI_TABS[@]} )) ;;
+        *)  TUI_TAB=$1 ;;
+    esac
+    TUI_FILTER=""; TUI_CUR=0; TUI_TOP=0
+    tui_build_view
+}
+
+# Ticking zsh ticks what zsh cannot work without, in the menu, where it can be
+# seen and undone — rather than silently after it closes. starship draws the
+# whole prompt and the tools are what its aliases call.
+tui_tick_index() {              # tui_tick_index <index> <0|1>
+    T_TICK[$1]=$2
+}
+tui_tick_key() {                # tui_tick_key <key> <0|1>
+    local i
+    for i in "${!T_KEY[@]}"; do
+        [ "${T_KEY[$i]}" = "$1" ] && { T_TICK[$i]=$2; return; }
+    done
+}
+tui_zsh_pull() {                # tui_zsh_pull <index just ticked>
+    [ "${T_KEY[$1]}" = zsh ] || return 0
+    local i
+    tui_tick_key starship 1
+    for i in "${!T_KEY[@]}"; do
+        [ "${T_SEC[$i]}" = tools ] && T_TICK[$i]=1
+    done
+}
+
+tui_toggle_cur() {
+    local idx=${TUI_VIEW[$TUI_CUR]:-}
+    [ -n "$idx" ] || return
+    if [ "${T_TICK[$idx]}" = 1 ]; then
+        T_TICK[$idx]=0
+    else
+        T_TICK[$idx]=1
+        tui_zsh_pull "$idx"
+    fi
+    if [ "${TUI_TABS[$TUI_TAB]}" = selected ]; then
+        tui_build_view          # the row just left this list
+    else
+        (( TUI_CUR < ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( TUI_CUR + 1 ))
+    fi
+}
+
+tui_toggle_all() {
+    local idx all=1
+    for idx in "${TUI_VIEW[@]}"; do [ "${T_TICK[$idx]}" = 1 ] || { all=0; break; }; done
+    for idx in "${TUI_VIEW[@]}"; do
+        if [ "$all" = 1 ]; then T_TICK[$idx]=0
+        else T_TICK[$idx]=1; tui_zsh_pull "$idx"; fi
+    done
+    [ "${TUI_TABS[$TUI_TAB]}" = selected ] && tui_build_view
+    return 0
+}
+
+TUI_CONFIRMED=0
+tui_loop() {
+    local key rest rc pending=1
+    tui_draw
+    while true; do
+        # -d '' matters: with the default delimiter, `read -n1` on a newline
+        # hands back an empty string, and Enter would never arrive at all.
+        if [ "$pending" = 1 ]; then
+            IFS= read -rsn1 -d '' -t 0.2 key <"$TTY_IN"; rc=$?
+            if [ "$rc" -gt 128 ]; then
+                if [ -f "$TUI_UPD_READY" ]; then tui_apply_upgrades; pending=0; tui_draw; fi
+                continue
+            fi
+            [ "$rc" -ne 0 ] && break
+        else
+            IFS= read -rsn1 -d '' key <"$TTY_IN" || break
+        fi
+        case "$key" in
+            $'\033')
+                rest=""
+                IFS= read -rsn2 -d '' -t 0.05 rest <"$TTY_IN"
+                case "$rest" in
+                    '[A') (( TUI_CUR > 0 )) && TUI_CUR=$(( TUI_CUR - 1 )) ;;
+                    '[B') (( TUI_CUR < ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( TUI_CUR + 1 )) ;;
+                    '[C') tui_switch_tab +1 ;;
+                    '[D') tui_switch_tab -1 ;;
+                    'OP') tui_switch_tab 0 ;;
+                    'OQ') tui_switch_tab 1 ;;
+                    'OR') tui_switch_tab 2 ;;
+                    'OS') tui_switch_tab 3 ;;
+                    '[5') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
+                          TUI_CUR=$(( TUI_CUR - 10 )); (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
+                    '[6') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
+                          TUI_CUR=$(( TUI_CUR + 10 ))
+                          (( TUI_CUR > ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 )) ;;
+                    '[1'|'[2') IFS= read -rsn3 -d '' -t 0.05 rest <"$TTY_IN" ;;
+                    '')  if [ -n "$TUI_FILTER" ]; then TUI_FILTER=""; TUI_CUR=0; tui_build_view
+                         else return 1; fi ;;
+                esac ;;
+            # Space and Enter both tick. Enter arrives as \r or as \n depending
+            # on the terminal's icrnl and ctrl-j is \n either way, so neither
+            # byte can safely mean anything else — confirm gets its own key.
+            ' '|$'\r'|$'\n') tui_toggle_cur ;;
+            $'\004')  # ctrl-d: review first, install second
+                if [ "${TUI_TABS[$TUI_TAB]}" = selected ]; then
+                    TUI_CONFIRMED=1; return 0
+                else
+                    tui_switch_tab 3
+                fi ;;
+            $'\001')   tui_toggle_all ;;
+            $'\011')   tui_switch_tab +1 ;;
+            $'\177'|$'\010') TUI_FILTER="${TUI_FILTER%?}"; TUI_CUR=0; tui_build_view ;;
+            $'\003')   return 1 ;;
+            [[:print:]]) TUI_FILTER+="$key"; TUI_CUR=0; tui_build_view ;;
+        esac
+        tui_draw
+    done
+    return 1
+}
+
+# Called from _cleanup as well as from tui_pick, so an interrupt in the middle
+# of the menu still puts the terminal back. It must not install a trap of its
+# own to do that: this script already traps EXIT and INT for the sudo keepalive
+# and the temp dir, and replacing those — then clearing them on the way out —
+# left the rest of the run with no cleanup at all.
+TUI_ACTIVE=0
+tui_cleanup() {
+    [ "$TUI_ACTIVE" = 1 ] || return 0
+    TUI_ACTIVE=0
+    printf '\033[?25h\033[?1049l'
+    [ -n "${TUI_STTY_SAVE:-}" ] && stty "$TUI_STTY_SAVE" <"$TTY_IN" 2>/dev/null
+    [ -n "$TUI_UPD_READY" ] && rm -f "$TUI_UPD_READY" "${TUI_UPD_READY%.ready}"
+    return 0
+}
+
+# Fills SELECTED, DEPS and APPS. Returns 1 if the run was cancelled.
+tui_pick() {
+    tui_build_items
+    tui_scan_installed
+    tui_build_cells
+    tui_start_upgrade_scan
+    tui_build_view
+
+    TUI_STTY_SAVE=$(stty -g <"$TTY_IN" 2>/dev/null)
+    TUI_ACTIVE=1
+    # -echo so typed filter characters do not also land on screen, -icanon so a
+    # keypress arrives without waiting for a newline, -ixon so ctrl-s is a key.
+    stty -echo -icanon -ixon min 1 time 0 <"$TTY_IN" 2>/dev/null
+    printf '\033[?1049h\033[?25l'
+    trap 'TUI_ROWS=0; tui_size || true' WINCH
+    tui_loop
+    local rc=$?
+    tui_cleanup
+    trap - WINCH
+
+    [ "$rc" -ne 0 ] || [ "$TUI_CONFIRMED" -ne 1 ] && return 1
+
+    local i
+    for i in "${!T_KEY[@]}"; do
+        [ "${T_TICK[$i]}" = 1 ] || continue
+        case "${T_SEC[$i]}" in
+            dotfiles) SELECTED+=("${T_KEY[$i]}") ;;
+            tools)    DEPS+=("${T_KEY[$i]}") ;;
+            apps)     APPS+=("${T_KEY[$i]}") ;;
+        esac
+    done
+    return 0
 }
 
 # ── Two-option picker ────────────────────────────────────────────────────────
@@ -1953,6 +2500,28 @@ else
     CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  PPA/deb"
 fi
 
+# One line each, for the menu's description column. Apps only — configs and
+# dep tools have CONFIG_DESC and DEP_DESC already.
+declare -A APP_DESC
+APP_DESC[brave-beta]="chromium browser, no telemetry  ${G_DOT}  beta channel"
+APP_DESC[brave-stable]="chromium browser, no telemetry"
+APP_DESC[vscode]="the editor"
+APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
+APP_DESC[antigravity-ide]="agentic IDE"
+APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
+APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
+APP_DESC[antigravity-cli]="the CLI half of Antigravity"
+APP_DESC[codex-cli]="OpenAI's coding agent"
+APP_DESC[opencode]="open-source coding agent"
+APP_DESC[kimi-code]="Moonshot's coding agent"
+APP_DESC[muse]="terminal agent"
+APP_DESC[notion]="notes and workspace"
+APP_DESC[obsidian]="markdown knowledge base"
+APP_DESC[claude-desktop]="Claude, as a desktop app"
+APP_DESC[vlc]="plays anything"
+APP_DESC[flatpak]="sandboxed app runtime  ${G_DOT}  adds flathub"
+APP_DESC[docker]="containers  ${G_DOT}  compose, buildx, group, service"
+
 declare -A DEP_DESC
 DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
 DEP_DESC[eza]="modern ls  →  ls  ll  lt  la aliases"
@@ -2673,8 +3242,7 @@ else
 fi
 success "Tools verified"
 
-# ── Step 3: multi-select menu ─────────────────────────────────────────────────
-info "Select configs to install..."
+# ── Step 3: the menu ─────────────────────────────────────────────────────────
 CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git)
 if [[ "$DISTRO" == "debian" ]]; then
     # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
@@ -2682,25 +3250,15 @@ if [[ "$DISTRO" == "debian" ]]; then
     CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship ulauncher git)
 fi
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
-declare -a SELECTED=()
+declare -a SELECTED=() DEPS=() APPS=()
 
-if command -v fzf &>/dev/null; then
+# The numbered lists this script shipped with, kept for terminals that cannot
+# draw the menu — and for --configs/--tools/--apps, which skip both.
+menu_numeric() {
+    info "Select configs to install..."
     echo ""
-    _cfg_lines=()
-    for _c in "${CONFIGS[@]}"; do
-        _cfg_lines+=("$(printf '%-11s  %s  %s' "$_c" "$G_DOT" "${CONFIG_DESC[$_c]}")")
-    done
-    mapfile -t SELECTED < <(
-        printf '%s\n' "${_cfg_lines[@]}" \
-        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-        | awk '{print $1}'
-    )
-    unset _cfg_lines _c
-    echo ""
-else
-    substep "${C_DIM}fzf unavailable — using basic menu${C_RESET}"
-    echo ""
-    attempts=0
+    local attempts=0 valid _i _c _dd _line _disp
+    local -a tmp
     while true; do
         for _i in "${!CONFIGS[@]}"; do
             _c="${CONFIGS[$_i]}"
@@ -2709,14 +3267,14 @@ else
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
         echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 4 or a, Enter=skip): ${C_RESET}"
         read -r RAW <"$TTY_IN"
-    echo ""
+        echo ""
 
         if [[ "$RAW" == "a" || "$RAW" == "A" ]]; then
             SELECTED=("${CONFIGS[@]}")
             break
         fi
-        # Same as Esc in the fzf menu: no configs is a valid answer — apps and
-        # dep tools are still ahead.
+        # Same as esc in the menu: no configs is a valid answer — tools and
+        # apps are still ahead.
         [ -z "$RAW" ] && break
 
         valid=true
@@ -2742,42 +3300,9 @@ else
         error "Invalid input — enter numbers 1–${#CONFIGS[@]} separated by spaces, or 'a' for all"
         echo ""
     done
-fi
 
-# No configs is a normal answer: "install these apps, leave my dotfiles alone".
-# The run only stops if nothing at all is picked, which is checked after the
-# apps menu.
-if [ "${#SELECTED[@]}" -eq 0 ]; then
-    success "${C_DIM}No configs selected — nothing of yours will be touched${C_RESET}"
-fi
-
-# .zshrc ends with `eval "$(starship init zsh)"` — the entire prompt is
-# starship. Picking zsh without it produced a bare "hostname#", which looks
-# like the install failed. It is a hard dependency, so pull it in.
-if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
-   && ! printf '%s\n' "${SELECTED[@]}" | grep -qx starship; then
-    SELECTED+=(starship)
-    substep "${C_DIM}zsh draws its prompt with starship — adding starship${C_RESET}"
-fi
-[ "${#SELECTED[@]}" -gt 0 ] && success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
-
-# ── Dep tools sub-menu (always shown) ────────────────────────────────────────
-DEPS=()
-info "Optional dep tools..."
-echo ""
-
-if command -v fzf &>/dev/null; then
-    _dep_lines=()
-    for _dd in "${DEPS_LIST[@]}"; do
-        _dep_lines+=("$(printf '%-10s  %s  %s' "$_dd" "$G_DOT" "${DEP_DESC[$_dd]}")")
-    done
-    mapfile -t DEPS < <(
-        printf '%s\n' "${_dep_lines[@]}" \
-        | fzf_pick 40% 12 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-        | awk '{print $1}'
-    )
-    unset _dep_lines _dd
-else
+    info "Optional dep tools..."
+    echo ""
     for _i in "${!DEPS_LIST[@]}"; do
         _dd="${DEPS_LIST[$_i]}"
         printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
@@ -2795,63 +3320,30 @@ else
             DEPS+=("${DEPS_LIST[$((token-1))]}")
         done
     fi
-fi
 
-# Everything .zshrc reaches for is guarded by `command -v`, so without these the
-# shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf key
-# bindings. They are part of the shell, not optional extras — pull them all in.
-if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
-    _dep_added=()
-    for _d in "${DEPS_LIST[@]}"; do
-        printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
-        DEPS+=("$_d")
-        _dep_added+=("$_d")
-    done
-    if [ "${#_dep_added[@]}" -gt 0 ]; then
-        substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
+    # Everything .zshrc reaches for is guarded by `command -v`, so without these
+    # the shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf
+    # key bindings. The menu ticks them where you can see and undo it; here
+    # there is nothing to see, so they are added.
+    if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
+        local -a _dep_added=()
+        local _d
+        for _d in "${DEPS_LIST[@]}"; do
+            printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
+            DEPS+=("$_d")
+            _dep_added+=("$_d")
+        done
+        if [ "${#_dep_added[@]}" -gt 0 ]; then
+            substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
+        fi
     fi
-    unset _dep_added _d
-fi
 
-if [ "${#DEPS[@]}" -gt 0 ]; then
-    success "Dep tools: ${C_ACCENT}${DEPS[*]}${C_RESET}"
-else
-    success "${C_DIM}No dep tools selected${C_RESET}"
-fi
-
-# ── App menu ─────────────────────────────────────────────────────────────────
-APPS=()
-info "Optional applications..."
-echo ""
-
-# Build tab-delimited lines: key<TAB>display — fzf shows only the display column
-_app_lines=()
-for _k in "${APPS_LIST[@]}"; do
-    _rt="$(app_type_resolved "$_k")"
-    case "$_rt" in
-        paru-y|paru) _tl="${AUR_HELPER:-AUR}" ;;
-        pacman)      _tl="pacman" ;;
-        curl)        _tl="curl"   ;;
-        apt|brave|vscode|claude-desktop|docker) _tl="apt" ;;
-        *)           _tl="$_rt" ;;
-    esac
-    _app_lines+=("${_k}"$'\t'"$(printf '%-22s  %s  %s' "${APP_LABEL[$_k]}" "$G_DOT" "$_tl")")
-done
-unset _rt
-
-if command -v fzf &>/dev/null; then
-    mapfile -t APPS < <(
-        printf '%s\n' "${_app_lines[@]}" \
-        | fzf_pick 45% 14 $'Enter=select  Ctrl-J=confirm  Ctrl-A=all  Esc=skip\n' \
-              --delimiter=$'\t' --with-nth=2 \
-        | awk -F'\t' '{print $1}'
-    )
+    info "Optional applications..."
     echo ""
-else
-    _app_i=1
-    for _line in "${_app_lines[@]}"; do
-        _disp="${_line#*$'\t'}"
-        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%b\n" "$_app_i" "$_disp"
+    local _app_i=1
+    for _line in "${APPS_LIST[@]}"; do
+        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-22s ${C_DIM}${G_DOT}  %s${C_RESET}\n" \
+            "$_app_i" "${APP_LABEL[$_line]}" "$(app_type_resolved "$_line")"
         (( _app_i++ ))
     done
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
@@ -2867,9 +3359,84 @@ else
             APPS+=("${APPS_LIST[$((token-1))]}")
         done
     fi
-    unset _app_i _disp APP_RAW token
+}
+
+# --configs / --tools / --apps: name what you want and no menu is drawn at all.
+# Unknown names are an error rather than a silent omission — a typo in an
+# unattended run would otherwise look like a successful install of nothing.
+menu_from_flags() {
+    local -n _out=$1; local -n _pool=$2
+    local raw=$3 what=$4 name found
+    [ "$raw" = "-" ] && return 0
+    if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
+    local IFS=', '
+    for name in $raw; do
+        found=0
+        for item in "${_pool[@]}"; do
+            [ "$item" = "$name" ] && { _out+=("$name"); found=1; break; }
+        done
+        if [ "$found" -eq 0 ]; then
+            error "Unknown ${what}: ${C_RED}${name}${C_RESET}"
+            substep "${C_DIM}available: ${_pool[*]}${C_RESET}"
+            exit 2
+        fi
+    done
+}
+
+if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ]; then
+    info "Selection given on the command line..."
+    menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config"
+    menu_from_flags DEPS     DEPS_LIST "${PICK_TOOLS:--}"   "tool"
+    menu_from_flags APPS     APPS_LIST "${PICK_APPS:--}"    "app"
+    # Same rule the menu applies when you tick zsh, and said out loud, because
+    # an unattended run has no menu to show it in.
+    if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
+        _dep_added=()
+        for _d in "${DEPS_LIST[@]}"; do
+            printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
+            DEPS+=("$_d"); _dep_added+=("$_d")
+        done
+        [ "${#_dep_added[@]}" -gt 0 ] \
+            && substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
+        unset _d _dep_added
+    fi
+elif tui_available; then
+    info "Choose what to install..."
+    substep "${C_DIM}dotfiles, tools and apps — one screen, ${G_LEFT} ${G_RIGHT} between them${C_RESET}"
+    if ! tui_pick; then
+        error "Cancelled — nothing was installed."
+        exit 0
+    fi
+else
+    substep "${C_DIM}This terminal cannot draw the menu — using the numbered list${C_RESET}"
+    echo ""
+    menu_numeric
 fi
-unset _app_lines _k _tl _line
+
+# .zshrc ends with `eval "$(starship init zsh)"` — the entire prompt is
+# starship. Picking zsh without it produced a bare "hostname#", which looks
+# like the install failed. It is a hard dependency, so pull it in. The menu
+# ticks it for you; this catches the paths that do not, and the case where it
+# was deliberately unticked.
+if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
+   && ! printf '%s\n' "${SELECTED[@]}" | grep -qx starship; then
+    SELECTED+=(starship)
+    substep "${C_DIM}zsh draws its prompt with starship — adding starship${C_RESET}"
+fi
+
+# No configs is a normal answer: "install these apps, leave my dotfiles alone".
+# The run only stops if nothing at all is picked, which is checked below.
+if [ "${#SELECTED[@]}" -gt 0 ]; then
+    success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
+else
+    success "${C_DIM}No configs selected — nothing of yours will be touched${C_RESET}"
+fi
+
+if [ "${#DEPS[@]}" -gt 0 ]; then
+    success "Dep tools: ${C_ACCENT}${DEPS[*]}${C_RESET}"
+else
+    success "${C_DIM}No dep tools selected${C_RESET}"
+fi
 
 if [ "${#APPS[@]}" -gt 0 ]; then
     _app_labels=()

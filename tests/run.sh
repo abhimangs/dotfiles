@@ -40,9 +40,54 @@ echo
 # blocks every one after it, so a file that runs out one prompt early hangs for
 # the full timeout instead of failing an assertion. Every prompt past the last
 # meaningful key defaults to yes on Enter.
-printf '\n\n\n\n\n'        > "$WORK/k-fzf"      # menus answered by the fzf stub
-printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numeric menu: config 2, skip, skip
-printf 'p\n\n\n\n\n'       > "$WORK/k-private"  # private mode, then fzf menus
+printf '\n\n\n\n\n'        > "$WORK/k-sel"      # selection came from --configs/--tools/--apps
+printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numbered menus: config 2, skip, skip
+printf 'p\n\n\n\n\n'       > "$WORK/k-private"  # private mode, then straight to the plan
+# The menu is driven by a *script* rather than a file of bytes: it puts the
+# terminal in raw mode, which throws away anything already in the input queue,
+# so its keys have to be sent once it is actually on screen. These wait for it.
+cat > "$WORK/k-lib.sh" <<'FEED'
+wait_for() {            # wait_for <text> — until it shows up in the transcript
+    local n=300
+    while (( n-- > 0 )); do
+        grep -qs -- "$1" "$FEED_OUT" && return 0
+        sleep 0.1
+    done
+    return 1
+}
+menu_up()   { wait_for 'ctrl-d review'; sleep 0.3; }
+confirm()   { wait_for 'Proceed'; printf '\n'; sleep 1; }
+FEED
+
+cat > "$WORK/k-tui.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'                       # privacy, existing configs
+menu_up
+printf ' '; sleep 0.3                # tick the row under the cursor
+printf '\004'; sleep 0.4             # ctrl-d → review
+printf '\004'                        # ctrl-d → accept
+confirm
+FEED
+
+cat > "$WORK/k-tui-zsh.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf '\033[B'; sleep 0.3            # down to bash
+printf '\033[B'; sleep 0.3            # down to zsh
+printf ' '; sleep 0.4                # tick it — starship and the tools follow
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+
+cat > "$WORK/k-tui-esc.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf ' '; sleep 0.3
+printf '\033'; sleep 1               # esc — cancels the whole run
+FEED
 printf '\n\ny\n\n\n\n'     > "$WORK/k-lock-yes" # ... then "yes, stop the updater"
 printf '\n\nn\n\n\n\n'     > "$WORK/k-lock-no"  # ... then "no, leave it"
 # --restore-bash skips every prompt above it and asks exactly one question.
@@ -70,8 +115,8 @@ echo
 echo "── scenarios ────────────────────────────────────────────"
 
 # 1. The VPS case: Ubuntu 24.04, headless, ordinary sudo user, strict sudoers.
-run ubuntu-headless ubuntu "$WORK/k-fzf" \
-    STUB_FZF_PICK1="zsh git" SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
+run ubuntu-headless ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="zsh,git" SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
 check   ubuntu-headless 0
 want    ubuntu-headless 'Tools verified'                  'stow+fzf installed'
 want    ubuntu-headless 'zsh needs these for its aliases' 'zsh pulls the toolchain'
@@ -80,20 +125,22 @@ want    ubuntu-headless 'ssh -O exit'                     'SSH multiplexing hint
 nowant  ubuntu-headless 'Failed \([1-9]'                  'nothing failed'
 
 # 2. Same box, logged in as root, with no sudo at all.
-run ubuntu-root ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh" STUB_FAKE_ROOT=1
+run ubuntu-root ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" STUB_FAKE_ROOT=1
 check   ubuntu-root 0
 want    ubuntu-root 'Running as root'                     'root path taken'
 want    ubuntu-root 'Tools verified'                      'installs work as root'
 
-# 3. Debian 12, no fzf available, numeric fallback menu.
+# 3. Debian 12 on a terminal that cannot draw the menu (TERM=dumb, which is the
+#    harness default) — the numbered lists have to carry the whole selection.
 STUB_NO_FZF=1 run debian-nofzf debian "$WORK/k-num" STUB_NO_FZF=1
 check   debian-nofzf 0
-want    debian-nofzf 'basic menu'                         'fallback menu used'
+want    debian-nofzf 'cannot draw the menu'               'fallback taken'
+want    debian-nofzf 'Choice \(e.g. 1 4'                  'numbered list drawn'
 want    debian-nofzf 'Tools verified'                     'installs work'
 
 # 4. A third-party repo is broken, so every apt-get update exits non-zero.
-STUB_BROKEN_REPO=1 run ubuntu-badrepo ubuntu "$WORK/k-fzf" \
-    STUB_FZF_PICK1="git" STUB_BROKEN_REPO=1
+STUB_BROKEN_REPO=1 run ubuntu-badrepo ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" STUB_BROKEN_REPO=1
 check   ubuntu-badrepo 0
 want    ubuntu-badrepo 'did not refresh cleanly'                  'broken index reported'
 want    ubuntu-badrepo 'Failing source is configured in'          'names the source file'
@@ -101,46 +148,49 @@ want    ubuntu-badrepo 'apt ready \(index refreshed with errors\)' 'success is q
 nowant  ubuntu-badrepo '\[ok\] apt ready$'                        'no bare success claim'
 
 # 5. Arch desktop, colour + glyphs on a real pty — catches ${VAR} leaks.
-run arch-desktop arch "$WORK/k-fzf" \
-    STUB_FZF_PICK1="zsh git" STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8
+# STUB_TERM and STUB_LANG have to be *prefixes*: the harness expands them in its
+# own shell to build the child's TERM/LANG, so passing them as arguments only
+# sets variables nothing reads.
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run arch-desktop arch "$WORK/k-sel" \
+    DOTFILES_CONFIGS="zsh,git"
 check   arch-desktop 0
 want    arch-desktop 'Tools verified'                     'pacman path works'
 
 # 5b. Arch box that already has yay: it is used as-is, no paru is built.
-STUB_YAY_ONLY=1 run arch-yay arch "$WORK/k-fzf" \
-    STUB_FZF_PICK1="git" STUB_YAY_ONLY=1
+STUB_YAY_ONLY=1 run arch-yay arch "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" STUB_YAY_ONLY=1
 check   arch-yay 0
 want    arch-yay 'yay already installed'          'existing helper reused'
 nowant  arch-yay 'installing paru'                'no bootstrap'
 nowant  arch-yay 'Cloning'                        'nothing cloned from the AUR'
 
 # 6. WSL: real Ubuntu userland, no Linux-side fonts worth installing.
-run ubuntu-wsl ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh" WSL_DISTRO_NAME=Ubuntu
+run ubuntu-wsl ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" WSL_DISTRO_NAME=Ubuntu
 check   ubuntu-wsl 0
 want    ubuntu-wsl 'WSL'                                  'WSL detected'
 
 # 7. Private mode with a working git (uses git config --unset).
-run ubuntu-private ubuntu "$WORK/k-private" STUB_FZF_PICK1="fastfetch"
+run ubuntu-private ubuntu "$WORK/k-private" DOTFILES_CONFIGS="fastfetch"
 check   ubuntu-private 0
 want    ubuntu-private 'private'                          'private selected'
 
 # 8. Private mode where git does nothing when asked — the scrub must notice and
 #    finish with sed rather than report a success it did not achieve.
 STUB_DEAD_GIT=1 run ubuntu-private-deadgit ubuntu "$WORK/k-private" \
-    STUB_FZF_PICK1="fastfetch" STUB_DEAD_GIT=1
+    DOTFILES_CONFIGS="fastfetch" STUB_DEAD_GIT=1
 check   ubuntu-private-deadgit 0
 nowant  ubuntu-private-deadgit 'Still present in'         'no leftover identity'
 
 # 9. A dead PPA left by an earlier run breaks every refresh; ours to clean up.
-STUB_DEAD_PPA=1 run ubuntu-deadppa ubuntu "$WORK/k-fzf" \
-    STUB_FZF_PICK1="git" STUB_DEAD_PPA=1
+STUB_DEAD_PPA=1 run ubuntu-deadppa ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" STUB_DEAD_PPA=1
 check   ubuntu-deadppa 0
 want    ubuntu-deadppa 'Removed a dead source from an earlier run' 'stale PPA cleaned up'
 want    ubuntu-deadppa '\[ok\] apt ready$'                      'index healthy afterwards'
 
 # 10. unattended-upgrades sitting on the dpkg lock, and the user says yes.
 STUB_LOCKED=1 run ubuntu-locked-yes ubuntu "$WORK/k-lock-yes" \
-    STUB_FZF_PICK1="git" STUB_LOCKED=1
+    DOTFILES_CONFIGS="git" STUB_LOCKED=1
 check   ubuntu-locked-yes 0
 want    ubuntu-locked-yes 'Still locked by unattended-upgr'  'names the holder'
 want    ubuntu-locked-yes 'the lock is the process, not the file' 'corrects the usual advice'
@@ -149,20 +199,20 @@ want    ubuntu-locked-yes 'Tools verified'                   'install proceeds'
 
 # 11. Same, but the user declines — must fail cleanly, not thrash.
 STUB_LOCKED=1 run ubuntu-locked-no ubuntu "$WORK/k-lock-no" \
-    STUB_FZF_PICK1="git" STUB_LOCKED=1
+    DOTFILES_CONFIGS="git" STUB_LOCKED=1
 check   ubuntu-locked-no 1
 want    ubuntu-locked-no 'Left running'                      'choice respected'
 nowant  ubuntu-locked-no 'Stale package index'               'no pointless retry noise'
 
 # 12. dpkg left half-configured by something that was force-quit.
-STUB_DPKG_INTERRUPTED=1 run ubuntu-dpkg-broken ubuntu "$WORK/k-fzf" \
-    STUB_FZF_PICK1="git" STUB_DPKG_INTERRUPTED=1
+STUB_DPKG_INTERRUPTED=1 run ubuntu-dpkg-broken ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" STUB_DPKG_INTERRUPTED=1
 check   ubuntu-dpkg-broken 0
 want    ubuntu-dpkg-broken 'dpkg was left half-configured'   'detected'
 want    ubuntu-dpkg-broken 'Tools verified'                  'repaired and continued'
 
 # 13. Picking bash stows the rc and keeps a pristine copy of the original.
-run ubuntu-bash ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="bash"
+run ubuntu-bash ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="bash"
 check   ubuntu-bash 0
 want    ubuntu-bash 'pristine copy'   'says it is keeping one'
 d="$WORK/run/ubuntu-bash/home"
@@ -173,7 +223,7 @@ grep -q 'hand interactive bash to zsh' "$d/.bashrc.orig" 2>/dev/null \
 
 # 14. bash and zsh together: the hand-off hook must not be written into the
 #     rc we just stowed, which is a symlink into the checkout.
-run ubuntu-bash-zsh ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="bash zsh"
+run ubuntu-bash-zsh ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="bash,zsh"
 check   ubuntu-bash-zsh 0
 want    ubuntu-bash-zsh 'leaving ~/.bashrc as a working bash' 'hook skipped'
 d="$WORK/run/ubuntu-bash-zsh/home/dotfiles/bash/.bashrc"
@@ -184,8 +234,8 @@ else
 fi
 
 # 15. An existing starship.toml is the user's, and is left where it is.
-STUB_PRESEED_STARSHIP=1 run ubuntu-keepstar ubuntu "$WORK/k-fzf" \
-    STUB_FZF_PICK1="starship"
+STUB_PRESEED_STARSHIP=1 run ubuntu-keepstar ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="starship"
 check   ubuntu-keepstar 0
 want    ubuntu-keepstar 'Keeping your existing' 'existing starship.toml kept'
 if [ -f "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
@@ -198,7 +248,7 @@ fi
 
 # 15b. Apps without dotfiles: the config menu is skippable, so nothing of the
 #      user's is touched and the backup question is never asked.
-run ubuntu-appsonly ubuntu "$WORK/k-fzf" STUB_FZF_PICK3="docker"
+run ubuntu-appsonly ubuntu "$WORK/k-sel" DOTFILES_APPS="docker"
 check   ubuntu-appsonly 0
 want    ubuntu-appsonly 'No configs selected'      'empty config menu accepted'
 want    ubuntu-appsonly 'nothing names them'       'fonts skipped with no configs'
@@ -209,10 +259,113 @@ d="$WORK/run/ubuntu-appsonly/home"
     || note ubuntu-appsonly "no config stowed"
 
 # 15c. ... but three empty menus still means there is nothing to do.
-run ubuntu-nothing ubuntu "$WORK/k-fzf"
+run ubuntu-nothing ubuntu "$WORK/k-sel"
 check   ubuntu-nothing 0
 want    ubuntu-nothing 'Nothing selected'          'empty run stops'
 nowant  ubuntu-nothing 'Installation plan'         'stops before the plan'
+
+echo
+echo "── the menu ─────────────────────────────────────────────"
+# The menu draws itself, so these drive it by keystroke on a real pty. TERM has
+# to say the terminal can draw; every other scenario leaves it at dumb, which is
+# what keeps them on the numbered lists.
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-tick ubuntu "$WORK/k-tui.sh"
+check   tui-tick 0
+want    tui-tick 'Choose what to install'      'the menu ran'
+want    tui-tick 'Configs: .*fastfetch'        'space ticked the row under the cursor'
+nowant  tui-tick 'Choice \(e.g.'               'the numbered list was not used'
+nowant  tui-tick 'Cancelled'                   'ctrl-d twice accepted'
+
+# Ticking zsh has to pull starship and the tools in the menu itself, not in a
+# message after it closes.
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-zsh ubuntu "$WORK/k-tui-zsh.sh"
+check   tui-zsh 0
+want    tui-zsh 'Configs: .*zsh'               'cursor moved to zsh and ticked it'
+want    tui-zsh 'Configs: .*starship'          'starship came with it'
+want    tui-zsh 'Dep tools: .*bat.*eza'        'the toolchain came with it'
+nowant  tui-zsh 'zsh needs these for its aliases' 'ticked in the menu, not bolted on after'
+
+# esc is a cancel, not a skip: nothing installed, nothing asked afterwards.
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-esc ubuntu "$WORK/k-tui-esc.sh"
+check   tui-esc 0
+want    tui-esc 'Cancelled'                    'esc stops the run'
+nowant  tui-esc 'Installation plan'            'no plan after a cancel'
+d="$WORK/run/tui-esc/home"
+[ -e "$d/.zshrc" ] || [ -e "$d/.gitconfig" ] \
+    && bad tui-esc "something was installed after a cancel" \
+    || note tui-esc "nothing touched"
+
+# Typing filters the menu you are in, and ticking works on what is left.
+cat > "$WORK/k-tui-search.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf 'git'; sleep 0.5               # filter down to one row
+printf ' '; sleep 0.4                 # tick it
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-search ubuntu "$WORK/k-tui-search.sh"
+check   tui-search 0
+want    tui-search 'Configs: git$'             'search narrowed it to git and ticked that'
+
+# ctrl-a takes the whole menu you are looking at, and nothing from the others.
+cat > "$WORK/k-tui-all.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf '\033[C'; sleep 0.5            # right → tools
+printf '\001'; sleep 0.5             # ctrl-a → all of them
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-all ubuntu "$WORK/k-tui-all.sh"
+check   tui-all 0
+want    tui-all 'Dep tools: .*bat.*eza.*fd.*zoxide.*thefuck.*lazygit.*btop.*tree' 'every tool ticked'
+want    tui-all 'No configs selected'          'and nothing from the other menus'
+
+# --ascii: no box-drawing characters, no Nerd Font glyphs, same menu.
+RUN_ARGS=--ascii STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
+    run tui-ascii ubuntu "$WORK/k-tui.sh"
+check   tui-ascii 0
+want    tui-ascii 'Configs: .*fastfetch'       'the menu works in ascii mode'
+nowant  tui-ascii '─'                          'no box-drawing characters anywhere'
+
+# An 80x24 window: the boxes have to shrink, not overflow.
+STUB_TTY_ROWS=24 STUB_TTY_COLS=80 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
+    run tui-narrow ubuntu "$WORK/k-tui.sh"
+check   tui-narrow 0
+want    tui-narrow 'Configs: .*fastfetch'      'usable on a small terminal'
+
+# A pty with no size at all must fall back rather than draw a broken frame.
+STUB_NO_SIZE=1 STUB_TERM=xterm-256color run tui-nosize ubuntu "$WORK/k-num" STUB_NO_SIZE=1
+check   tui-nosize 0
+want    tui-nosize 'cannot draw the menu'      'declined to draw'
+want    tui-nosize 'Choice \(e.g. 1 4'         'numbered list instead'
+
+echo
+echo "── selection flags ──────────────────────────────────────"
+# --configs/--tools/--apps skip the menu entirely, which is what makes an
+# unattended run possible — and what the rest of this suite drives.
+RUN_ARGS="--configs=git --tools=bat --apps=docker" run flags-argv ubuntu "$WORK/k-sel"
+check   flags-argv 0
+want    flags-argv 'Selection given on the command line' 'flags path taken'
+want    flags-argv 'Configs: .*git'            'config from --configs'
+want    flags-argv 'Dep tools: .*bat'          'tool from --tools'
+nowant  flags-argv 'Choice \(e.g.'             'no menu drawn'
+
+# A typo in an unattended run must stop, not quietly install nothing.
+RUN_ARGS="--configs=zshh" run flags-typo ubuntu "$WORK/k-sel"
+check   flags-typo 2
+want    flags-typo 'Unknown config'            'named the bad value'
+want    flags-typo 'available:'                'listed the real ones'
+
+# "all" is the shorthand the numbered list has always had.
+run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
+check   flags-all 0
+want    flags-all 'Configs: .*fastfetch.*zsh'  'all of them selected'
 
 echo
 echo "── docker app selection ─────────────────────────────────"
@@ -221,7 +374,7 @@ echo "── docker app selection ───────────────�
 #     itself works, not just docker). Arch takes the plain pacman path —
 #     docker, docker-compose and docker-buildx are all in the official repo,
 #     no bespoke bootstrap needed.
-run arch-docker arch "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+run arch-docker arch "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_APPS="docker"
 check   arch-docker 0
 want    arch-docker 'Docker \+ Compose.*done' 'app reported installed'
 d="$WORK/run/arch-docker"
@@ -237,7 +390,7 @@ grep -q 'systemctl enable --now docker' "$d/state/sudo.log" \
 # 17. Debian: needs the full repo bootstrap first — GPG key, sources.list.d
 #     entry, apt update — before docker-ce is even installable. This is also
 #     the first scenario to exercise apt_install_keyring end to end.
-run debian-docker debian "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+run debian-docker debian "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_APPS="docker"
 check   debian-docker 0
 want    debian-docker 'Docker \+ Compose.*done' 'app reported installed'
 d="$WORK/run/debian-docker"
@@ -260,7 +413,7 @@ grep -q 'systemctl enable --now docker' "$d/state/sudo.log" \
 
 # 18. Ubuntu: same repo bootstrap, but the ubuntu host + noble codename, so a
 #     copy-paste of the debian URL would go undetected without this.
-run ubuntu-docker ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="git" STUB_FZF_PICK3="docker"
+run ubuntu-docker ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_APPS="docker"
 check   ubuntu-docker 0
 d="$WORK/run/ubuntu-docker"
 src="$d/etc/apt/sources.list.d/docker.list"
@@ -281,7 +434,7 @@ echo "── restore bash ──────────────────
 # 16. The ordinary undo. The bar is not "close enough" — the rc the user wrote
 #     has to come back byte for byte, and the pristine copy has to survive it,
 #     or the second attempt at an undo has nothing to work from.
-run     restore-zsh ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+run     restore-zsh ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
 check   restore-zsh 0
 rb_zsh="$WORK/run/restore-zsh/home"
 grep -q 'hand interactive bash to zsh (v2)' "$rb_zsh/.bashrc" 2>/dev/null \
@@ -345,7 +498,7 @@ cmp -s "$SEED_BASHRC" "$rb_zsh/.bashrc" \
 #     door, and it has to open onto exactly the same code. Declining comes first
 #     on this sandbox, since "n" only proves anything while there is still
 #     something left to lose.
-run     restore-env ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+run     restore-env ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
 check   restore-env 0
 rb_env="$WORK/run/restore-env/home"
 manifest "$rb_env" > "$WORK/mf-decline-before"
@@ -371,7 +524,7 @@ cmp -s "$SEED_BASHRC" "$rb_env/.bashrc" \
 #     it done — that leaves a file the machine never had and no bash config in
 #     it. .bashrc.none is how the restore knows there is no original to put back
 #     and that bash/.bashrc is what belongs there instead.
-STUB_NO_BASHRC=1 run restore-nobashrc ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+STUB_NO_BASHRC=1 run restore-nobashrc ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
 check   restore-nobashrc 0
 rb_none="$WORK/run/restore-nobashrc/home"
 [ -f "$rb_none/.bashrc.none" ] \
@@ -404,7 +557,7 @@ fi
 #     to zsh forever — with the flag that was supposed to stop it reporting
 #     success. The pristine copy is taken on this same run, and it is write-once:
 #     if it captures the v1 block, the wrong file is preserved permanently.
-STUB_V1_HOOK=1 run restore-v1hook ubuntu "$WORK/k-fzf" STUB_FZF_PICK1="zsh"
+STUB_V1_HOOK=1 run restore-v1hook ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
 check   restore-v1hook 0
 rb_v1="$WORK/run/restore-v1hook/home"
 v2n=$(grep -c '^# >>> hand interactive bash to zsh (v2) >>>' "$rb_v1/.bashrc" 2>/dev/null)
@@ -464,6 +617,35 @@ irc=0
 kill "$holder" 2>/dev/null
 if [ "$irc" = 130 ]; then note interrupt "Ctrl-C exits 130"; else bad interrupt "Ctrl-C gave exit $irc"; fi
 if grep -q 'Interrupted' "$ipt/out.txt"; then note interrupt "says so"; else bad interrupt "no message"; fi
+
+# Same thing with the menu on screen. The menu takes the alternate screen and
+# turns off echo, and it must not own the EXIT trap to undo that — this script
+# already traps EXIT for the sudo keepalive and the temp dir, and the menu
+# replacing it left the rest of the run with no cleanup at all.
+# build_root, not a hand-rolled sandbox: this one has to get *past* the apt
+# bootstrap to reach the menu, which means the stub package list has to be
+# seeded the same way every other scenario seeds it.
+ipt2="$WORK/run/interrupt-menu"
+build_root "$ipt2" ubuntu
+mkfifo "$ipt2/keys"
+( exec 3>"$ipt2/keys"; printf '\n\n' >&3; sleep 8; printf '\003' >&3; sleep 15; exec 3>&- ) &
+holder2=$!
+irc2=0
+( cd "$ipt2/home/dotfiles" && env -i ${ENV_SIGDFL[@]+"${ENV_SIGDFL[@]}"} \
+    HOME="$ipt2/home" USER="$(id -un)" \
+    PATH="$WORK/bin:$WORK/sysbin" TERM=xterm-256color LANG=en_US.UTF-8 SHELL=/bin/bash \
+    STUB_STATE="$ipt2/state" STUB_BIN="$WORK/bin" STUB_ROOT="$ipt2" \
+    timeout 60 script -qec "stty rows 40 cols 150 2>/dev/null; bash ./install.sh" /dev/null \
+        < "$ipt2/keys" > "$ipt2/out.txt" 2>&1 ) || irc2=$?
+kill "$holder2" 2>/dev/null
+if [ "$irc2" = 130 ]; then note interrupt-menu "Ctrl-C in the menu exits 130"
+else bad interrupt-menu "Ctrl-C gave exit $irc2"; fi
+if grep -q 'Interrupted' "$ipt2/out.txt"; then note interrupt-menu "says so"
+else bad interrupt-menu "no message"; fi
+if grep -q $'\033\[?1049l' "$ipt2/out.txt"; then note interrupt-menu "alternate screen released"
+else bad interrupt-menu "left the terminal on the alternate screen"; fi
+if grep -q 'ctrl-d review' "$ipt2/out.txt"; then note interrupt-menu "the menu was up when it happened"
+else bad interrupt-menu "menu never drew, so this proved nothing"; fi
 
 echo
 echo "── private-mode residue ─────────────────────────────────"

@@ -123,6 +123,15 @@ docker-ce-cli
 containerd.io
 docker-buildx-plugin
 docker-compose-plugin
+proton-vpn-cli
+protonvpn-cli
+kitty
+ghostty
+rofi
+ulauncher
+vlc
+flatpak
+obsidian
 PKGS
 
     sandbox_repo "$root"
@@ -156,10 +165,30 @@ PKGS
 # $RUN_ARGS (set as a prefix on the run/rerun call) is appended to the command
 # line, which is the only way a scenario can reach a flag: install.sh parses "$@"
 # and the harness used to hardcode an empty one.
+# Keystrokes come either from a plain file — written once, up front — or from a
+# script, which is fed live and can wait for the installer to reach a prompt.
+# The menu needs the second kind: it puts the terminal in raw mode, and that
+# discards whatever was already sitting in the input queue, so anything typed
+# ahead of it is simply gone.
+feed_keys() {           # feed_keys <keys-file> <transcript>
+    if [ "${1##*.}" = "sh" ]; then
+        FEED_OUT="$2" bash "$1"
+    else
+        cat "$1"
+    fi
+}
+
 install_pass() {        # install_pass <root> <outdir> <keys-file> [VAR=value ...]
     local root="$1" out="$2" keys="$3"; shift 3
     mkdir -p "$out"
-    local cmd="bash ./install.sh"
+    # A pty inherits its size from the terminal that made it, and CI (and this
+    # runner) often has none — which leaves it 0x0 and makes the menu correctly
+    # decide it cannot draw. Give every scenario a real window.
+    local _rows="${STUB_TTY_ROWS:-40}" _cols="${STUB_TTY_COLS:-150}"
+    # STUB_NO_SIZE reproduces a pty nobody ever set a size on — a CI runner, or
+    # a detached session. The menu has to decline to draw on one.
+    [ "${STUB_NO_SIZE:-0}" = 1 ] && { _rows=0; _cols=0; }
+    local cmd="stty rows $_rows cols $_cols 2>/dev/null; bash ./install.sh"
     [ -n "${RUN_ARGS:-}" ] && cmd="$cmd ${RUN_ARGS}"
 
     # script(1) gives the installer a real pty, so /dev/tty resolves and the
@@ -181,8 +210,9 @@ install_pass() {        # install_pass <root> <outdir> <keys-file> [VAR=value ..
         STUB_STATE="$root/state" STUB_BIN="$root/bin" STUB_TPL="$WORK/tpl" \
         STUB_ROOT="$root" STUB_APT_SRCD="$root/etc/apt/sources.list.d" \
         "$@" \
-        timeout 45 script -qec "$cmd" /dev/null \
-            < "$keys" > "$out/out.txt" 2>&1 ) || rc=$?
+        FEED_OUT="$out/out.txt" \
+        timeout 60 script -qec "$cmd" /dev/null \
+            < <(feed_keys "$keys" "$out/out.txt") > "$out/out.txt" 2>&1 ) || rc=$?
     echo "$rc" > "$out/rc"
 
     [ -f "$root/state/lockpid" ] && kill "$(cat "$root/state/lockpid")" 2>/dev/null
