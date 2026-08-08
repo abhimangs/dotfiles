@@ -137,6 +137,7 @@ apply_upgrades() {
     for k in "${ORDER[@]}"; do
         [ "${PSTATE[$k]}" = installed ] && [ -n "${upd[${PKG[$k]}]:-}" ] && PSTATE[$k]=update
     done
+    build_cells
 }
 
 # ── view state ───────────────────────────────────────────────────────────────
@@ -146,8 +147,10 @@ TOP=0            # first visible row, for scrolling
 FILTER=""
 declare -a VIEW=()   # keys currently listed
 
+SEC_TOTAL=0
 build_view() {
     VIEW=()
+    SEC_TOTAL=0
     local sec=${TABS[$TAB]} k f=${FILTER,,} hay
     for k in "${ORDER[@]}"; do
         if [ "$sec" = selected ]; then
@@ -155,6 +158,7 @@ build_view() {
         else
             [ "${SECT[$k]}" = "$sec" ] || continue
         fi
+        SEC_TOTAL=$(( SEC_TOTAL + 1 ))
         if [ -n "$f" ]; then
             hay="${NAME[$k]} ${DESC[$k]}"
             [[ "${hay,,}" == *"$f"* ]] || continue
@@ -182,123 +186,224 @@ recount() {
 }
 
 # ── drawing ──────────────────────────────────────────────────────────────────
-# Every cell is a fixed width of plain characters, so columns line up: no glyph
-# whose display width printf cannot see, and colour is only ever wrapped around
-# an already-padded string.
+# Boxes, labels and a details pane — the same frame the fzf version drew, but
+# every line is assembled here, so the widths are exact rather than negotiated.
 #
-# Nothing below runs a command substitution. A frame touches ~35 rows and the
-# old fzf wiring forked seven times per row; here a frame is pure string
-# building and one write.
+# Two rules make the columns hold:
+#   · anything that gets padded is ASCII. printf pads %s by bytes, so a cell
+#     containing ● or ↑ comes out a different width than one that does not.
+#   · colour is wrapped around an already-padded plain string, never inside it.
+#
+# Nothing below forks. A frame is string building plus one write.
 NAMEW=20
 STATEW=10
 
-# Locals here are prefixed because these write into a variable the caller names:
-# a local with the same name as the target shadows it, printf -v fills the local
-# instead, and the caller reads an unset variable.
 pad() {                         # pad <var> <text> <width>
     local _p_t=$2 _p_w=$3
     (( ${#_p_t} > _p_w )) && _p_t="${_p_t:0:_p_w-1}…"
     printf -v "$1" '%-*s' "$_p_w" "$_p_t"
 }
 
-# Words, not symbols. printf pads %s by *bytes*, so "● installed" (13 bytes,
-# 11 columns) and "○ new" (7 bytes, 5 columns) came out at different widths and
-# the description column stepped in and out by two. Every padded cell in this
-# file is ASCII for that reason; colour carries the meaning the dot used to.
-state_cell() {                  # state_cell <var> <key>
-    local _s_c=""
-    case "${PSTATE[$2]}" in
-        installed) pad _s_c 'installed' $STATEW; printf -v "$1" '%s%s%s' "$GREEN"  "$_s_c" "$R" ;;
-        update)    pad _s_c 'update'    $STATEW; printf -v "$1" '%s%s%s' "$YELLOW" "$_s_c" "$R" ;;
-        *)         pad _s_c 'new'       $STATEW; printf -v "$1" '%s%s%s' "$DIM"    "$_s_c" "$R" ;;
-    esac
-}
-
-tab_bar() {                     # tab_bar <var>
-    local _t_i _t_t _t_n out=""
-    for _t_i in "${!TABS[@]}"; do
-        _t_t=${TABS[$_t_i]}; _t_n=${CNT[$_t_t]:-0}
-        [ "$_t_n" = 0 ] && _t_n="" || _t_n=" $_t_n"
-        if [ "$_t_i" = "$TAB" ]; then out+="${MAUVE}${B} ▌ ${_t_t}${_t_n} ${R}"
-        else                          out+="${DIM}   ${_t_t}${_t_n} ${R}"
-        fi
+# Padded, coloured cells are built once per state change rather than per frame:
+# the name and the state column are the same 35 strings every redraw.
+declare -A CELL NPAD_ON NPAD_OFF
+build_cells() {
+    local k c
+    for k in "${ORDER[@]}"; do
+        case "${PSTATE[$k]}" in
+            installed) pad c 'installed' $STATEW; CELL[$k]="${GREEN}${c}${R}"  ;;
+            update)    pad c 'update'    $STATEW; CELL[$k]="${YELLOW}${c}${R}" ;;
+            *)         pad c 'new'       $STATEW; CELL[$k]="${DIM}${c}${R}"    ;;
+        esac
+        pad c "${NAME[$k]}" $NAMEW
+        NPAD_ON[$k]="${GREEN}${B}${c}${R}"
+        NPAD_OFF[$k]="${TEXT}${c}${R}"
     done
-    printf -v "$1" '%s' "$out"
 }
 
-# Right-hand pane: what the cursor is on, then everything ticked.
-detail_lines() {
+# ── box drawing ──────────────────────────────────────────────────────────────
+# printf pads in C, a bash loop pads one character at a time — at ~35 rows a
+# frame that difference was most of the frame time.
+rep() {                         # rep <var> <char> <n>
+    local _r_o
+    (( $3 <= 0 )) && { printf -v "$1" '%s' ""; return; }
+    printf -v _r_o '%*s' "$3" ''
+    [ "$2" = ' ' ] || _r_o=${_r_o// /$2}
+    printf -v "$1" '%s' "$_r_o"
+}
+
+box_top() {                     # box_top <var> <width> <label>
+    local _b_l=$3 _b_w=$2 _b_f
+    if [ -n "$_b_l" ]; then
+        rep _b_f '─' $(( _b_w - 6 - ${#_b_l} ))
+        printf -v "$1" '%s╭─ %s%s%s ─%s╮%s' "$DIM" "$TEAL" "$_b_l" "$DIM" "$_b_f" "$R"
+    else
+        rep _b_f '─' $(( _b_w - 2 ))
+        printf -v "$1" '%s╭%s╮%s' "$DIM" "$_b_f" "$R"
+    fi
+}
+
+box_bottom() {                  # box_bottom <var> <width>
+    local _b_f; rep _b_f '─' $(( $2 - 2 ))
+    printf -v "$1" '%s╰%s╯%s' "$DIM" "$_b_f" "$R"
+}
+
+# A content row: │ + one space + body + padding + one space + │. The body is
+# handed in already coloured, with its *plain* length so the padding is right.
+box_row() {                     # box_row <var> <width> <body> <plain-length>
+    local _b_p="" _b_n=$(( $2 - 4 - $4 ))
+    (( _b_n > 0 )) && printf -v _b_p '%*s' "$_b_n" ''
+    printf -v "$1" '%s│%s %s%s %s│%s' "$DIM" "$R" "$3" "$_b_p" "$DIM" "$R"
+}
+
+# ── right pane content ───────────────────────────────────────────────────────
+# Lines are kept as plain text plus a colour, so they can be truncated to the
+# pane width without cutting an escape sequence in half.
+declare -a PTXT=() PCLR=() PLBL=()
+pane_add() {                    # pane_add <text> <colour> [dim-prefix-length]
+    PTXT+=("$1"); PCLR+=("$2"); PLBL+=("${3:-0}")
+}
+
+pane_build() {                  # pane_build <key>
     local key=${1:-} k s
-    OUT=()
+    PTXT=(); PCLR=(); PLBL=()
     if [ -n "$key" ]; then
-        OUT+=("${MAUVE}${B}${NAME[$key]}${R}")
-        OUT+=("${DIM}${DESC[$key]}${R}")
-        OUT+=("")
-        OUT+=("${DIM}menu    ${R}${SECT[$key]}")
-        OUT+=("${DIM}package ${R}${PKG[$key]}")
+        pane_add "${NAME[$key]}" "${MAUVE}${B}"
+        pane_add "${DESC[$key]}" "$DIM"
+        pane_add "" "$R"
+        pane_add "menu     ${SECT[$key]}" "$R" 9
+        pane_add "package  ${PKG[$key]}"  "$R" 9
         case "$key" in
-            zsh)       OUT+=("${DIM}stows   ${R}~/.zshrc")
-                       OUT+=("${DIM}pulls   ${R}starship + every tool") ;;
-            bash)      OUT+=("${DIM}stows   ${R}~/.bashrc") ;;
-            git)       OUT+=("${DIM}stows   ${R}~/.gitconfig") ;;
-            starship)  OUT+=("${DIM}stows   ${R}~/.config/starship.toml") ;;
-            protonvpn) OUT+=("${DIM}stows   ${R}~/scripts/pvpn/pvpn.zsh") ;;
-            *) [ "${SECT[$key]}" = dotfiles ] && OUT+=("${DIM}stows   ${R}~/.config/${key}/") ;;
+            zsh)       pane_add "stows    ~/.zshrc" "$R" 9
+                       pane_add "pulls    starship + every tool" "$R" 9 ;;
+            bash)      pane_add "stows    ~/.bashrc" "$R" 9 ;;
+            git)       pane_add "stows    ~/.gitconfig" "$R" 9 ;;
+            starship)  pane_add "stows    ~/.config/starship.toml" "$R" 9 ;;
+            protonvpn) pane_add "stows    ~/scripts/pvpn/pvpn.zsh" "$R" 9 ;;
+            *) [ "${SECT[$key]}" = dotfiles ] && pane_add "stows    ~/.config/${key}/" "$R" 9 ;;
         esac
         case "${PSTATE[$key]}" in
-            installed) OUT+=("${DIM}state   ${R}${GREEN}● already installed${R}") ;;
-            update)    OUT+=("${DIM}state   ${R}${YELLOW}↑ installed, update available${R}") ;;
-            *)         OUT+=("${DIM}state   ${R}${DIM}○ will be installed${R}") ;;
+            installed) pane_add "state    already installed"          "$GREEN"  9 ;;
+            update)    pane_add "state    installed, update waiting"  "$YELLOW" 9 ;;
+            *)         pane_add "state    will be installed"          "$DIM"    9 ;;
         esac
     else
-        OUT+=("${DIM}nothing here${R}")
+        pane_add "nothing here" "$DIM"
     fi
-    OUT+=("")
-    OUT+=("${GREEN}${B}TICKED  ${CNT[total]}${R}")
-    OUT+=("")
+    pane_add "" "$R"
+    pane_add "TICKED  ${CNT[total]}" "${GREEN}${B}"
+    pane_add "" "$R"
     if [ "${CNT[total]}" = 0 ]; then
-        OUT+=("${DIM}space ticks the row you are on${R}")
+        pane_add "space or enter ticks a row" "$DIM"
         return
     fi
     for s in dotfiles tools apps; do
         [ "${CNT[$s]}" = 0 ] && continue
-        OUT+=("${TEAL}${s}${R} ${DIM}${CNT[$s]}${R}")
+        pane_add "${s} ${CNT[$s]}" "$TEAL"
         for k in "${ORDER[@]}"; do
             [ "${TICK[$k]}" = 1 ] && [ "${SECT[$k]}" = "$s" ] \
-                && OUT+=("  ${GREEN}✔ ${NAME[$k]}${R}")
+                && pane_add "  ✔ ${NAME[$k]}" "$GREEN"
         done
     done
 }
 
-COLS=100; ROWS=30
-measure() { COLS=$(tput cols 2>/dev/null || echo 100); ROWS=$(tput lines 2>/dev/null || echo 30); }
+# The separator is whatever is left over, so the bar fills the box exactly and
+# can never overflow it — a bar one column too wide pushed the right border out.
+tab_bar() {                     # tab_bar <var> <plain-length var> <inner width>
+    local _t_i _t_t _t_n out="" base=0 sep gap label
+    local -a labels=()
+    for _t_i in "${!TABS[@]}"; do
+        _t_t=${TABS[$_t_i]}; _t_n=${CNT[$_t_t]:-0}
+        [ "$_t_n" = 0 ] && _t_n="" || _t_n=" $_t_n"
+        labels+=("${_t_t}${_t_n}")
+        base=$(( base + 2 + ${#_t_t} + ${#_t_n} ))
+    done
+    sep=$(( ($3 - base) / ${#TABS[@]} ))
+    (( sep < 1 )) && sep=1
+    (( sep > 5 )) && sep=5
+    rep gap ' ' "$sep"
+    for _t_i in "${!TABS[@]}"; do
+        label=${labels[$_t_i]}
+        if [ "$_t_i" = "$TAB" ]; then out+="${MAUVE}${B}▌ ${label}${R}${gap}"
+        else                          out+="${DIM}  ${label}${R}${gap}"
+        fi
+    done
+    printf -v "$1" '%s' "$out"
+    printf -v "$2" '%s' "$(( base + sep * ${#TABS[@]} ))"
+}
+
+# ── geometry ─────────────────────────────────────────────────────────────────
+COLS=80; ROWS=24
+measure() {
+    local sz=""
+    # stty, not tput: tput needs a terminfo entry for $TERM and simply fails on
+    # a terminal it has never heard of, and a frame drawn to the wrong size
+    # wraps every line and scrolls the screen to pieces.
+    sz=$(stty size 2>/dev/null </dev/tty) || sz=""
+    if [[ "$sz" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+        ROWS=${BASH_REMATCH[1]}; COLS=${BASH_REMATCH[2]}
+    else
+        ROWS=$(tput lines 2>/dev/null) || ROWS=24
+        COLS=$(tput cols  2>/dev/null) || COLS=80
+    fi
+    [[ "$ROWS" =~ ^[0-9]+$ ]] || ROWS=24
+    [[ "$COLS" =~ ^[0-9]+$ ]] || COLS=80
+    (( ROWS < 14 )) && ROWS=14
+    (( COLS < 60 )) && COLS=60
+}
 
 draw() {
-    local lw=$(( COLS * 58 / 100 ))
-    (( lw < 46 )) && { lw=46; (( COLS < 46 )) && lw=$COLS; }
-    local descw=$(( lw - 4 - NAMEW - 1 - STATEW - 2 ))
+    local lw=$(( COLS * 60 / 100 ))
+    local rw=$(( COLS - lw - 1 ))
+    (( rw > 46 )) && { rw=46; lw=$(( COLS - rw - 1 )); }
+    (( rw < 24 )) && { rw=24; lw=$(( COLS - rw - 1 )); }
+    local liw=$(( lw - 4 ))          # inner text width, list box
+    local riw=$(( rw - 4 ))          # inner text width, pane
+    local descw=$(( liw - 2 - 3 - 1 - NAMEW - 1 - STATEW - 1 ))
     (( descw < 6 )) && descw=6
 
-    local body=$(( ROWS - 8 ))
+    # 3 boxes stacked on the left: search (3), sections (3), list. Plus one
+    # footer line and one blank. The list box gets whatever is left.
+    local body=$(( ROWS - 10 ))
     (( body < 3 )) && body=3
     (( CUR < TOP )) && TOP=$CUR
     (( CUR >= TOP + body )) && TOP=$(( CUR - body + 1 ))
     (( TOP < 0 )) && TOP=0
 
     recount
-    detail_lines "${VIEW[$CUR]:-}"
+    pane_build "${VIEW[$CUR]:-}"
 
-    local bar; tab_bar bar
-    local -a out=()
-    out+=("")
-    out+=("  ${MAUVE}${B}dotfiles installer${R}")
-    out+=("  $bar")
-    out+=("")
+    local -a L=() Rr=()
+    local t bar barlen line plain n
 
-    local i k row name cell desc tint mark
+    # ── left: search box ──
+    box_top t "$lw" "search"; L+=("$t")
+    if [ -n "$FILTER" ]; then
+        plain="${FILTER}▏"
+        printf -v line '%s%s%s' "$TEXT" "$plain" "$R"
+    else
+        plain="type to search this menu"
+        printf -v line '%s%s%s' "$DIM" "$plain" "$R"
+    fi
+    n="${#VIEW[@]}/${SEC_TOTAL}"
+    local gap=$(( liw - ${#plain} - ${#n} ))
+    (( gap < 1 )) && gap=1
+    local sp; rep sp ' ' "$gap"
+    box_row t "$lw" "${line}${sp}${DIM}${n}${R}" $(( ${#plain} + gap + ${#n} )); L+=("$t")
+    box_bottom t "$lw"; L+=("$t")
+
+    # ── left: sections box ──
+    box_top t "$lw" "sections"; L+=("$t")
+    tab_bar bar barlen "$liw"
+    box_row t "$lw" "$bar" "$barlen"; L+=("$t")
+    box_bottom t "$lw"; L+=("$t")
+
+    # ── left: the list ──
+    box_top t "$lw" "${TABS[$TAB]}"; L+=("$t")
+    local i k mark name cell desc tint cursor
     for (( i = TOP; i < TOP + body; i++ )); do
         if (( i >= ${#VIEW[@]} )); then
-            row=""
+            box_row t "$lw" "" 0
         else
             k=${VIEW[$i]}
             if [ "${TICK[$k]}" = 1 ]; then
@@ -306,34 +411,40 @@ draw() {
             else
                 mark="${DIM}[ ]${R}"; tint="$DIM"
             fi
-            pad name "${NAME[$k]}" $NAMEW
-            if [ "${TICK[$k]}" = 1 ]; then name="${GREEN}${B}${name}${R}"
-            else                           name="${TEXT}${name}${R}"; fi
-            state_cell cell "$k"
+            if [ "${TICK[$k]}" = 1 ]; then name=${NPAD_ON[$k]}; else name=${NPAD_OFF[$k]}; fi
+            cell=${CELL[$k]}
             desc=${DESC[$k]}
             (( ${#desc} > descw )) && desc="${desc:0:descw-1}…"
-            if (( i == CUR )); then row="${MAUVE}❯${R} "; else row="  "; fi
-            row+="${mark} ${name} ${cell} ${tint}${desc}${R}"
+            if (( i == CUR )); then cursor="${MAUVE}❯${R} "; else cursor="  "; fi
+            box_row t "$lw" "${cursor}${mark} ${name} ${cell} ${tint}${desc}${R}" \
+                $(( 2 + 3 + 1 + NAMEW + 1 + STATEW + 1 + ${#desc} ))
         fi
-        # \033[K wipes whatever the previous frame left between here and the
-        # end of the line; \033[<n>G then puts the pane at a fixed column, so
-        # however much colour the left row carries it cannot shove it sideways.
-        printf -v row '%s\033[K\033[%dG%s%s' "$row" "$(( lw + 2 ))" "${DIM}│${R}  " "${OUT[$(( i - TOP ))]:-}"
-        out+=("$row")
+        L+=("$t")
     done
+    box_bottom t "$lw"; L+=("$t")
 
-    out+=("")
-    if [ -n "$FILTER" ]; then
-        out+=("  ${DIM}search${R} ${TEXT}${FILTER}${R}${DIM}▏   ${#VIEW[@]} shown · esc clears${R}")
-    else
-        out+=("  ${DIM}type to search this menu${R}")
-    fi
-    out+=("  ${DIM}← → menu   ↑ ↓ move   space tick   ctrl-a all   enter confirm   esc cancel${R}")
+    # ── right: the pane, same height as everything on the left ──
+    local pane_h=$(( ${#L[@]} ))
+    box_top t "$rw" "details"; Rr+=("$t")
+    for (( i = 0; i < pane_h - 2; i++ )); do
+        plain="${PTXT[$i]:-}"
+        (( ${#plain} > riw )) && plain="${plain:0:riw-1}…"
+        if (( ${PLBL[$i]:-0} > 0 )); then
+            box_row t "$rw" "${DIM}${plain:0:${PLBL[$i]}}${R}${PCLR[$i]}${plain:${PLBL[$i]}}${R}" "${#plain}"
+        else
+            box_row t "$rw" "${PCLR[$i]:-}${plain}${R}" "${#plain}"
+        fi
+        Rr+=("$t")
+    done
+    box_bottom t "$rw"; Rr+=("$t")
 
-    # One write per frame: no flicker, nothing half-drawn.
+    # ── one write ──
     local frame=$'\033[H'
-    for row in "${out[@]}"; do frame+="${row}"$'\033[K\n'; done
-    frame+=$'\033[J'
+    for (( i = 0; i < ${#L[@]}; i++ )); do
+        frame+="${L[$i]} ${Rr[$i]:-}"$'\033[K\n'
+    done
+    frame+="  ${DIM}← → menu   ↑ ↓ move   space / enter tick   ctrl-a all   ctrl-d confirm   esc cancel${R}"
+    frame+=$'\033[K\033[J'
     printf '%s' "$frame"
 }
 
@@ -405,11 +516,11 @@ loop() {
                     '')  if [ -n "$FILTER" ]; then FILTER=""; CUR=0; build_view
                          else return 1; fi ;;
                 esac ;;
-            # Space ticks and Enter confirms, the usual checkbox-list split. It
-            # also sidesteps CR/LF: depending on the terminal's icrnl, Enter
-            # arrives as \r or as \n, so no other key can safely own either.
-            ' ')          toggle_cur ;;
-            $'\r'|$'\n') CONFIRMED=1; return 0 ;;
+            # Space and Enter both tick. Enter arrives as \r or as \n depending
+            # on the terminal's icrnl, and ctrl-j is \n either way, so nothing
+            # else can own either byte — confirm gets its own key.
+            ' '|$'\r'|$'\n') toggle_cur ;;
+            $'\004')         CONFIRMED=1; return 0 ;;              # ctrl-d
             $'\001')      toggle_all ;;                            # ctrl-a
             $'\023')      switch_tab 3 ;;                          # ctrl-s
             $'\011')      switch_tab +1 ;;                         # tab
@@ -432,6 +543,7 @@ cleanup() {
 main() {
     parse_items
     scan_installed
+    build_cells
     start_upgrade_scan
     build_view
     measure

@@ -11,38 +11,48 @@ forked a callback that re-read the item table with `cut` (seven subshells a
 row), re-rendered the list twice and re-ran the preview. Hundreds of processes
 per keystroke.
 
-Here **nothing forks after startup**. The table is parsed once into arrays, a
-frame is a string built in bash and written with one `printf`, and a keypress
-redraws in **1.4 ms** (200 frames measured at 0.28 s). First frame is up in
-~60 ms: "what is installed" is a 20 ms local query, and the slower "what has an
-update" runs in the background and fills the rows in when it lands — which
-matters most on Debian, where `apt list --upgradable` can take seconds.
+Here **nothing forks after startup**. The table is parsed once into arrays, the
+padded name and state cells are built once per state change, and a frame is a
+string assembled in bash and written with one `printf` — **~3 ms a redraw**.
+First frame is up in ~60 ms: "what is installed" is a 20 ms local query, and the
+slower "what has an update" runs in the background and fills the rows in when it
+lands, which matters most on Debian where `apt list --upgradable` takes seconds.
 
 | key | |
 |---|---|
 | `←` `→` | previous / next menu (wraps; `tab` too) |
 | `↑` `↓` `PgUp` `PgDn` | move |
 | `f1`–`f4` | jump to dotfiles / tools / apps / selected (`ctrl-s` also) |
-| `space` | tick the row, and move to the next |
+| `space` or `enter` | tick the row, and move to the next |
 | `ctrl-a` | tick everything in this menu — again to untick |
 | type | search this menu only; `esc` clears it |
-| `enter` | confirm |
+| `ctrl-d` | confirm |
 | `esc` | cancel |
 
-Space ticks and Enter confirms rather than the other way round: depending on the
-terminal's `icrnl`, Enter arrives as `\r` or as `\n`, so nothing else can safely
-own either.
+Confirm is `ctrl-d` rather than Enter because Enter arrives as `\r` or as `\n`
+depending on the terminal's `icrnl`, and ctrl-j is `\n` either way — so no other
+key can safely own either byte, and both of them tick.
 
 Three menus — **dotfiles · tools · apps** — plus **selected**, which lists what
 is ticked across all three and unticks from there. No sub-groups and no icons:
-plain names only. A ticked row goes green end to end, and every row says what it
-will do — `new`, `installed`, or `update`.
+plain names. A ticked row goes green end to end, and every row says what it will
+do — `new`, `installed`, or `update`.
 
-**Columns line up because every padded cell is ASCII.** `printf` pads `%s` by
-bytes, so `● installed` (13 bytes, 11 columns) and `○ new` (7 bytes, 5 columns)
-came out different widths and the description column stepped in and out — and a
-Nerd Font glyph is two columns wide while `printf` counts it as one, which is
-what made the old name column ragged. Colour carries what the symbols did.
+### Why it looks right at any size
+
+- **Size comes from `stty size`, not `tput`.** tput needs a terminfo entry for
+  `$TERM` and simply fails on a terminal it has not heard of; a frame drawn to
+  the wrong size wraps every line and scrolls the screen to pieces.
+- **Every padded cell is ASCII.** `printf` pads `%s` by bytes, so `● installed`
+  (13 bytes, 11 columns) and `○ new` (7 bytes, 5) came out different widths — and
+  a Nerd Font glyph is two columns wide while `printf` counts it as one, which is
+  what made the name column ragged. Colour carries what the symbols did.
+- **Colour is wrapped around already-padded plain text**, never inside it, and
+  the boxes are drawn from known plain lengths — so a coloured row cannot shove a
+  border sideways.
+- **The tab bar sizes its own separators** to the box, so it can never overflow.
+- Pane lines are stored as plain text plus a colour and truncated before the
+  colour is applied, so a narrow terminal cannot cut an escape sequence in half.
 
 ---
 
