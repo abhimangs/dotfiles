@@ -171,7 +171,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty vlc)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vlc)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -1447,6 +1447,27 @@ ensure_alacritty_deb() {
     apt_pkg_installed alacritty
 }
 
+# ── wezterm (Debian/Ubuntu) ──────────────────────────────────────────────────
+# Not in apt on either distro, so the vendor Fury repo is the only path. It
+# publishes two packages that conflict with each other — take the nightly one:
+# the last stable release is 20240203, two and a half years old, and the same
+# staleness is why wezterm-git rather than extra/wezterm is the Arch pick here.
+ensure_wezterm_deb() {
+    apt_pkg_installed wezterm-nightly && return 0
+    ensure_apt_deps
+    apt_install_keyring https://apt.fury.io/wez/gpg.key \
+        /usr/share/keyrings/wezterm-fury.gpg || return 1
+    # The two literal asterisks are not a glob left in by mistake — Fury serves
+    # one flat pool and wants them as the distribution and component fields.
+    echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' \
+        | sudo tee /etc/apt/sources.list.d/wezterm.list >/dev/null
+    sudo chmod 644 /etc/apt/sources.list.d/wezterm.list
+    APT_UPDATED=0
+    apt_update_once
+    apt_install wezterm-nightly
+    apt_pkg_installed wezterm-nightly
+}
+
 # ── fastfetch (Debian/Ubuntu) ─────────────────────────────────────────────────
 ensure_fastfetch_deb() {
     apt_pkg_installed fastfetch && return 0
@@ -1787,6 +1808,7 @@ docker_postinstall() {
 # ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
 FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
 MAPLE_FONT_DIR_DEB="$HOME/.local/share/fonts/MapleMono"
+SYMBOLS_FONT_DIR_DEB="$HOME/.local/share/fonts/NerdFontsSymbols"
 
 font_dir_has_ttf() {
     [ -d "$1" ] && find "$1" -name '*.ttf' -print -quit 2>/dev/null | grep -q .
@@ -1794,6 +1816,7 @@ font_dir_has_ttf() {
 
 font_installed_deb()       { font_dir_has_ttf "$FONT_DIR_DEB"; }
 maple_font_installed_deb() { font_dir_has_ttf "$MAPLE_FONT_DIR_DEB"; }
+symbols_font_installed_deb() { font_dir_has_ttf "$SYMBOLS_FONT_DIR_DEB"; }
 
 # Fetch a font zip from a GitHub release into ~/.local/share/fonts/<dir>.
 # fontconfig is not guaranteed on a minimal/server image — without fc-cache the
@@ -1826,6 +1849,13 @@ ensure_maple_font_deb() {
     maple_font_installed_deb
 }
 
+ensure_symbols_font_deb() {
+    symbols_font_installed_deb && return 0
+    install_font_zip "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/NerdFontsSymbolsOnly.zip" \
+                     "$SYMBOLS_FONT_DIR_DEB"
+    symbols_font_installed_deb
+}
+
 font_installed() {
     if [[ "$DISTRO" == "arch" ]]; then
         pkg_installed "$FONT_PKG"
@@ -1839,6 +1869,21 @@ install_font() {
         arch_install "$FONT_PKG"
     else
         ensure_nerd_font_deb
+    fi
+}
+
+# wezterm renders its tab bar and the powerline glyphs in a config with this
+# font and nothing else — so it is installed silently alongside it rather than
+# offered as a choice. Not in FONT_PKG/MAPLE_FONT_PKG territory: those two go
+# in on every run that installs a config, this one only follows one app.
+SYMBOLS_FONT_PKG="ttf-nerd-fonts-symbols-mono"
+
+install_symbols_font() {
+    if [[ "$DISTRO" == "arch" ]]; then
+        pkg_installed "$SYMBOLS_FONT_PKG" && return 0
+        arch_install "$SYMBOLS_FONT_PKG"
+    else
+        ensure_symbols_font_deb
     fi
 }
 
@@ -2372,14 +2417,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -2392,6 +2437,7 @@ APP_LABEL[vscode]="Visual Studio Code"
 APP_LABEL[vscode-insiders]="VS Code Insiders"
 APP_LABEL[neovim]="Neovim"
 APP_LABEL[alacritty]="Alacritty"
+APP_LABEL[wezterm]="WezTerm"
 APP_LABEL[antigravity-ide]="Antigravity IDE"
 APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
@@ -2420,6 +2466,8 @@ APP_TYPE[vscode-insiders]="paru"
 # Debian/Ubuntu default in app_type_resolved
 APP_TYPE[neovim]="pacman"
 APP_TYPE[alacritty]="pacman"
+# AUR-only: extra/wezterm is pinned to the 20240203 stable release
+APP_TYPE[wezterm]="paru"
 APP_TYPE[antigravity-ide]="paru"
 APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
@@ -2442,6 +2490,7 @@ APP_PKG[vscode]="visual-studio-code-bin"
 APP_PKG[vscode-insiders]="visual-studio-code-insiders-bin"
 APP_PKG[neovim]="neovim"
 APP_PKG[alacritty]="alacritty"
+APP_PKG[wezterm]="wezterm-git"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
@@ -2494,6 +2543,7 @@ APP_PKG_DEB[brave-beta]="brave-origin-beta"
 APP_PKG_DEB[vscode]="code"
 APP_PKG_DEB[vscode-insiders]="code-insiders"
 APP_PKG_DEB[claude-desktop]="claude-desktop"
+APP_PKG_DEB[wezterm]="wezterm-nightly"
 APP_PKG_DEB[docker]="docker-ce"
 
 declare -A APP_TYPE_DEB
@@ -2510,6 +2560,7 @@ APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
+APP_TYPE_DEB[wezterm]="wezterm"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[docker]="docker"
 # vlc/flatpak fall through to the "apt" default below
@@ -2558,6 +2609,7 @@ APP_DESC[vscode]="the editor"
 APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
 APP_DESC[neovim]="the editor, in the terminal"
 APP_DESC[alacritty]="GPU-accelerated terminal"
+APP_DESC[wezterm]="GPU-accelerated terminal  ${G_DOT}  multiplexer built in"
 APP_DESC[antigravity-ide]="agentic IDE"
 APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
@@ -4055,11 +4107,18 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 vscode) ensure_vscode_deb ;;
                 vscode-insiders) ensure_vscode_insiders_deb ;;
                 alacritty) ensure_alacritty_deb ;;
+                wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
                 docker) ensure_docker_deb ;;
             esac
             if pkg_installed "$_pkg"; then
-                if [[ "$app" == "flatpak" ]]; then
+                if [[ "$app" == "wezterm" ]]; then
+                    # Silent — no menu row, no plan line: it is part of what
+                    # "wezterm" means here, not a separate thing to pick.
+                    substep "Installing Nerd Font symbols..."
+                    install_symbols_font \
+                        || substep "${C_YELLOW}Could not install the symbols font — glyphs may not render${C_RESET}"
+                elif [[ "$app" == "flatpak" ]]; then
                     substep "Adding Flathub remote..."
                     ensure_flathub_remote \
                         || substep "${C_YELLOW}Could not add Flathub — add it manually${C_RESET}"
