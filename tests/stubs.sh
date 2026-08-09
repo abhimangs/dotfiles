@@ -126,7 +126,14 @@ ERR
               -o|--option|-c|--config-file|-t|--target-release) optval=1; continue ;;
           esac
           case "$a" in -*|install) continue ;; esac
-          case "$a" in *.deb) continue ;; esac
+          # A downloaded vendor .deb. The path is a mktemp name, so the package
+          # it holds is whatever the curl stub last fetched.
+          case "$a" in *.deb)
+              [ -s "$st/deb_pkg" ] || continue
+              p=$(cat "$st/deb_pkg")
+              grep -qxF "$p" "$st/installed" 2>/dev/null || echo "$p" >> "$st/installed"
+              continue ;;
+          esac
           if grep -qxF "$a" "$st/available" 2>/dev/null; then
               grep -qxF "$a" "$st/installed" 2>/dev/null || echo "$a" >> "$st/installed"
               b="$a"
@@ -293,10 +300,29 @@ if [ -n "$out" ]; then
     # nothing currently asserts on their content.
     case "$url" in
         */gpg|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
+        *.deb)
+            : > "$out"
+            # Vendor .deb: the -o path is a mktemp name that says nothing, but the
+            # URL is the real <pkg>_<ver>_<arch>.deb. Hand the name to the apt stub,
+            # which only sees the temp file.
+            b=${url##*/}; printf '%s\n' "${b%%_*}" > "${STUB_STATE:?}/deb_pkg" ;;
         *) : > "$out" ;;
     esac
     exit 0
 fi
+# github_latest_asset_url's first probe. One asset, named the way a release
+# actually names one, so the caller's arch/extension pattern has to match.
+case "$url" in
+    *api.github.com/repos/*/releases/latest)
+        repo=${url#*api.github.com/repos/}; repo=${repo%/releases/latest}
+        case "$repo" in
+            sinelaw/fresh) pkg=fresh-editor ;;
+            *)             pkg=${repo#*/} ;;
+        esac
+        printf '"browser_download_url": "https://github.com/%s/releases/download/v1.0/%s_1.0_%s.deb"\n' \
+            "$repo" "$pkg" "${STUB_ARCH:-amd64}"
+        exit 0 ;;
+esac
 case "$url" in
     *starship.rs/install.sh) tool=starship ;;
     *opencode.ai/install)    tool=opencode ;;

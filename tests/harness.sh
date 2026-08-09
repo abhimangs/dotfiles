@@ -127,6 +127,7 @@ proton-vpn-cli
 protonvpn-cli
 kitty
 ghostty
+micro
 rofi
 ulauncher
 vlc

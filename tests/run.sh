@@ -384,6 +384,9 @@ d="$WORK/run/flags-dry/home"
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
 check   flags-all 0
 want    flags-all 'Configs: .*fastfetch.*zsh'  'all of them selected'
+# Regression: the Debian branch used to re-declare CONFIGS as a second literal
+# list, which silently dropped every config added after it was written.
+want    flags-all 'Configs: .*micro.*fresh'    'including the ones added last'
 
 echo
 echo "── docker app selection ─────────────────────────────────"

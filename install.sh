@@ -2446,7 +2446,9 @@ if [[ "$DISTRO" == "debian" ]]; then
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
+    # Strip + append, never a second literal list — see the CONFIGS note below.
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity
+    APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -3391,11 +3393,11 @@ success "Tools verified"
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
 CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh)
-if [[ "$DISTRO" == "debian" ]]; then
-    # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
-    # still on the 1.7.x X11-only build, so rofi stays Arch-only.
-    CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship ulauncher git)
-fi
+# Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
+# still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
+# re-declared as a second literal list: a hand-maintained Debian copy silently
+# drops every config added after it was written (micro and fresh both were).
+[[ "$DISTRO" == "debian" ]] && strip_items CONFIGS rofi
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 declare -a SELECTED=() DEPS=() APPS=()
 
