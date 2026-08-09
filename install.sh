@@ -1515,6 +1515,23 @@ ensure_ulauncher_deb() {
     apt_pkg_installed ulauncher
 }
 
+# ── fresh (Debian/Ubuntu) ────────────────────────────────────────────────────
+# No apt package anywhere — upstream publishes a .deb per release instead. The
+# arch suffix is Debian's own (amd64/arm64), which is what deb_arch prints, and
+# the $ anchor is what keeps the matching .deb.sha256 asset from winning.
+# apt-get rather than dpkg -i for the local file: dpkg leaves unmet deps behind
+# for the next apt run to trip over, apt-get resolves them.
+ensure_fresh_deb() {
+    apt_pkg_installed fresh-editor && return 0
+    local url; url=$(github_latest_asset_url "sinelaw/fresh" "_$(deb_arch)\.deb$")
+    if [ -n "$url" ]; then
+        local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" fresh_XXXXXX.deb)
+        curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
+        rm -f "$tmp"
+    fi
+    apt_pkg_installed fresh-editor
+}
+
 # ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
 ensure_lazygit_deb() {
     apt_pkg_installed lazygit && return 0
@@ -2377,6 +2394,10 @@ PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 PKG_MAP[micro]="micro"
+# AUR-only on Arch, a GitHub-release .deb on Debian/Ubuntu — and the two name
+# the package differently, which every pkg_installed check here goes through.
+PKG_MAP[fresh]="fresh-editor-bin"
+[[ "$DISTRO" == "debian" ]] && PKG_MAP[fresh]="fresh-editor"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf asks for
@@ -2596,6 +2617,7 @@ CONFIG_DESC[starship]="cross-shell prompt"
 CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[git]="git config  →  ~/.gitconfig"
 CONFIG_DESC[micro]="terminal editor            ${G_DOT}  Catppuccin Mocha"
+CONFIG_DESC[fresh]="terminal IDE              ${G_DOT}  AUR / GitHub deb"
 if [[ "$DISTRO" == "arch" ]]; then
     CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  AUR"
 else
@@ -2678,9 +2700,9 @@ show_plan() {
         fi
 
         case "$cfg" in
-          # One arm for all five: same target shape (~/.config/<name>/), same
+          # One arm for all six: same target shape (~/.config/<name>/), same
           # backup rules. The two that differ do so by one line each at the end.
-          fastfetch|ghostty|kitty|rofi|micro)
+          fastfetch|ghostty|kitty|rofi|micro|fresh)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -3368,7 +3390,7 @@ fi
 success "Tools verified"
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh)
 if [[ "$DISTRO" == "debian" ]]; then
     # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
     # still on the 1.7.x X11-only build, so rofi stays Arch-only.
@@ -3694,8 +3716,8 @@ for cfg in "${SELECTED[@]}"; do
 
     case "$cfg" in
 
-      # ── fastfetch / ghostty / kitty / rofi / micro ──────────────────────
-      fastfetch|ghostty|kitty|rofi|micro)
+      # ── fastfetch / ghostty / kitty / rofi / micro / fresh ──────────────
+      fastfetch|ghostty|kitty|rofi|micro|fresh)
         if pkg_installed "$pkg"; then
             substep "${C_ACCENT}${pkg}${C_RESET} already installed"
         else
@@ -3707,6 +3729,7 @@ for cfg in "${SELECTED[@]}"; do
                 case "$cfg" in
                     ghostty)   ensure_ghostty_deb   || _install_ok=0 ;;
                     fastfetch) ensure_fastfetch_deb || _install_ok=0 ;;
+                    fresh)     ensure_fresh_deb     || _install_ok=0 ;;
                     *)         apt_install "$pkg"   || _install_ok=0 ;;
                 esac
             fi

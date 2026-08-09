@@ -1,0 +1,15 @@
+{
+  "theme": "dracula",
+  "editor": {
+    "tab_size": 4,
+    "use_tabs": false,
+    "line_wrap": true,
+    "line_numbers": true,
+    "auto_indent": true,
+    "highlight_current_line": true
+  },
+  "clipboard": {
+    "use_system_clipboard": true,
+    "use_osc52": true
+  }
+}

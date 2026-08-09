@@ -66,6 +66,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
 | `git/` | `~/.gitconfig` | `git` | apt |
 | `micro/` | `~/.config/micro/` | `micro` | apt |
+| `fresh/` | `~/.config/fresh/` | `fresh-editor-bin` *(AUR)* | GitHub `.deb` |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
 
 ## Installer features
