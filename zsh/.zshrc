@@ -48,6 +48,11 @@ setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_SPACE
 
+# ── micro ─────────────────────────────────────────────────────
+# Without this micro drops to 256 colours and the Catppuccin scheme in
+# micro/settings.json renders as approximations of itself.
+export MICRO_TRUECOLOR=1
+
 # ── bun ───────────────────────────────────────────────────────
 # Written by `bun completions`; kept here (portably) so the installer finds it
 # already present and leaves this file alone.

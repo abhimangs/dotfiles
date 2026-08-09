@@ -65,6 +65,7 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `bash/` | `~/.bashrc` | `bash` | apt — plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
 | `git/` | `~/.gitconfig` | `git` | apt |
+| `micro/` | `~/.config/micro/` | `micro` | apt |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
 
 ## Installer features

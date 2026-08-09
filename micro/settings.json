@@ -1,0 +1,7 @@
+{
+    "colorscheme": "catppuccin-mocha",
+    "tabsize": 4,
+    "tabstospaces": true,
+    "clipboard": "terminal",
+    "softwrap": true
+}

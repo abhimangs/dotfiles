@@ -2376,6 +2376,7 @@ PKG_MAP[starship]="starship"
 PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
+PKG_MAP[micro]="micro"
 
 FONT_PKG="ttf-jetbrains-mono-nerd"
 MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf asks for
@@ -2594,6 +2595,7 @@ CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
 CONFIG_DESC[starship]="cross-shell prompt"
 CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[git]="git config  →  ~/.gitconfig"
+CONFIG_DESC[micro]="terminal editor            ${G_DOT}  Catppuccin Mocha"
 if [[ "$DISTRO" == "arch" ]]; then
     CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  AUR"
 else
@@ -2676,9 +2678,9 @@ show_plan() {
         fi
 
         case "$cfg" in
-          # One arm for all four: same target shape (~/.config/<name>/), same
+          # One arm for all five: same target shape (~/.config/<name>/), same
           # backup rules. The two that differ do so by one line each at the end.
-          fastfetch|ghostty|kitty|rofi)
+          fastfetch|ghostty|kitty|rofi|micro)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -3366,7 +3368,7 @@ fi
 success "Tools verified"
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro)
 if [[ "$DISTRO" == "debian" ]]; then
     # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
     # still on the 1.7.x X11-only build, so rofi stays Arch-only.
@@ -3692,8 +3694,8 @@ for cfg in "${SELECTED[@]}"; do
 
     case "$cfg" in
 
-      # ── fastfetch / ghostty / kitty / rofi ──────────────────────────────
-      fastfetch|ghostty|kitty|rofi)
+      # ── fastfetch / ghostty / kitty / rofi / micro ──────────────────────
+      fastfetch|ghostty|kitty|rofi|micro)
         if pkg_installed "$pkg"; then
             substep "${C_ACCENT}${pkg}${C_RESET} already installed"
         else
