@@ -1,7 +1,26 @@
 {
-    "colorscheme": "catppuccin-mocha",
+    "colorscheme": "rose-pine",
     "tabsize": 4,
     "tabstospaces": true,
     "clipboard": "terminal",
-    "softwrap": true
+    "softwrap": true,
+    "wordwrap": true,
+    "scrollbar": true,
+    "autosu": true,
+    "eofnewline": true,
+    "mkparents": true,
+    "diffgutter": true,
+    "pluginchannels": [
+        "https://raw.githubusercontent.com/micro-editor/plugin-channel/master/channel.json"
+    ],
+    "pluginrepos": [],
+    "*.py": {
+        "tabsize": 4
+    },
+    "*.js": {
+        "tabsize": 2
+    },
+    "*.ts": {
+        "tabsize": 2
+    }
 }

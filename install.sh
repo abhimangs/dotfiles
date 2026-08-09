@@ -3755,6 +3755,19 @@ for cfg in "${SELECTED[@]}"; do
         if [[ "$cfg" == "rofi" ]]; then
             substep "${C_DIM}Launch rofi with: ${C_ACCENT}rofi -show drun${C_RESET}"
         fi
+
+        # micro downloads plugins itself, into ~/.config/micro/plug/ — which is
+        # deliberately not in this repo, since it is runtime state rather than
+        # config. Re-running is how it comes back after stow_config has moved a
+        # populated ~/.config/micro aside, so this stays in the normal path.
+        if [[ "$cfg" == "micro" ]]; then
+            substep "Installing micro plugins..."
+            if micro -plugin install filemanager &>/dev/null 2>&1; then
+                substep "${C_DIM}Tree view: ${C_ACCENT}> tree${C_RESET}"
+            else
+                substep "${C_YELLOW}Could not install the filemanager plugin${C_RESET}"
+            fi
+        fi
         ;;
 
       # ── bash ─────────────────────────────────────────────────────────────

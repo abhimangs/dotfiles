@@ -1,0 +1,16 @@
+-- ~/.config/micro/init.lua
+--
+-- micro loads this as a plugin named "initlua", so anything defined here is
+-- reachable from bindings.json as "lua:initlua.<function>".
+--
+-- Deliberately empty of behaviour: the file exists so there is somewhere to
+-- put custom actions, not to change how the editor already works.
+--
+--   local micro = import("micro")
+--
+--   function greet(bp)
+--       micro.InfoBar():Message("hello from init.lua")
+--       return true
+--   end
+--
+-- then in bindings.json:   "Alt-q": "lua:initlua.greet"
