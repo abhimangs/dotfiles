@@ -171,7 +171,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop vlc)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty vlc)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -1430,6 +1430,23 @@ ensure_ghostty_deb() {
     command -v ghostty &>/dev/null
 }
 
+# ── alacritty (Debian/Ubuntu) ────────────────────────────────────────────────
+# Debian has had it in main since bookworm, so plain apt is the whole story
+# there. Ubuntu carries it in universe too, a release or so behind upstream —
+# good enough to prefer, with aslatter's PPA (the upstream-suggested source,
+# builds back to 18.04) only as the fallback when universe has nothing.
+ensure_alacritty_deb() {
+    apt_pkg_installed alacritty && return 0
+    apt_install alacritty
+    apt_pkg_installed alacritty && return 0
+
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        add_ppa ppa:aslatter/ppa
+        apt_install alacritty
+    fi
+    apt_pkg_installed alacritty
+}
+
 # ── fastfetch (Debian/Ubuntu) ─────────────────────────────────────────────────
 ensure_fastfetch_deb() {
     apt_pkg_installed fastfetch && return 0
@@ -2355,14 +2372,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -2374,6 +2391,7 @@ APP_LABEL[brave-stable]="Brave Origin Stable"
 APP_LABEL[vscode]="Visual Studio Code"
 APP_LABEL[vscode-insiders]="VS Code Insiders"
 APP_LABEL[neovim]="Neovim"
+APP_LABEL[alacritty]="Alacritty"
 APP_LABEL[antigravity-ide]="Antigravity IDE"
 APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
@@ -2401,6 +2419,7 @@ APP_TYPE[vscode-insiders]="paru"
 # same name in the official repos and on apt, so no *_DEB override — apt is the
 # Debian/Ubuntu default in app_type_resolved
 APP_TYPE[neovim]="pacman"
+APP_TYPE[alacritty]="pacman"
 APP_TYPE[antigravity-ide]="paru"
 APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
@@ -2422,6 +2441,7 @@ APP_PKG[brave-stable]="brave-origin-bin"
 APP_PKG[vscode]="visual-studio-code-bin"
 APP_PKG[vscode-insiders]="visual-studio-code-insiders-bin"
 APP_PKG[neovim]="neovim"
+APP_PKG[alacritty]="alacritty"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
@@ -2489,6 +2509,7 @@ APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
+APP_TYPE_DEB[alacritty]="alacritty"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[docker]="docker"
 # vlc/flatpak fall through to the "apt" default below
@@ -2536,6 +2557,7 @@ APP_DESC[brave-stable]="chromium browser, no telemetry"
 APP_DESC[vscode]="the editor"
 APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
 APP_DESC[neovim]="the editor, in the terminal"
+APP_DESC[alacritty]="GPU-accelerated terminal"
 APP_DESC[antigravity-ide]="agentic IDE"
 APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
@@ -4032,6 +4054,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     ;;
                 vscode) ensure_vscode_deb ;;
                 vscode-insiders) ensure_vscode_insiders_deb ;;
+                alacritty) ensure_alacritty_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
                 docker) ensure_docker_deb ;;
             esac
