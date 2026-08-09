@@ -2348,14 +2348,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse vlc flatpak docker)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -2374,6 +2374,7 @@ APP_LABEL[codex-cli]="Codex CLI"
 APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
+APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[claude-desktop]="Claude Desktop"
@@ -2396,6 +2397,7 @@ APP_TYPE[codex-cli]="curl"
 APP_TYPE[opencode]="paru"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
+APP_TYPE[postman-cli]="curl"
 APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
@@ -2443,6 +2445,7 @@ APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
+APP_BIN[postman-cli]="postman"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -2464,6 +2467,7 @@ APP_TYPE_DEB[codex-cli]="curl"
 APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
+APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[docker]="docker"
 # vlc/flatpak fall through to the "apt" default below
@@ -2518,6 +2522,7 @@ APP_DESC[codex-cli]="OpenAI's coding agent"
 APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
+APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
@@ -3954,6 +3959,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
                     kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
                     muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
+                    # installs into /usr/local/bin — its own sudo, already cached
+                    postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
