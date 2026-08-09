@@ -103,23 +103,13 @@ bindkey '^T' ''
 # ── zoxide ────────────────────────────────────────────────────
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 
-# ── thefuck ───────────────────────────────────────────────────
-# Built on first use, not at startup. `--alias` spawns a Python interpreter for
-# every shell, and Ubuntu's unpatched 3.32 does not survive Python ≥ 3.12 — it
-# imports `imp`, removed in 3.12 — so the crash landed in the login banner.
-# `command -v` cannot catch that: the binary is there, it just dies.
-if command -v thefuck &>/dev/null; then
-    fuck() {
-        local _alias
-        if ! _alias=$(thefuck --alias 2>/dev/null); then
-            print -u2 "thefuck is installed but broken here — run 'thefuck --alias' to see why"
-            return 1
-        fi
-        unset -f fuck
-        eval "$_alias"
-        fuck "$@"
-    }
-fi
+# ── pay-respects ──────────────────────────────────────────────
+# Replaces thefuck, which apt still ships as the unpatched 3.32: it imports
+# `imp`, gone since Python 3.12, so it died on import and printed a traceback
+# into the login banner on every Ubuntu. Keeps the `fuck` name; also registers
+# a command-not-found handler and Ctrl-X Ctrl-X to correct the current line.
+# ~1ms to load, against thefuck's ~100ms of Python, so it stays inline.
+command -v pay-respects &>/dev/null && eval "$(pay-respects zsh --alias fuck)"
 
 # ── Aliases: Navigation ───────────────────────────────────────
 alias ..='cd ..'

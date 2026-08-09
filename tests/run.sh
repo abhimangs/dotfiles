@@ -324,7 +324,7 @@ confirm
 FEED
 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-all ubuntu "$WORK/k-tui-all.sh"
 check   tui-all 0
-want    tui-all 'Dep tools: .*bat.*eza.*fd.*zoxide.*thefuck.*lazygit.*btop.*tree' 'every tool ticked'
+want    tui-all 'Dep tools: .*bat.*eza.*fd.*zoxide.*pay-respects.*lazygit.*btop.*tree' 'every tool ticked'
 want    tui-all 'No configs selected'          'and nothing from the other menus'
 
 # --ascii: no box-drawing characters, no Nerd Font glyphs, same menu.

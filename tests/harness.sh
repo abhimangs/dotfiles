@@ -112,9 +112,9 @@ fastfetch
 curl
 gnupg
 software-properties-common
-thefuck
 starship
 base-devel
+pay-respects-bin
 docker
 docker-compose
 docker-buildx

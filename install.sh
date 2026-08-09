@@ -926,6 +926,8 @@ PKG_BIN[fastfetch]="fastfetch"
 PKG_BIN[eza]="eza"
 PKG_BIN[zoxide]="zoxide"
 PKG_BIN[fd-find]="fdfind"
+PKG_BIN[pay-respects-bin]="pay-respects"
+PKG_BIN[pay-respects]="pay-respects"
 
 pkg_installed() {
     local pkg="$1"
@@ -1530,6 +1532,22 @@ ensure_fresh_deb() {
         rm -f "$tmp"
     fi
     apt_pkg_installed fresh-editor
+}
+
+# ── pay-respects (Debian/Ubuntu) ─────────────────────────────────────────────
+# Not in apt on any release; upstream publishes a .deb per release, named the
+# way ensure_fresh_deb's pattern already expects. Replaces thefuck, which apt
+# still ships as the unpatched 3.32 — it imports `imp`, gone since Python 3.12,
+# so it dies on import on every supported Ubuntu.
+ensure_pay_respects_deb() {
+    apt_pkg_installed pay-respects && return 0
+    local url; url=$(github_latest_asset_url "iffse/pay-respects" "_$(deb_arch)\.deb$")
+    if [ -n "$url" ]; then
+        local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" payrespects_XXXXXX.deb)
+        curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
+        rm -f "$tmp"
+    fi
+    apt_pkg_installed pay-respects
 }
 
 # ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
@@ -2416,15 +2434,17 @@ DEP_PKG[bat]="bat"
 DEP_PKG[eza]="eza"
 DEP_PKG[fd]="fd"
 DEP_PKG[zoxide]="zoxide"
-DEP_PKG[thefuck]="thefuck"
+DEP_PKG[pay-respects]="pay-respects-bin"
 DEP_PKG[lazygit]="lazygit"
 DEP_PKG[btop]="btop"
 DEP_PKG[tree]="tree"
-DEPS_LIST=(bat eza fd zoxide thefuck lazygit btop tree)
+DEPS_LIST=(bat eza fd zoxide pay-respects lazygit btop tree)
 
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
 DEP_PKG_DEB[fd]="fd-find"
+# The AUR package is the -bin one; the .deb upstream publishes is plain.
+DEP_PKG_DEB[pay-respects]="pay-respects"
 
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
@@ -2658,7 +2678,7 @@ DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
 DEP_DESC[eza]="modern ls  →  ls  ll  lt  la aliases"
 DEP_DESC[fd]="fast find replacement  →  fzf integration"
 DEP_DESC[zoxide]="smart cd  →  z command"
-DEP_DESC[thefuck]="corrects last command  →  fuck alias"
+DEP_DESC[pay-respects]="corrects last command  →  fuck alias"
 DEP_DESC[lazygit]="git TUI  →  lg alias"
 DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
@@ -3665,9 +3685,10 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
                 arch_install "$dep_pkg" || _dep_ok=0
             else
                 case "$dep" in
-                    eza)     ensure_eza_deb     || _dep_ok=0 ;;
-                    lazygit) ensure_lazygit_deb || _dep_ok=0 ;;
-                    *)       apt_install "$dep_pkg" || _dep_ok=0 ;;
+                    eza)          ensure_eza_deb          || _dep_ok=0 ;;
+                    lazygit)      ensure_lazygit_deb      || _dep_ok=0 ;;
+                    pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
+                    *)            apt_install "$dep_pkg"  || _dep_ok=0 ;;
                 esac
             fi
             if [ "$_dep_ok" -eq 0 ]; then
