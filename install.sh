@@ -1324,6 +1324,13 @@ ensure_apt_deps() {
     fi
 }
 
+# Vendor installers that ship a zip (the fonts, bun) need it, and it is in
+# neither distro's base install.
+ensure_unzip() {
+    command -v unzip &>/dev/null && return 0
+    if [[ "$DISTRO" == "arch" ]]; then arch_install unzip; else apt_install unzip; fi
+}
+
 # A PPA that has no build for the running release does not just fail to
 # provide its package — it leaves behind a source with no Release file, and
 # from then on every apt-get update on the machine exits non-zero, including
@@ -1777,7 +1784,7 @@ maple_font_installed_deb() { font_dir_has_ttf "$MAPLE_FONT_DIR_DEB"; }
 install_font_zip() {
     local url="$1" dir="$2"
     ensure_apt_deps
-    command -v unzip    &>/dev/null || apt_install unzip
+    ensure_unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
     local tmp; tmp=$(mktemp -d -p "$RUN_TMPDIR" font_XXXXXX)
     if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
@@ -2348,14 +2355,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli vlc flatpak docker)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -2375,6 +2382,7 @@ APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
 APP_LABEL[postman-cli]="Postman CLI"
+APP_LABEL[bun]="Bun"
 APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[claude-desktop]="Claude Desktop"
@@ -2398,6 +2406,7 @@ APP_TYPE[opencode]="paru"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
 APP_TYPE[postman-cli]="curl"
+APP_TYPE[bun]="curl"
 APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
@@ -2425,12 +2434,17 @@ APP_PKG[docker]="docker"
 # all append a PATH block to ~/.zshrc, which is a stow symlink into this repo —
 # they would silently edit the tracked dotfile. Seeing their dir already on
 # PATH (plus the opt-out flags below) makes them leave it alone.
-CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin"
+CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin"
 
 declare -A APP_CURL_ARGS APP_CURL_ENV
 APP_CURL_ARGS[opencode]="--no-modify-path"
 APP_CURL_ENV[kimi-code]="KIMI_NO_MODIFY_PATH=1"
 APP_CURL_ENV[muse]="MUSE_NO_MODIFY_PATH=1"
+# bun has no opt-out flag. Two separate writes to ~/.zshrc have to be stopped:
+# the PATH block (skipped once it sees its bin dir on PATH, hence CURL_APP_PATH
+# above) and the completions line, written by `bun completions` — which picks
+# the rc file off $SHELL and does nothing at all for a shell it cannot handle.
+APP_CURL_ENV[bun]="SHELL=/bin/sh"
 
 # These CLIs install into their own bin dirs, which are not necessarily on the
 # PATH of whatever shell is running this script — search them explicitly, or an
@@ -2446,6 +2460,7 @@ APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
 APP_BIN[postman-cli]="postman"
+APP_BIN[bun]="bun"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -2468,6 +2483,7 @@ APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
+APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[docker]="docker"
 # vlc/flatpak fall through to the "apt" default below
@@ -2523,6 +2539,7 @@ APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
+APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
@@ -3961,6 +3978,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
+                    bun)             _curl_url="https://bun.com/install"                   ; _shell=bash
+                                     ensure_unzip ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
