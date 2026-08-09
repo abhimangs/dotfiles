@@ -104,7 +104,22 @@ bindkey '^T' ''
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 
 # ── thefuck ───────────────────────────────────────────────────
-command -v thefuck &>/dev/null && eval "$(thefuck --alias)"
+# Built on first use, not at startup. `--alias` spawns a Python interpreter for
+# every shell, and Ubuntu's unpatched 3.32 does not survive Python ≥ 3.12 — it
+# imports `imp`, removed in 3.12 — so the crash landed in the login banner.
+# `command -v` cannot catch that: the binary is there, it just dies.
+if command -v thefuck &>/dev/null; then
+    fuck() {
+        local _alias
+        if ! _alias=$(thefuck --alias 2>/dev/null); then
+            print -u2 "thefuck is installed but broken here — run 'thefuck --alias' to see why"
+            return 1
+        fi
+        unset -f fuck
+        eval "$_alias"
+        fuck "$@"
+    }
+fi
 
 # ── Aliases: Navigation ───────────────────────────────────────
 alias ..='cd ..'
