@@ -2355,14 +2355,14 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
+    APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim claude-desktop claude-code antigravity-cli codex-cli opencode kimi-code muse postman-cli bun vlc flatpak docker)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -2373,6 +2373,7 @@ APP_LABEL[brave-beta]="Brave Origin Beta"
 APP_LABEL[brave-stable]="Brave Origin Stable"
 APP_LABEL[vscode]="Visual Studio Code"
 APP_LABEL[vscode-insiders]="VS Code Insiders"
+APP_LABEL[neovim]="Neovim"
 APP_LABEL[antigravity-ide]="Antigravity IDE"
 APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
@@ -2397,6 +2398,9 @@ APP_TYPE[brave-beta]="paru-y"
 APP_TYPE[brave-stable]="paru-y"
 APP_TYPE[vscode]="paru"
 APP_TYPE[vscode-insiders]="paru"
+# same name in the official repos and on apt, so no *_DEB override — apt is the
+# Debian/Ubuntu default in app_type_resolved
+APP_TYPE[neovim]="pacman"
 APP_TYPE[antigravity-ide]="paru"
 APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
@@ -2417,6 +2421,7 @@ APP_PKG[brave-beta]="brave-origin-beta-bin"
 APP_PKG[brave-stable]="brave-origin-bin"
 APP_PKG[vscode]="visual-studio-code-bin"
 APP_PKG[vscode-insiders]="visual-studio-code-insiders-bin"
+APP_PKG[neovim]="neovim"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
@@ -2530,6 +2535,7 @@ APP_DESC[brave-beta]="chromium browser, no telemetry  ${G_DOT}  beta channel"
 APP_DESC[brave-stable]="chromium browser, no telemetry"
 APP_DESC[vscode]="the editor"
 APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
+APP_DESC[neovim]="the editor, in the terminal"
 APP_DESC[antigravity-ide]="agentic IDE"
 APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
