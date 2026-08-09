@@ -1,15 +1,32 @@
 {
-  "theme": "dracula",
+  "theme": "rose-pine.json",
+  "active_keybinding_map": "vscode",
+  "check_for_updates": false,
   "editor": {
     "tab_size": 4,
     "use_tabs": false,
     "line_wrap": true,
     "line_numbers": true,
     "auto_indent": true,
-    "highlight_current_line": true
+    "syntax_highlighting": true,
+    "highlight_current_line": true,
+    "scroll_offset": 3,
+    "auto_save_enabled": false,
+    "recovery_enabled": true,
+    "mouse_hover_enabled": true
+  },
+  "file_explorer": {
+    "respect_gitignore": true,
+    "show_hidden": false,
+    "show_gitignored": false,
+    "width": 0.25
   },
   "clipboard": {
-    "use_system_clipboard": true,
-    "use_osc52": true
-  }
+    "use_osc52": true,
+    "use_system_clipboard": true
+  },
+  "terminal": {
+    "jump_to_end_on_output": true
+  },
+  "keybindings": []
 }

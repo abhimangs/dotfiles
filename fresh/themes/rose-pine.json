@@ -1,0 +1,483 @@
+{
+  "name": "rose-pine",
+  "editor": {
+    "bg": [
+      25,
+      23,
+      36
+    ],
+    "fg": [
+      224,
+      222,
+      244
+    ],
+    "cursor": [
+      235,
+      188,
+      186
+    ],
+    "selection_bg": [
+      64,
+      61,
+      82
+    ],
+    "current_line_bg": [
+      31,
+      29,
+      46
+    ],
+    "line_number_fg": [
+      110,
+      106,
+      134
+    ],
+    "line_number_bg": [
+      25,
+      23,
+      36
+    ],
+    "diff_add_bg": [
+      71,
+      59,
+      69
+    ],
+    "diff_remove_bg": [
+      71,
+      42,
+      60
+    ],
+    "diff_add_highlight_bg": [
+      105,
+      86,
+      93
+    ],
+    "diff_remove_highlight_bg": [
+      105,
+      56,
+      78
+    ],
+    "whitespace_indicator_fg": [
+      64,
+      61,
+      82
+    ],
+    "bracket_match_fg": [
+      196,
+      167,
+      231
+    ],
+    "indent_rainbow_1": [
+      196,
+      167,
+      231
+    ],
+    "indent_rainbow_2": [
+      246,
+      193,
+      119
+    ],
+    "indent_rainbow_3": [
+      235,
+      188,
+      186
+    ],
+    "indent_rainbow_4": [
+      156,
+      207,
+      216
+    ],
+    "indent_rainbow_5": [
+      224,
+      222,
+      244
+    ],
+    "indent_rainbow_6": [
+      49,
+      116,
+      143
+    ],
+    "bracket_rainbow_1": [
+      196,
+      167,
+      231
+    ],
+    "bracket_rainbow_2": [
+      246,
+      193,
+      119
+    ],
+    "bracket_rainbow_3": [
+      235,
+      188,
+      186
+    ],
+    "bracket_rainbow_4": [
+      156,
+      207,
+      216
+    ],
+    "bracket_rainbow_5": [
+      224,
+      222,
+      244
+    ],
+    "bracket_rainbow_6": [
+      49,
+      116,
+      143
+    ]
+  },
+  "ui": {
+    "semantic_highlight_bg": [
+      64,
+      61,
+      82
+    ],
+    "tab_active_fg": [
+      25,
+      23,
+      36
+    ],
+    "tab_active_bg": [
+      196,
+      167,
+      231
+    ],
+    "tab_inactive_fg": [
+      224,
+      222,
+      244
+    ],
+    "tab_inactive_bg": [
+      31,
+      29,
+      46
+    ],
+    "tab_separator_bg": [
+      25,
+      23,
+      36
+    ],
+    "tab_hover_bg": [
+      82,
+      79,
+      103
+    ],
+    "status_bar_fg": [
+      25,
+      23,
+      36
+    ],
+    "status_bar_bg": [
+      196,
+      167,
+      231
+    ],
+    "status_palette_fg": [
+      25,
+      23,
+      36
+    ],
+    "status_palette_bg": [
+      156,
+      207,
+      216
+    ],
+    "prompt_fg": [
+      25,
+      23,
+      36
+    ],
+    "prompt_bg": [
+      235,
+      188,
+      186
+    ],
+    "prompt_selection_fg": [
+      224,
+      222,
+      244
+    ],
+    "prompt_selection_bg": [
+      64,
+      61,
+      82
+    ],
+    "popup_border_fg": [
+      196,
+      167,
+      231
+    ],
+    "popup_bg": [
+      31,
+      29,
+      46
+    ],
+    "popup_selection_bg": [
+      196,
+      167,
+      231
+    ],
+    "popup_selection_fg": [
+      25,
+      23,
+      36
+    ],
+    "popup_text_fg": [
+      224,
+      222,
+      244
+    ],
+    "text_input_selection_bg": [
+      64,
+      61,
+      82
+    ],
+    "suggestion_bg": [
+      31,
+      29,
+      46
+    ],
+    "suggestion_selected_bg": [
+      196,
+      167,
+      231
+    ],
+    "menu_bg": [
+      25,
+      23,
+      36
+    ],
+    "menu_fg": [
+      224,
+      222,
+      244
+    ],
+    "menu_active_bg": [
+      31,
+      29,
+      46
+    ],
+    "menu_active_fg": [
+      156,
+      207,
+      216
+    ],
+    "menu_dropdown_bg": [
+      31,
+      29,
+      46
+    ],
+    "menu_dropdown_fg": [
+      224,
+      222,
+      244
+    ],
+    "menu_highlight_bg": [
+      196,
+      167,
+      231
+    ],
+    "menu_highlight_fg": [
+      25,
+      23,
+      36
+    ],
+    "menu_border_fg": [
+      110,
+      106,
+      134
+    ],
+    "menu_separator_fg": [
+      110,
+      106,
+      134
+    ],
+    "menu_hover_bg": [
+      64,
+      61,
+      82
+    ],
+    "menu_hover_fg": [
+      224,
+      222,
+      244
+    ],
+    "menu_disabled_fg": [
+      110,
+      106,
+      134
+    ],
+    "menu_disabled_bg": [
+      25,
+      23,
+      36
+    ],
+    "help_bg": [
+      25,
+      23,
+      36
+    ],
+    "help_fg": [
+      224,
+      222,
+      244
+    ],
+    "help_key_fg": [
+      156,
+      207,
+      216
+    ],
+    "help_separator_fg": [
+      110,
+      106,
+      134
+    ],
+    "help_indicator_fg": [
+      235,
+      111,
+      146
+    ],
+    "help_indicator_bg": [
+      25,
+      23,
+      36
+    ],
+    "split_separator_fg": [
+      110,
+      106,
+      134
+    ],
+    "scrollbar_track_fg": [
+      31,
+      29,
+      46
+    ],
+    "scrollbar_thumb_fg": [
+      110,
+      106,
+      134
+    ],
+    "scrollbar_track_hover_fg": [
+      64,
+      61,
+      82
+    ],
+    "scrollbar_thumb_hover_fg": [
+      156,
+      207,
+      216
+    ],
+    "settings_selected_bg": [
+      64,
+      61,
+      82
+    ],
+    "settings_selected_fg": [
+      224,
+      222,
+      244
+    ]
+  },
+  "search": {
+    "match_bg": [
+      246,
+      193,
+      119
+    ],
+    "match_fg": [
+      25,
+      23,
+      36
+    ]
+  },
+  "diagnostic": {
+    "error_fg": [
+      235,
+      111,
+      146
+    ],
+    "error_bg": [
+      63,
+      39,
+      56
+    ],
+    "warning_fg": [
+      246,
+      193,
+      119
+    ],
+    "warning_bg": [
+      65,
+      54,
+      51
+    ],
+    "info_fg": [
+      156,
+      207,
+      216
+    ],
+    "info_bg": [
+      49,
+      56,
+      68
+    ],
+    "hint_fg": [
+      110,
+      106,
+      134
+    ],
+    "hint_bg": [
+      25,
+      23,
+      36
+    ]
+  },
+  "syntax": {
+    "keyword": [
+      196,
+      167,
+      231
+    ],
+    "string": [
+      235,
+      188,
+      186
+    ],
+    "comment": [
+      110,
+      106,
+      134
+    ],
+    "function": [
+      49,
+      116,
+      143
+    ],
+    "type": [
+      246,
+      193,
+      119
+    ],
+    "variable": [
+      224,
+      222,
+      244
+    ],
+    "variable_builtin": [
+      235,
+      111,
+      146
+    ],
+    "constant": [
+      246,
+      193,
+      119
+    ],
+    "operator": [
+      156,
+      207,
+      216
+    ]
+  }
+}
