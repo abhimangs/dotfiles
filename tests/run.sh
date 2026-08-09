@@ -703,6 +703,38 @@ for scen in ubuntu-private ubuntu-private-deadgit; do
 done
 
 echo
+echo "── distro list parity ───────────────────────────────────"
+# The Debian branch may only *remove* from CONFIGS. It used to re-declare the
+# array as a second hand-written literal, which silently dropped every config
+# added after that line was written — micro and fresh were both invisible on
+# Debian/Ubuntu until someone noticed. This diffs the two menus whatever they
+# hold, so the next config added is covered without editing this test: the only
+# permitted difference is rofi.
+RUN_ARGS="--dry-run --gui" run parity-arch   arch   "$WORK/k-sel" DOTFILES_CONFIGS="all"
+RUN_ARGS="--dry-run --gui" run parity-debian ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
+
+for side in arch debian; do
+    sed -n 's/.*Configs: //p' "$WORK/run/parity-$side/clean.txt" | head -1 \
+        | tr ' ' '\n' | sed '/^$/d' | sort -u > "$WORK/parity-$side.lst"
+done
+if [ ! -s "$WORK/parity-arch.lst" ] || [ ! -s "$WORK/parity-debian.lst" ]; then
+    bad parity-configs "no config list in one of the transcripts"
+else
+    only_arch=$(comm -23 "$WORK/parity-arch.lst" "$WORK/parity-debian.lst" | xargs)
+    only_deb=$( comm -13 "$WORK/parity-arch.lst" "$WORK/parity-debian.lst" | xargs)
+    if [ "$only_arch" = "rofi" ]; then
+        note parity-configs "Debian list is the Arch list minus rofi"
+    else
+        bad  parity-configs "Arch-only configs: ${only_arch:-none}, wanted rofi"
+    fi
+    if [ -z "$only_deb" ]; then
+        note parity-configs "and holds nothing Arch does not"
+    else
+        bad  parity-configs "Debian-only configs: $only_deb"
+    fi
+fi
+
+echo
 echo "─────────────────────────────────────────────────────────"
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
