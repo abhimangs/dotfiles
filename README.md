@@ -71,15 +71,32 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
 
 `ccstatusline` is the one config with no package on either distro. Claude Code
-runs it as `bunx -y ccstatusline@latest`, so every render fetches the current
-release and there is nothing to keep updated — the only requirement is `bun`,
-which is its own entry in the apps tab. Installing the config stows the settings
-file; pointing Claude Code at it is one manual line, since `~/.claude/settings.json`
-holds account and plugin state and is not this repo's to stow:
+renders it by running:
 
-```json
-"statusLine": { "type": "command", "command": "bunx -y ccstatusline@latest", "padding": 0, "refreshInterval": 10 }
 ```
+bunx -y ccstatusline@latest 2>/dev/null || bunx -y ccstatusline
+```
+
+so every render resolves the current release and there is nothing to keep
+updated. The only requirement is `bun`, which is its own entry in the apps tab.
+The fallback is not decoration: Claude Code blanks the status line for any
+command that exits non-zero or prints nothing, and `@latest` does exactly that
+when the registry is unreachable. Plain `bunx ccstatusline` resolves from bun's
+cache, so an offline machine still renders.
+
+Selecting **either** the `ccstatusline` config or the **Claude Code** app wires
+this up automatically — the installer merges a `statusLine` block into
+`~/.claude/settings.json`. That file is Claude Code's, not this repo's, so the
+merge is deliberately conservative:
+
+- only `statusLine` is written; every other key is preserved exactly
+- a `statusLine` pointing at something else is left alone and reported
+- a `settings.json` that does not parse is not touched at all
+- the result is parsed back before it replaces anything, and moved into place
+  with `mv`, so an interrupt cannot truncate it
+- the original is kept once as `~/.claude/settings.json.orig`
+- `--delete` mode does not reach it — that mode removes what this repo
+  installed, and this file was there first
 
 ## Installer features
 

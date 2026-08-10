@@ -2351,6 +2351,116 @@ stow_config() {
     stow_to "$target" "$name"
 }
 
+# ── Claude Code statusLine wiring ────────────────────────────────────────────
+# The command Claude Code gets pointed at. `@latest` is what keeps the
+# statusline current with nothing to update; the second link is what stops it
+# going blank, because Claude Code blanks the line for any command that exits
+# non-zero or prints nothing — and `bunx …@latest` does exactly that when the
+# registry cannot be reached. Plain `bunx ccstatusline` resolves from bun's
+# cache instead, so an offline machine still renders.
+CCSTATUSLINE_CMD='bunx -y ccstatusline@latest 2>/dev/null || bunx -y ccstatusline'
+
+# Point Claude Code at ccstatusline by merging one key into its settings.json.
+#
+# That file is Claude Code's, not this repo's: it carries the signed-in account,
+# the plugin registry and the permission rules. It is the second file the
+# installer edits rather than stows (after ~/.bashrc), and every rule below is
+# here because a corrupted settings.json is a Claude Code that will not start:
+#   * only statusLine is written — every other key is preserved exactly
+#   * a statusLine already pointing at something else is left alone and said so;
+#     silently replacing someone's own script is not this installer's call
+#   * JSON that does not parse is not touched at all, only reported
+#   * the result is parsed back before it replaces anything, and moved into
+#     place with mv, so an interrupt cannot leave a truncated settings.json
+#   * BACKUP_MODE=delete never reaches it — delete mode drops what this repo
+#     installed, and this file was here first
+wire_claude_statusline() {
+    local f="$HOME/.claude/settings.json"
+
+    # No hand-rolled JSON editing. sed-ing someone's settings.json is how the
+    # file ends up unparseable, which is the one outcome worth avoiding here.
+    if ! command -v python3 &>/dev/null; then
+        substep "${C_YELLOW}python3 not found${C_RESET} ${C_DIM}— set${C_RESET} ${C_ACCENT}statusLine.command${C_RESET} ${C_DIM}to${C_RESET} ${C_ACCENT}${CCSTATUSLINE_CMD}${C_RESET} ${C_DIM}by hand${C_RESET}"
+        return 0
+    fi
+
+    mkdir -p "$HOME/.claude" 2>/dev/null || return 0
+
+    # Deliberately NOT $RUN_TMPDIR: that lives in /tmp, which is a different
+    # filesystem (often tmpfs), and mv across filesystems is copy-then-unlink —
+    # interruptible halfway, which is exactly the truncated settings.json this
+    # whole function exists to avoid. Same directory as the target makes the mv
+    # a rename, which is atomic.
+    local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 0
+    CC_SETTINGS="$f" CC_CMD="$CCSTATUSLINE_CMD" CC_TMP="$tmp" python3 - <<'PY'
+import json, os, sys
+from collections import OrderedDict
+
+path, cmd, tmp = os.environ["CC_SETTINGS"], os.environ["CC_CMD"], os.environ["CC_TMP"]
+
+if os.path.exists(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh, object_pairs_hook=OrderedDict)
+    except Exception:
+        sys.exit(3)                       # unparseable — do not touch it
+    if not isinstance(data, dict):
+        sys.exit(3)
+else:
+    data = OrderedDict()
+
+existing = data.get("statusLine")
+if isinstance(existing, dict):
+    cur = existing.get("command", "")
+    if cur == cmd:
+        sys.exit(1)                       # already ours and already right
+    if "ccstatusline" not in cur:
+        sys.exit(2)                       # somebody else's statusline — leave it
+    line = existing                       # ours, but an older command: update
+else:
+    line = OrderedDict()
+    data["statusLine"] = line
+
+line["type"] = "command"
+line["command"] = cmd
+line.setdefault("padding", 0)
+line.setdefault("refreshInterval", 10)    # seconds; the documented minimum is 1
+
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+
+# Read it back before it is allowed to replace anything.
+with open(tmp, encoding="utf-8") as fh:
+    json.load(fh)
+sys.exit(0)
+PY
+    local rc=$?
+
+    case "$rc" in
+      0)
+        # Keep one copy of whatever was there before the first edit. Write-once,
+        # so re-running never overwrites the pristine copy with an edited one —
+        # the same rule the .bashrc snapshot follows.
+        [ -e "$f" ] && [ ! -e "${f}.orig" ] && cp -p "$f" "${f}.orig" 2>/dev/null
+        if mv "$tmp" "$f"; then
+            substep "Claude Code statusline ${C_GREEN}wired up${C_RESET}"
+        else
+            rm -f "$tmp"
+            substep "${C_YELLOW}Could not write ~/.claude/settings.json${C_RESET}"
+        fi
+        ;;
+      1) rm -f "$tmp"; substep "${C_DIM}Claude Code statusline already wired up${C_RESET}" ;;
+      2) rm -f "$tmp"
+         substep "${C_YELLOW}Left your existing statusLine alone${C_RESET} ${C_DIM}— it does not point at ccstatusline${C_RESET}" ;;
+      3) rm -f "$tmp"
+         substep "${C_YELLOW}~/.claude/settings.json is not valid JSON${C_RESET} ${C_DIM}— left untouched${C_RESET}" ;;
+      *) rm -f "$tmp"
+         substep "${C_YELLOW}Could not update ~/.claude/settings.json${C_RESET} ${C_DIM}— left untouched${C_RESET}" ;;
+    esac
+    return 0
+}
+
 # ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
 backup_file() {
     local target="$1"
@@ -2766,6 +2876,10 @@ show_plan() {
                 wallpaper_stowed=1
             fi
             [[ "$cfg" == "rofi" ]] && steps+=("${C_DIM}launch: rofi -show drun${C_RESET}")
+            # The one step that writes outside the stow targets, so the plan has
+            # to name it rather than let it happen quietly.
+            [[ "$cfg" == "ccstatusline" ]] && \
+                steps+=("${C_GREEN}point Claude Code at it${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}")
             ;;
           bash)
             local brc="$HOME/.bashrc"
@@ -3825,10 +3939,9 @@ for cfg in "${SELECTED[@]}"; do
             continue
         fi
 
-        # The settings file is only half of it — Claude Code has to be told to
-        # call the thing. ~/.claude/settings.json is not ours to stow (it holds
-        # account and plugin state), so this prints rather than writes.
-        substep "${C_DIM}Set${C_RESET} ${C_ACCENT}statusLine.command${C_RESET} ${C_DIM}to${C_RESET} ${C_ACCENT}bunx -y ccstatusline@latest${C_RESET} ${C_DIM}in ~/.claude/settings.json${C_RESET}"
+        # The settings file is only half of it — Claude Code still has to be
+        # told to call the thing. That happens once in step 5c½, which the
+        # apps loop can also reach by installing Claude Code itself.
         ;;
 
       # ── bash ─────────────────────────────────────────────────────────────
@@ -4237,6 +4350,16 @@ if [ "${#APPS[@]}" -gt 0 ]; then
         fi
     done
     unset app _lbl _type _pkg _bin
+fi
+
+# ── Step 5c½: point Claude Code at the statusline ────────────────────────────
+# Either trigger is enough, and both are the same intent: the config is the
+# statusline's settings, the app is the thing that renders it. One call site
+# rather than one in each loop, so picking both cannot wire it twice.
+if printf '%s\n' "${SELECTED[@]}" | grep -qx ccstatusline \
+   || printf '%s\n' "${APPS[@]}" | grep -qx claude-code; then
+    info "Claude Code statusline..."
+    wire_claude_statusline
 fi
 
 # ── Step 5d: strip repo traces (private mode) ────────────────────────────────

@@ -711,7 +711,7 @@ echo "── ccstatusline ──────────────────
 RUN_ARGS="--configs=ccstatusline" run ccstatusline ubuntu "$WORK/k-sel"
 check   ccstatusline 0
 want    ccstatusline 'bun is not installed'  'warns when the runtime is absent'
-want    ccstatusline 'statusLine.command'    'says how to wire Claude Code up'
+want    ccstatusline 'statusline wired up'   'wires Claude Code up on its own'
 nowant  ccstatusline 'apt-get install bun'   'never tries to apt bun'
 
 d="$WORK/run/ccstatusline/home"
@@ -728,6 +728,120 @@ if [ -r "$d/.config/ccstatusline/settings.json" ] \
     note ccstatusline "stowed settings.json is valid JSON"
 else
     bad  ccstatusline "stowed settings.json is missing or not valid JSON"
+fi
+# Created from nothing when Claude Code has never run on this machine.
+if python3 - "$d/.claude/settings.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if "ccstatusline" in d["statusLine"]["command"] else 1)
+PY
+then note ccstatusline "settings.json created with the statusLine"
+else bad  ccstatusline "no statusLine written into ~/.claude/settings.json"
+fi
+
+# ── the part that must never go wrong ────────────────────────────────────────
+# ~/.claude/settings.json is the user's, not this repo's. These three scenarios
+# are the ways an installer ruins someone's day: eating their other settings,
+# silently replacing a statusline they wrote, and mangling a file it could not
+# parse. Each seeds the file first, then asserts what survived.
+mkdir -p "$WORK/seed"
+
+# 1. A populated settings.json keeps every unrelated key, exactly.
+build_root "$WORK/run/ccsl-keep" ubuntu
+mkdir -p "$WORK/run/ccsl-keep/home/.claude"
+cat > "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'JSON'
+{
+  "model": "opus",
+  "permissions": { "defaultMode": "auto" },
+  "enabledPlugins": { "somebody@somewhere": true },
+  "theme": "dark"
+}
+JSON
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-keep" "$WORK/run/ccsl-keep" "$WORK/k-sel"
+check ccsl-keep 0
+if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["model"] == "opus",                        "model lost"
+assert d["permissions"]["defaultMode"] == "auto",   "permissions lost"
+assert d["enabledPlugins"]["somebody@somewhere"],   "plugins lost"
+assert d["theme"] == "dark",                        "theme lost"
+assert "ccstatusline" in d["statusLine"]["command"], "statusLine not written"
+PY
+then note ccsl-keep "every unrelated key survived the merge"
+else bad  ccsl-keep "the merge dropped or corrupted existing settings"
+fi
+if [ -f "$WORK/run/ccsl-keep/home/.claude/settings.json.orig" ]; then
+    note ccsl-keep "kept a pristine copy of the original"
+else
+    bad  ccsl-keep "no .orig copy taken before editing"
+fi
+
+# 2. Somebody else's statusline is left exactly as it was.
+build_root "$WORK/run/ccsl-foreign" ubuntu
+mkdir -p "$WORK/run/ccsl-foreign/home/.claude"
+cat > "$WORK/run/ccsl-foreign/home/.claude/settings.json" <<'JSON'
+{ "statusLine": { "type": "command", "command": "~/bin/my-own-statusline.sh" } }
+JSON
+cp "$WORK/run/ccsl-foreign/home/.claude/settings.json" "$WORK/seed/foreign.json"
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-foreign" "$WORK/run/ccsl-foreign" "$WORK/k-sel"
+check  ccsl-foreign 0
+want   ccsl-foreign 'Left your existing statusLine alone' 'says it stood back'
+if cmp -s "$WORK/seed/foreign.json" "$WORK/run/ccsl-foreign/home/.claude/settings.json"; then
+    note ccsl-foreign "a hand-written statusLine is byte-identical afterwards"
+else
+    bad  ccsl-foreign "overwrote a statusLine it did not put there"
+fi
+
+# 3. Unparseable JSON is reported and left alone — never rewritten from scratch.
+build_root "$WORK/run/ccsl-broken" ubuntu
+mkdir -p "$WORK/run/ccsl-broken/home/.claude"
+printf '{ "model": "opus", oops not json\n' \
+    > "$WORK/run/ccsl-broken/home/.claude/settings.json"
+cp "$WORK/run/ccsl-broken/home/.claude/settings.json" "$WORK/seed/broken.json"
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-broken" "$WORK/run/ccsl-broken" "$WORK/k-sel"
+check  ccsl-broken 0
+want   ccsl-broken 'not valid JSON'  'reports the file it could not read'
+if cmp -s "$WORK/seed/broken.json" "$WORK/run/ccsl-broken/home/.claude/settings.json"; then
+    note ccsl-broken "left the unparseable file exactly as it found it"
+else
+    bad  ccsl-broken "modified a settings.json it could not parse"
+fi
+
+# 3b. Selecting Claude Code itself is the other trigger — the app is the thing
+# that renders the statusline, so installing it wires the statusline up too,
+# with no config selected at all.
+# Exit 1, not 0: the curl stub serves an installer that cannot produce a real
+# `claude` binary, so the app is correctly reported as failed. The point of the
+# scenario is what happens anyway — a statusline that is wired regardless of
+# whether the vendor installer worked, since the settings file is valid either
+# way and the user asked for Claude Code by name.
+RUN_ARGS="--apps=claude-code" run ccsl-app ubuntu "$WORK/k-sel"
+check ccsl-app 1
+want  ccsl-app 'statusline wired up'  'installing Claude Code wires it up'
+if python3 - "$WORK/run/ccsl-app/home/.claude/settings.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if "ccstatusline" in d["statusLine"]["command"] else 1)
+PY
+then note ccsl-app "statusLine written from the apps path"
+else bad  ccsl-app "apps path did not wire the statusline"
+fi
+
+# 4. Running twice changes nothing the second time.
+RUN_ARGS="--configs=ccstatusline" rerun ccsl-again ccsl-keep "$WORK/k-sel"
+check ccsl-again 0
+want  ccsl-again 'already wired up'  'second run is a no-op'
+if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d["model"] == "opus" and "ccstatusline" in d["statusLine"]["command"] else 1)
+PY
+then note ccsl-again "settings still intact after a second pass"
+else bad  ccsl-again "the second pass damaged settings.json"
 fi
 
 echo
