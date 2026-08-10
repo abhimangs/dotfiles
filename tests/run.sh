@@ -703,6 +703,34 @@ for scen in ubuntu-private ubuntu-private-deadgit; do
 done
 
 echo
+echo "── ccstatusline ─────────────────────────────────────────"
+# The one config with no package behind it on either distro: Claude Code runs
+# it as `bunx -y ccstatusline@latest`, so the install step is a bun check and
+# nothing else. The sandbox has no bun, which is the interesting branch — a
+# missing runtime must warn and still stow, not abort the config.
+RUN_ARGS="--configs=ccstatusline" run ccstatusline ubuntu "$WORK/k-sel"
+check   ccstatusline 0
+want    ccstatusline 'bun is not installed'  'warns when the runtime is absent'
+want    ccstatusline 'statusLine.command'    'says how to wire Claude Code up'
+nowant  ccstatusline 'apt-get install bun'   'never tries to apt bun'
+
+d="$WORK/run/ccstatusline/home"
+if [ -L "$d/.config/ccstatusline/settings.json" ]; then
+    note ccstatusline "settings.json stowed as a symlink"
+else
+    bad  ccstatusline "settings.json is not a symlink into the repo"
+fi
+# The file has to survive the trip: a statusline whose JSON does not parse is
+# the failure mode that shows up only once Claude Code renders it.
+if [ -r "$d/.config/ccstatusline/settings.json" ] \
+   && python3 -c "import json,sys; json.load(open(sys.argv[1]))" \
+        "$d/.config/ccstatusline/settings.json" 2>/dev/null; then
+    note ccstatusline "stowed settings.json is valid JSON"
+else
+    bad  ccstatusline "stowed settings.json is missing or not valid JSON"
+fi
+
+echo
 echo "── distro list parity ───────────────────────────────────"
 # The Debian branch may only *remove* from CONFIGS. It used to re-declare the
 # array as a second hand-written literal, which silently dropped every config

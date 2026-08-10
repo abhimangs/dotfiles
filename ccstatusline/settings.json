@@ -1,0 +1,99 @@
+{
+  "version": 3,
+  "lines": [
+    [
+      {
+        "id": "61cb0232-afdc-40cf-b1a3-179922156a6d",
+        "type": "model",
+        "color": "white"
+      },
+      {
+        "id": "20183434-9090-4e42-b5f7-bd128d74de40",
+        "type": "thinking-effort",
+        "color": "cyan"
+      },
+      {
+        "id": "66319a36-7c71-422a-bf4c-7368ec88d59d",
+        "type": "context-bar",
+        "color": "brightRed"
+      },
+      {
+        "id": "9fc058be-c218-440c-951b-f6c84bfd68da",
+        "type": "current-working-dir",
+        "metadata": {
+          "abbreviateHome": "true"
+        }
+      }
+    ],
+    [
+      {
+        "id": "cbb16d27-c621-445f-a03f-e982435468ac",
+        "type": "session-usage",
+        "color": "brightWhite"
+      },
+      {
+        "id": "47a55415-b839-4ec4-92fd-9ce79c8a2006",
+        "type": "reset-timer",
+        "color": ""
+      },
+      {
+        "id": "25c38704-ef63-4373-a1b0-fd6aaeec6284",
+        "type": "weekly-usage",
+        "color": "brightBlue"
+      },
+      {
+        "id": "756dc11e-20ef-47c7-ac82-01b9e25cef14",
+        "type": "weekly-reset-timer"
+      }
+    ],
+    [
+      {
+        "id": "2c1c6613-095e-4c8f-9084-541ea6842269",
+        "type": "tokens-input"
+      },
+      {
+        "id": "a39fcf64-8a90-4a44-a067-7deb52a39078",
+        "type": "tokens-output"
+      },
+      {
+        "id": "a3e7b40e-12cc-4657-a8b8-c4abb7ceca3b",
+        "type": "tokens-cached"
+      },
+      {
+        "id": "74b05592-4fe0-41eb-9f47-d4fd497b066f",
+        "type": "tokens-total"
+      },
+      {
+        "id": "f71ae239-6f32-4f89-b387-cd73857c2689",
+        "type": "claude-account-email"
+      }
+    ]
+  ],
+  "flexMode": "full",
+  "compactThreshold": 60,
+  "colorLevel": 3,
+  "defaultSeparator": "|",
+  "defaultPadding": " ",
+  "inheritSeparatorColors": true,
+  "globalBold": false,
+  "gitCacheTtlSeconds": 5,
+  "minimalistMode": false,
+  "powerline": {
+    "enabled": false,
+    "separators": [
+      ""
+    ],
+    "separatorInvertBackground": [
+      false
+    ],
+    "startCaps": [],
+    "endCaps": [],
+    "theme": "catppuccin",
+    "autoAlign": true,
+    "continueThemeAcrossLines": true
+  },
+  "installation": {
+    "method": "self-managed",
+    "packageManager": "bun"
+  }
+}

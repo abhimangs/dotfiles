@@ -67,7 +67,19 @@ Run it as your own user (`bash install.sh`) or as root — not with `sudo`; see 
 | `git/` | `~/.gitconfig` | `git` | apt |
 | `micro/` | `~/.config/micro/` | `micro` | apt |
 | `fresh/` | `~/.config/fresh/` | `fresh-editor-bin` *(AUR)* | GitHub `.deb` |
+| `ccstatusline/` | `~/.config/ccstatusline/` | — *(needs `bun`)* | — *(needs `bun`)* |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
+
+`ccstatusline` is the one config with no package on either distro. Claude Code
+runs it as `bunx -y ccstatusline@latest`, so every render fetches the current
+release and there is nothing to keep updated — the only requirement is `bun`,
+which is its own entry in the apps tab. Installing the config stows the settings
+file; pointing Claude Code at it is one manual line, since `~/.claude/settings.json`
+holds account and plugin state and is not this repo's to stow:
+
+```json
+"statusLine": { "type": "command", "command": "bunx -y ccstatusline@latest", "padding": 0, "refreshInterval": 10 }
+```
 
 ## Installer features
 

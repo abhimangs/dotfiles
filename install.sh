@@ -2412,6 +2412,10 @@ PKG_MAP[rofi]="rofi"
 PKG_MAP[ulauncher]="ulauncher"
 PKG_MAP[git]="git"
 PKG_MAP[micro]="micro"
+# Not a package on either distro: the statusline runs as `bunx …@latest`, so
+# bun is the whole dependency. Named here because show_plan reads PKG_MAP for
+# every config before it reaches the per-config case.
+PKG_MAP[ccstatusline]="bun"
 # AUR-only on Arch, a GitHub-release .deb on Debian/Ubuntu — and the two name
 # the package differently, which every pkg_installed check here goes through.
 PKG_MAP[fresh]="fresh-editor-bin"
@@ -2640,6 +2644,7 @@ CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
 CONFIG_DESC[git]="git config  →  ~/.gitconfig"
 CONFIG_DESC[micro]="terminal editor            ${G_DOT}  Catppuccin Mocha"
 CONFIG_DESC[fresh]="terminal IDE              ${G_DOT}  AUR / GitHub deb"
+CONFIG_DESC[ccstatusline]="Claude Code statusline  ${G_DOT}  bunx, always latest"
 if [[ "$DISTRO" == "arch" ]]; then
     CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  AUR"
 else
@@ -2715,16 +2720,25 @@ show_plan() {
         local steps=()
         local target bak
 
-        if pkg_installed "$pkg"; then
+        # ccstatusline has no package on either distro — it is fetched per
+        # render by `bunx …@latest`. bun arrives through the curl installer,
+        # which puts it outside PATH, so curl_app_installed is what can see it.
+        if [[ "$cfg" == "ccstatusline" ]]; then
+            if curl_app_installed bun; then
+                steps+=("${C_DIM}bun already installed${C_RESET}")
+            else
+                steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}(tick Bun in the apps tab)${C_RESET}")
+            fi
+        elif pkg_installed "$pkg"; then
             steps+=("${C_DIM}$pkg already installed${C_RESET}")
         else
             steps+=("${C_YELLOW}install $pkg${C_RESET}")
         fi
 
         case "$cfg" in
-          # One arm for all six: same target shape (~/.config/<name>/), same
+          # One arm for all seven: same target shape (~/.config/<name>/), same
           # backup rules. The two that differ do so by one line each at the end.
-          fastfetch|ghostty|kitty|rofi|micro|fresh)
+          fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
                     ! -type l ! -type d 2>/dev/null | grep -q .; then
@@ -3412,7 +3426,7 @@ fi
 success "Tools verified"
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline)
 # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
 # still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
 # re-declared as a second literal list: a hand-maintained Debian copy silently
@@ -3791,6 +3805,30 @@ for cfg in "${SELECTED[@]}"; do
                 substep "${C_YELLOW}Could not install the filemanager plugin${C_RESET}"
             fi
         fi
+        ;;
+
+      # ── ccstatusline ─────────────────────────────────────────────────────
+      ccstatusline)
+        # Nothing to install. Claude Code runs `bunx -y ccstatusline@latest`,
+        # which resolves the newest release on every render — that is the whole
+        # point of picking bunx over a pinned global, and it means this config
+        # is a settings file plus a bun dependency and nothing else. bun is its
+        # own entry in the apps tab rather than a second curl installer here.
+        if curl_app_installed bun; then
+            substep "${C_ACCENT}bun${C_RESET} already installed"
+        else
+            substep "${C_YELLOW}bun is not installed${C_RESET} ${C_DIM}— the statusline cannot render without it; tick${C_RESET} ${C_ACCENT}Bun${C_RESET} ${C_DIM}in the apps tab${C_RESET}"
+        fi
+
+        if ! stow_config "$cfg"; then
+            FAILED+=("$cfg")
+            continue
+        fi
+
+        # The settings file is only half of it — Claude Code has to be told to
+        # call the thing. ~/.claude/settings.json is not ours to stow (it holds
+        # account and plugin state), so this prints rather than writes.
+        substep "${C_DIM}Set${C_RESET} ${C_ACCENT}statusLine.command${C_RESET} ${C_DIM}to${C_RESET} ${C_ACCENT}bunx -y ccstatusline@latest${C_RESET} ${C_DIM}in ~/.claude/settings.json${C_RESET}"
         ;;
 
       # ── bash ─────────────────────────────────────────────────────────────
