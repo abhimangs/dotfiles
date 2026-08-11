@@ -90,8 +90,13 @@ this up automatically — the installer merges a `statusLine` block into
 merge is deliberately conservative:
 
 - only `statusLine` is written; every other key is preserved exactly
+- if the same command is **already in there**, the file is not rewritten at all —
+  not even to identical content, so mtime and hand-edited formatting survive
 - a `statusLine` pointing at something else is left alone and reported
 - a `settings.json` that does not parse is not touched at all
+- `~/.claude/settings.json` is the *lowest* precedence scope Claude Code reads,
+  so a managed `statusLine` would silently outrank it — that gets reported
+  instead of being claimed as a success
 - the result is parsed back before it replaces anything, and moved into place
   with `mv`, so an interrupt cannot truncate it
 - the original is kept once as `~/.claude/settings.json.orig`

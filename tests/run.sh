@@ -831,10 +831,36 @@ then note ccsl-app "statusLine written from the apps path"
 else bad  ccsl-app "apps path did not wire the statusline"
 fi
 
-# 4. Running twice changes nothing the second time.
+# 4. Running twice changes nothing the second time. "Already in there" has to
+# mean the file is not rewritten at all — not rewritten to identical content,
+# which would still churn mtime and reformat anything hand-edited.
+cp "$WORK/run/ccsl-keep/home/.claude/settings.json" "$WORK/seed/afterfirst.json"
 RUN_ARGS="--configs=ccstatusline" rerun ccsl-again ccsl-keep "$WORK/k-sel"
 check ccsl-again 0
 want  ccsl-again 'already wired up'  'second run is a no-op'
+if cmp -s "$WORK/seed/afterfirst.json" "$WORK/run/ccsl-keep/home/.claude/settings.json"; then
+    note ccsl-again "already-wired settings.json is left byte-identical"
+else
+    bad  ccsl-again "rewrote a settings.json that was already correct"
+fi
+if ls "$WORK/run/ccsl-keep/home/.claude/".settings.json.new_* >/dev/null 2>&1; then
+    bad  ccsl-again "left a staging temp file behind in ~/.claude"
+else
+    note ccsl-again "no staging temp file left behind"
+fi
+
+# 5. A managed statusLine outranks user settings, so the merge still happens but
+# must not be reported as the statusline that will actually render.
+build_root "$WORK/run/ccsl-managed" ubuntu
+mkdir -p "$WORK/run/ccsl-managed/etc/claude-code"
+cat > "$WORK/run/ccsl-managed/etc/claude-code/managed-settings.json" <<'JSON'
+{ "statusLine": { "type": "command", "command": "/opt/corp/statusline" } }
+JSON
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-managed" "$WORK/run/ccsl-managed" "$WORK/k-sel" \
+    CC_MANAGED_SETTINGS="$WORK/run/ccsl-managed/etc/claude-code/managed-settings.json"
+check ccsl-managed 0
+want  ccsl-managed 'managed statusLine overrides it'  'says the write will not win'
 if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))

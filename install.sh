@@ -2392,28 +2392,54 @@ wire_claude_statusline() {
     # whole function exists to avoid. Same directory as the target makes the mv
     # a rename, which is atomic.
     local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 0
-    CC_SETTINGS="$f" CC_CMD="$CCSTATUSLINE_CMD" CC_TMP="$tmp" python3 - <<'PY'
+
+    # stdout carries advisory notes, the exit status carries the outcome.
+    local out rc
+    out=$(CC_SETTINGS="$f" CC_CMD="$CCSTATUSLINE_CMD" CC_TMP="$tmp" \
+          CC_MANAGED="${CC_MANAGED_SETTINGS:-/etc/claude-code/managed-settings.json}" \
+          python3 - <<'PY'
 import json, os, sys
 from collections import OrderedDict
 
 path, cmd, tmp = os.environ["CC_SETTINGS"], os.environ["CC_CMD"], os.environ["CC_TMP"]
 
-if os.path.exists(path):
+
+def load(p):
+    """Parsed dict, or None if it is missing or not a JSON object."""
     try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh, object_pairs_hook=OrderedDict)
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh, object_pairs_hook=OrderedDict)
     except Exception:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+# ~/.claude/settings.json is the *lowest* precedence scope Claude Code reads:
+# managed, command line, project-local and project settings all beat it. A
+# statusLine written underneath one that already exists higher up is a no-op
+# that looks like success, so report it rather than claim the wiring worked.
+# Only the managed file is knowable from here — project scopes depend on which
+# directory Claude Code is started in.
+managed = os.environ.get("CC_MANAGED", "")
+if managed:
+    m = load(managed)
+    if m is not None and m.get("statusLine"):
+        print("shadowed")
+
+if os.path.exists(path):
+    data = load(path)
+    if data is None:
         sys.exit(3)                       # unparseable — do not touch it
-    if not isinstance(data, dict):
-        sys.exit(3)
 else:
     data = OrderedDict()
 
 existing = data.get("statusLine")
 if isinstance(existing, dict):
     cur = existing.get("command", "")
-    if cur == cmd:
-        sys.exit(1)                       # already ours and already right
+    # Already in there and already right: nothing to merge, leave the file
+    # alone entirely rather than rewrite it to identical content.
+    if cur == cmd and existing.get("type") == "command":
+        sys.exit(1)
     if "ccstatusline" not in cur:
         sys.exit(2)                       # somebody else's statusline — leave it
     line = existing                       # ours, but an older command: update
@@ -2423,6 +2449,7 @@ else:
 
 line["type"] = "command"
 line["command"] = cmd
+# setdefault, not assignment: if these were tuned by hand they stay tuned.
 line.setdefault("padding", 0)
 line.setdefault("refreshInterval", 10)    # seconds; the documented minimum is 1
 
@@ -2435,7 +2462,8 @@ with open(tmp, encoding="utf-8") as fh:
     json.load(fh)
 sys.exit(0)
 PY
-    local rc=$?
+)
+    rc=$?
 
     case "$rc" in
       0)
@@ -2458,6 +2486,12 @@ PY
       *) rm -f "$tmp"
          substep "${C_YELLOW}Could not update ~/.claude/settings.json${C_RESET} ${C_DIM}— left untouched${C_RESET}" ;;
     esac
+
+    # Said after the outcome, not instead of it: the merge itself succeeded,
+    # it just will not be the statusLine that wins.
+    if [[ "$out" == *shadowed* ]]; then
+        substep "${C_YELLOW}A managed statusLine overrides it${C_RESET} ${C_DIM}— user settings are the lowest precedence scope${C_RESET}"
+    fi
     return 0
 }
 
