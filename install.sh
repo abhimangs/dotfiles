@@ -562,6 +562,7 @@ tui_pane_build() {              # tui_pane_build <item index or empty>
             esac
             tui_pane_add "stows    ${_t}" "$C_RESET" 9
             [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
+            [ "$key" = ccstatusline ] && tui_pane_add "pulls    bun (renders it)" "$C_RESET" 9
         fi
         case "${T_STATE[$idx]}" in
             installed) tui_pane_add "state    already installed"         "$C_GREEN"  9 ;;
@@ -719,13 +720,20 @@ tui_tick_key() {                # tui_tick_key <key> <0|1>
         [ "${T_KEY[$i]}" = "$1" ] && { T_TICK[$i]=$2; return; }
     done
 }
-tui_zsh_pull() {                # tui_zsh_pull <index just ticked>
-    [ "${T_KEY[$1]}" = zsh ] || return 0
+tui_implied_pull() {            # tui_implied_pull <index just ticked>
     local i
-    tui_tick_key starship 1
-    for i in "${!T_KEY[@]}"; do
-        [ "${T_SEC[$i]}" = tools ] && T_TICK[$i]=1
-    done
+    case "${T_KEY[$1]}" in
+      zsh)
+        tui_tick_key starship 1
+        for i in "${!T_KEY[@]}"; do
+            [ "${T_SEC[$i]}" = tools ] && T_TICK[$i]=1
+        done
+        ;;
+      # The statusline is rendered by `bunx`, so without bun the config installs
+      # cleanly and then renders nothing at all — Claude Code blanks the line for
+      # a command it cannot run. Ticking it here rather than warning later.
+      ccstatusline) tui_tick_key bun 1 ;;
+    esac
 }
 
 tui_toggle_cur() {
@@ -735,7 +743,7 @@ tui_toggle_cur() {
         T_TICK[$idx]=0
     else
         T_TICK[$idx]=1
-        tui_zsh_pull "$idx"
+        tui_implied_pull "$idx"
     fi
     if [ "${TUI_TABS[$TUI_TAB]}" = selected ]; then
         tui_build_view          # the row just left this list
@@ -749,7 +757,7 @@ tui_toggle_all() {
     for idx in "${TUI_VIEW[@]}"; do [ "${T_TICK[$idx]}" = 1 ] || { all=0; break; }; done
     for idx in "${TUI_VIEW[@]}"; do
         if [ "$all" = 1 ]; then T_TICK[$idx]=0
-        else T_TICK[$idx]=1; tui_zsh_pull "$idx"; fi
+        else T_TICK[$idx]=1; tui_implied_pull "$idx"; fi
     done
     [ "${TUI_TABS[$TUI_TAB]}" = selected ] && tui_build_view
     return 0
@@ -2870,8 +2878,10 @@ show_plan() {
         if [[ "$cfg" == "ccstatusline" ]]; then
             if curl_app_installed bun; then
                 steps+=("${C_DIM}bun already installed${C_RESET}")
+            elif printf '%s\n' "${APPS[@]}" | grep -qx bun; then
+                steps+=("${C_YELLOW}install bun${C_RESET} ${C_DIM}(with the applications)${C_RESET}")
             else
-                steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}(tick Bun in the apps tab)${C_RESET}")
+                steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}— it will not render without it${C_RESET}")
             fi
         elif pkg_installed "$pkg"; then
             steps+=("${C_DIM}$pkg already installed${C_RESET}")
@@ -3744,6 +3754,16 @@ else
     menu_numeric
 fi
 
+# After every selection path, not inside one: the TUI ticks bun where it can be
+# seen and undone, but --configs=ccstatusline and the numbered list have no menu
+# to show it in, and a statusline with no bun renders nothing at all. Harmless
+# when the TUI already ticked it — this only adds what is missing.
+if printf '%s\n' "${SELECTED[@]}" | grep -qx ccstatusline \
+   && ! printf '%s\n' "${APPS[@]}" | grep -qx bun; then
+    APPS+=(bun)
+    substep "${C_DIM}ccstatusline renders through bunx — adding bun${C_RESET}"
+fi
+
 # .zshrc ends with `eval "$(starship init zsh)"` — the entire prompt is
 # starship. Picking zsh without it produced a bare "hostname#", which looks
 # like the install failed. It is a hard dependency, so pull it in. The menu
@@ -3962,10 +3982,16 @@ for cfg in "${SELECTED[@]}"; do
         # point of picking bunx over a pinned global, and it means this config
         # is a settings file plus a bun dependency and nothing else. bun is its
         # own entry in the apps tab rather than a second curl installer here.
+        # The configs loop runs before the apps loop, so bun being absent here
+        # is the normal case on a fresh machine, not a problem — it is queued
+        # and lands a few steps down. Only say something when it is genuinely
+        # not coming.
         if curl_app_installed bun; then
             substep "${C_ACCENT}bun${C_RESET} already installed"
+        elif printf '%s\n' "${APPS[@]}" | grep -qx bun; then
+            substep "${C_DIM}bun installs with the applications below${C_RESET}"
         else
-            substep "${C_YELLOW}bun is not installed${C_RESET} ${C_DIM}— the statusline cannot render without it; tick${C_RESET} ${C_ACCENT}Bun${C_RESET} ${C_DIM}in the apps tab${C_RESET}"
+            substep "${C_YELLOW}bun is not installed${C_RESET} ${C_DIM}— the statusline cannot render without it${C_RESET}"
         fi
 
         if ! stow_config "$cfg"; then
@@ -4394,6 +4420,9 @@ if printf '%s\n' "${SELECTED[@]}" | grep -qx ccstatusline \
    || printf '%s\n' "${APPS[@]}" | grep -qx claude-code; then
     info "Claude Code statusline..."
     wire_claude_statusline
+    # Every step closes its own box. Without this the next header opens inside
+    # this one and the whole run reads as one unterminated block.
+    success "Statusline ready"
 fi
 
 # ── Step 5d: strip repo traces (private mode) ────────────────────────────────

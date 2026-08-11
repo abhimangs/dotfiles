@@ -381,12 +381,17 @@ d="$WORK/run/flags-dry/home"
                    || note flags-dry "nothing written"
 
 # "all" is the shorthand the numbered list has always had.
+# Exit 1 since ccstatusline joined CONFIGS: "all" includes it, it pulls bun in,
+# and the curl stub cannot produce a real bun binary — the same sandbox limit
+# every scenario in the ccstatusline section hits. The selection itself, which
+# is what this scenario is about, is asserted below.
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
-check   flags-all 0
+check   flags-all 1
 want    flags-all 'Configs: .*fastfetch.*zsh'  'all of them selected'
 # Regression: the Debian branch used to re-declare CONFIGS as a second literal
 # list, which silently dropped every config added after it was written.
 want    flags-all 'Configs: .*micro.*fresh'    'including the ones added last'
+nowant  flags-all 'Failed \(2'                 'bun is the only casualty'
 
 echo
 echo "── docker app selection ─────────────────────────────────"
@@ -705,14 +710,28 @@ done
 echo
 echo "── ccstatusline ─────────────────────────────────────────"
 # The one config with no package behind it on either distro: Claude Code runs
-# it as `bunx -y ccstatusline@latest`, so the install step is a bun check and
-# nothing else. The sandbox has no bun, which is the interesting branch — a
-# missing runtime must warn and still stow, not abort the config.
+# it as `bunx -y ccstatusline@latest`, so selecting it pulls bun in as an app.
+#
+# Every scenario in this section exits 1, and that is the sandbox rather than
+# the code: the curl stub serves an installer that cannot produce a real `bun`
+# binary, so the app is correctly reported failed. The assertions below are on
+# what happens regardless — the pull, the stow, and the settings merge.
 RUN_ARGS="--configs=ccstatusline" run ccstatusline ubuntu "$WORK/k-sel"
-check   ccstatusline 0
-want    ccstatusline 'bun is not installed'  'warns when the runtime is absent'
+check   ccstatusline 1
+want    ccstatusline 'adding bun'            'pulls bun in on its own'
 want    ccstatusline 'statusline wired up'   'wires Claude Code up on its own'
 nowant  ccstatusline 'apt-get install bun'   'never tries to apt bun'
+# The whole point of the pull: selecting only the config must still leave a
+# machine that can render. A statusline wired to a bunx that is not installed
+# is a blank status line, which is exactly what shipped and had to be fixed.
+want    ccstatusline 'Bun'                   'bun reaches the applications step'
+nowant  ccstatusline 'tick Bun in the apps'  'never tells the user to go do it'
+# Each step has to close its own box, or the next header opens inside it.
+if [ "$(grep -c 'Statusline ready' "$WORK/run/ccstatusline/clean.txt")" -ge 1 ]; then
+    note ccstatusline "the statusline step closes its box"
+else
+    bad  ccstatusline "statusline step left its box unterminated"
+fi
 
 d="$WORK/run/ccstatusline/home"
 if [ -L "$d/.config/ccstatusline/settings.json" ]; then
@@ -759,7 +778,7 @@ cat > "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'JSON'
 JSON
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-keep" "$WORK/run/ccsl-keep" "$WORK/k-sel"
-check ccsl-keep 0
+check ccsl-keep 1
 if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -787,7 +806,7 @@ JSON
 cp "$WORK/run/ccsl-foreign/home/.claude/settings.json" "$WORK/seed/foreign.json"
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-foreign" "$WORK/run/ccsl-foreign" "$WORK/k-sel"
-check  ccsl-foreign 0
+check  ccsl-foreign 1
 want   ccsl-foreign 'Left your existing statusLine alone' 'says it stood back'
 if cmp -s "$WORK/seed/foreign.json" "$WORK/run/ccsl-foreign/home/.claude/settings.json"; then
     note ccsl-foreign "a hand-written statusLine is byte-identical afterwards"
@@ -803,7 +822,7 @@ printf '{ "model": "opus", oops not json\n' \
 cp "$WORK/run/ccsl-broken/home/.claude/settings.json" "$WORK/seed/broken.json"
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-broken" "$WORK/run/ccsl-broken" "$WORK/k-sel"
-check  ccsl-broken 0
+check  ccsl-broken 1
 want   ccsl-broken 'not valid JSON'  'reports the file it could not read'
 if cmp -s "$WORK/seed/broken.json" "$WORK/run/ccsl-broken/home/.claude/settings.json"; then
     note ccsl-broken "left the unparseable file exactly as it found it"
@@ -836,7 +855,7 @@ fi
 # which would still churn mtime and reformat anything hand-edited.
 cp "$WORK/run/ccsl-keep/home/.claude/settings.json" "$WORK/seed/afterfirst.json"
 RUN_ARGS="--configs=ccstatusline" rerun ccsl-again ccsl-keep "$WORK/k-sel"
-check ccsl-again 0
+check ccsl-again 1
 want  ccsl-again 'already wired up'  'second run is a no-op'
 if cmp -s "$WORK/seed/afterfirst.json" "$WORK/run/ccsl-keep/home/.claude/settings.json"; then
     note ccsl-again "already-wired settings.json is left byte-identical"
@@ -859,7 +878,7 @@ JSON
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-managed" "$WORK/run/ccsl-managed" "$WORK/k-sel" \
     CC_MANAGED_SETTINGS="$WORK/run/ccsl-managed/etc/claude-code/managed-settings.json"
-check ccsl-managed 0
+check ccsl-managed 1
 want  ccsl-managed 'managed statusLine overrides it'  'says the write will not win'
 if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys

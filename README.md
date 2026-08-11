@@ -78,7 +78,10 @@ bunx -y ccstatusline@latest 2>/dev/null || bunx -y ccstatusline
 ```
 
 so every render resolves the current release and there is nothing to keep
-updated. The only requirement is `bun`, which is its own entry in the apps tab.
+updated. The only requirement is `bun`, and selecting `ccstatusline` ticks it
+for you — in the menu, where it can be seen and undone, the same way ticking
+`zsh` pulls starship and the dep tools. Without bun the config installs cleanly
+and then renders nothing, which is not a failure mode worth leaving to a warning.
 The fallback is not decoration: Claude Code blanks the status line for any
 command that exits non-zero or prints nothing, and `@latest` does exactly that
 when the registry is unreachable. Plain `bunx ccstatusline` resolves from bun's
