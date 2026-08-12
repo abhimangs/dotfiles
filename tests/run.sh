@@ -265,6 +265,22 @@ check   ubuntu-nothing 0
 want    ubuntu-nothing 'Nothing selected'          'empty run stops'
 nowant  ubuntu-nothing 'Installation plan'         'stops before the plan'
 
+# 15d. Hermes: one curl installer, identical on all three distros, and a
+#      headless SSH box is where it is most wanted — so it is never in
+#      GUI_APPS and these runs are headless. The stub installer exits 1
+#      unless --skip-setup reaches it, which is what would otherwise stall
+#      the run on Hermes' interactive setup wizard.
+for _d in arch debian ubuntu; do
+    run   hermes-$_d "$_d" "$WORK/k-sel" DOTFILES_APPS="hermes" \
+          SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
+    check hermes-$_d 0
+    want  hermes-$_d 'Hermes Agent'  'hermes reached the summary'
+    [ -x "$WORK/run/hermes-$_d/home/.local/bin/hermes" ] \
+        && note hermes-$_d "hermes binary installed" \
+        || bad  hermes-$_d "no hermes binary"
+done
+unset _d
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has

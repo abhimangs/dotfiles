@@ -2615,7 +2615,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
@@ -2646,6 +2646,7 @@ APP_LABEL[codex-cli]="Codex CLI"
 APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
+APP_LABEL[hermes]="Hermes Agent"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[notion]="Notion"
@@ -2676,6 +2677,7 @@ APP_TYPE[codex-cli]="curl"
 APP_TYPE[opencode]="paru"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
+APP_TYPE[hermes]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[notion]="paru"
@@ -2714,6 +2716,11 @@ declare -A APP_CURL_ARGS APP_CURL_ENV
 APP_CURL_ARGS[opencode]="--no-modify-path"
 APP_CURL_ENV[kimi-code]="KIMI_NO_MODIFY_PATH=1"
 APP_CURL_ENV[muse]="MUSE_NO_MODIFY_PATH=1"
+# Hermes ends with an interactive setup wizard that reads /dev/tty — which our
+# run has, so without this it stops mid-install to ask for API keys. Skipped;
+# `hermes setup` runs it later. Its PATH block is the bun case: it only writes
+# to ~/.zshrc when ~/.local/bin is missing from PATH, and CURL_APP_PATH has it.
+APP_CURL_ARGS[hermes]="--skip-setup"
 # bun has no opt-out flag. Two separate writes to ~/.zshrc have to be stopped:
 # the PATH block (skipped once it sees its bin dir on PATH, hence CURL_APP_PATH
 # above) and the completions line, written by `bun completions` — which picks
@@ -2733,6 +2740,7 @@ APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
+APP_BIN[hermes]="hermes"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 
@@ -2757,6 +2765,7 @@ APP_TYPE_DEB[codex-cli]="curl"
 APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
+APP_TYPE_DEB[hermes]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
@@ -2821,6 +2830,7 @@ APP_DESC[codex-cli]="OpenAI's coding agent"
 APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
+APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[notion]="notes and workspace"
@@ -4328,6 +4338,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
                     kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
                     muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
+                    hermes)          _curl_url="https://hermes-agent.nousresearch.com/install.sh" ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash

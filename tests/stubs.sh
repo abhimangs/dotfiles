@@ -306,6 +306,22 @@ if [ -n "$out" ]; then
             # URL is the real <pkg>_<ver>_<arch>.deb. Hand the name to the apt stub,
             # which only sees the temp file.
             b=${url##*/}; printf '%s\n' "${b%%_*}" > "${STUB_STATE:?}/deb_pkg" ;;
+        *nousresearch.com*)
+            # The one vendor installer served for real, because Hermes is the
+            # one with an argument that matters: without --skip-setup it ends
+            # in an interactive wizard that would stop the run dead. Refusing
+            # here is what makes a dropped flag a test failure.
+            cat > "$out" <<'HERMES_SH'
+#!/bin/sh
+case " $* " in
+    *" --skip-setup "*) ;;
+    *) echo "STUBFAIL: hermes installer would open its setup wizard" >&2; exit 1 ;;
+esac
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho hermes stub\n' > "$HOME/.local/bin/hermes"
+chmod +x "$HOME/.local/bin/hermes"
+HERMES_SH
+            ;;
         *) : > "$out" ;;
     esac
     exit 0
