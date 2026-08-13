@@ -2736,6 +2736,12 @@ curl_app_installed() {
 }
 
 APP_BIN[claude-code]="claude"
+# 'agy', not 'antigravity' — that name is the IDE's, and the vendor installer
+# writes $TARGET_DIR/agy. Missing here, the ':-' fallbacks made the row read new
+# forever, the plan always say "install", and — the one that mattered — the
+# post-install check below is guarded on this being non-empty, so the single app
+# whose installer ends in '|| true' was the one never verified against reality.
+APP_BIN[antigravity-cli]="agy"
 APP_BIN[codex-cli]="codex"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"

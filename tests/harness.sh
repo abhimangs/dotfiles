@@ -61,6 +61,12 @@ build_root() {          # build_root <root> <distro>
     rm -rf "$root"; mkdir -p "$root/home" "$root/state" "$root/etc/apt/sources.list.d" "$root/share"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"
+    # Local-only state, never part of a clone — and a landmine if it comes
+    # along: an agent worktree under .claude/worktrees is a second full checkout
+    # complete with README, LICENSE and git/.gitconfig, so private mode found
+    # the author's name inside the sandbox and correctly failed eleven
+    # assertions. The suite has to test the repo, not whatever is beside it.
+    rm -rf "$root/home/dotfiles/.claude"
     : > "$root/state/installed"
     printf '/bin/sh\n/bin/bash\n' > "$root/etc/shells"
 

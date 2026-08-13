@@ -322,6 +322,18 @@ printf '#!/bin/sh\necho hermes stub\n' > "$HOME/.local/bin/hermes"
 chmod +x "$HOME/.local/bin/hermes"
 HERMES_SH
             ;;
+        *antigravity*)
+            # Served for real too, because the name is the whole point: this
+            # installer writes `agy`, nothing resembling the app key, so a run
+            # that never produces the binary is exactly what a missing APP_BIN
+            # entry looks like from the outside.
+            cat > "$out" <<'AGY_SH'
+#!/bin/sh
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho agy stub\n' > "$HOME/.local/bin/agy"
+chmod +x "$HOME/.local/bin/agy"
+AGY_SH
+            ;;
         *) : > "$out" ;;
     esac
     exit 0

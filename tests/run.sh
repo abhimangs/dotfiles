@@ -281,6 +281,22 @@ for _d in arch debian ubuntu; do
 done
 unset _d
 
+# 15e. The Antigravity CLI installs itself as `agy`, so APP_BIN is the only
+#      thing tying the two names together — and it was the one curl app with no
+#      entry. A second pass over the same sandbox is what shows it: with the
+#      binary already in ~/.local/bin, an empty APP_BIN means an empty probe,
+#      which never matches, so the run redownloads and reruns the vendor
+#      installer — the same blind spot that skips the post-install check.
+run     agy-first ubuntu "$WORK/k-sel" DOTFILES_APPS="antigravity-cli"
+check   agy-first 0
+[ -x "$WORK/run/agy-first/home/.local/bin/agy" ] \
+    && note agy-first "installed as agy, not as antigravity-cli" \
+    || bad  agy-first "no agy binary"
+rerun   agy-again agy-first "$WORK/k-sel" DOTFILES_APPS="antigravity-cli"
+check   agy-again 0
+want    agy-again 'Antigravity CLI already installed' 'the plan finds agy on PATH'
+nowant  agy-again 'Downloading installer'             'no second run of the installer'
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has
