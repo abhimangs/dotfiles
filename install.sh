@@ -3355,13 +3355,72 @@ restore_bash() {
 # ─────────────────────────────────────────────────────────────────────────────
 header
 
-# --restore-bash short-circuits everything below: no privacy prompt, no backup
-# mode, no menus, no install loop. It needs sudo for chsh, and sudo -v is only
-# reached further down, so ask here.
-if [ "$RESTORE_BASH" -eq 1 ]; then
-    if [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null && [ "$DRY_RUN" -eq 0 ]; then
-        sudo -v || true
+# ── Privileges ────────────────────────────────────────────────────────────────
+# VPS and container images normally drop you straight into root, and plenty of
+# them ship without sudo at all — 'sudo -v' died with "command not found" before
+# the installer did anything. As root, run privileged commands directly. The
+# passthrough goes through env so that 'sudo VAR=value cmd' (which sudo parses
+# itself) keeps working unchanged at every call site.
+#
+# This has to run before the --restore-bash short-circuit below, not after it:
+# that path needs the root shim as much as the install does. On a root image
+# with no sudo, restore_bash's 'sudo chsh' and 'sudo tee /etc/shells' died with
+# "command not found", the failures were swallowed by '|| true', and the readback
+# reported "Login shell unchanged" — --restore-bash could not restore the login
+# shell at all on exactly the images it exists for.
+info "Authentication..."
+if [ "$(id -u)" -eq 0 ]; then
+    # Tell a real root login apart from 'sudo bash install.sh'. Under sudo,
+    # $HOME is /root or the caller's home depending on the sudoers policy, so
+    # the configs either land in the wrong home or land in the right one owned
+    # by root. Both are wrong and neither is obvious later, so stop and explain.
+    if [ -n "${SUDO_USER:-}" ]; then
+        error "Do not run this through sudo."
+        substep "The installer asks for sudo itself, only for the steps that need it."
+        substep "Run as your own user instead:   ${C_ACCENT}bash install.sh${C_RESET}"
+        substep "Or log in as root properly and run it there — both are supported."
+        substep "${C_DIM}(As it stands the configs would be stowed into ${HOME}${C_RESET}"
+        substep "${C_DIM} and any files created would be owned by root.)${C_RESET}"
+        exit 1
     fi
+    IS_ROOT=1
+    sudo() { env "$@"; }
+    substep "Running as root — sudo not needed"
+    success "Ready"
+elif ! command -v sudo &>/dev/null; then
+    IS_ROOT=0
+    error "sudo is not installed and you are not root."
+    substep "Install sudo, or re-run this script as root."
+    exit 1
+elif [ "$RESTORE_BASH" -eq 1 ] && [ "$DRY_RUN" -eq 1 ]; then
+    # A --restore-bash dry run prints its plan and returns without running a
+    # single privileged command. The ad-hoc 'sudo -v' this branch used to do for
+    # itself skipped DRY_RUN for that reason; hoisting must not turn a mode whose
+    # contract is "no writes" into a password prompt.
+    IS_ROOT=0
+    substep "Dry run — nothing to authenticate for"
+    success "Ready"
+else
+    IS_ROOT=0
+    substep "Enter your sudo password once — cached for the full install"
+    if ! sudo -v; then
+        error "Authentication failed. Exiting."
+        exit 1
+    fi
+    success "Authenticated"
+
+    # </dev/null matters as much as the output redirect: without it the loop
+    # inherits this terminal, and the sleep it forks keeps that fd open after
+    # the installer exits. Anything reading the other end — script(1), a CI
+    # runner, a parent that waits for EOF — then hangs for the rest of the
+    # sleep rather than finishing when we do.
+    ( while true; do sudo -v; sleep 240; done ) </dev/null &>/dev/null &
+    _SUDO_KEEPALIVE=$!
+fi
+
+# --restore-bash short-circuits everything below: no privacy prompt, no backup
+# mode, no menus, no install loop. Privileges above it are already sorted out.
+if [ "$RESTORE_BASH" -eq 1 ]; then
     restore_bash
     exit $?
 fi
@@ -3410,54 +3469,6 @@ if [ "$PICK2" -eq 1 ]; then
 else
     BACKUP_MODE="backup"
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
-fi
-
-# ── Privileges ────────────────────────────────────────────────────────────────
-# VPS and container images normally drop you straight into root, and plenty of
-# them ship without sudo at all — 'sudo -v' died with "command not found" before
-# the installer did anything. As root, run privileged commands directly. The
-# passthrough goes through env so that 'sudo VAR=value cmd' (which sudo parses
-# itself) keeps working unchanged at every call site.
-info "Authentication..."
-if [ "$(id -u)" -eq 0 ]; then
-    # Tell a real root login apart from 'sudo bash install.sh'. Under sudo,
-    # $HOME is /root or the caller's home depending on the sudoers policy, so
-    # the configs either land in the wrong home or land in the right one owned
-    # by root. Both are wrong and neither is obvious later, so stop and explain.
-    if [ -n "${SUDO_USER:-}" ]; then
-        error "Do not run this through sudo."
-        substep "The installer asks for sudo itself, only for the steps that need it."
-        substep "Run as your own user instead:   ${C_ACCENT}bash install.sh${C_RESET}"
-        substep "Or log in as root properly and run it there — both are supported."
-        substep "${C_DIM}(As it stands the configs would be stowed into ${HOME}${C_RESET}"
-        substep "${C_DIM} and any files created would be owned by root.)${C_RESET}"
-        exit 1
-    fi
-    IS_ROOT=1
-    sudo() { env "$@"; }
-    substep "Running as root — sudo not needed"
-    success "Ready"
-elif ! command -v sudo &>/dev/null; then
-    IS_ROOT=0
-    error "sudo is not installed and you are not root."
-    substep "Install sudo, or re-run this script as root."
-    exit 1
-else
-    IS_ROOT=0
-    substep "Enter your sudo password once — cached for the full install"
-    if ! sudo -v; then
-        error "Authentication failed. Exiting."
-        exit 1
-    fi
-    success "Authenticated"
-
-    # </dev/null matters as much as the output redirect: without it the loop
-    # inherits this terminal, and the sleep it forks keeps that fd open after
-    # the installer exits. Anything reading the other end — script(1), a CI
-    # runner, a parent that waits for EOF — then hangs for the rest of the
-    # sleep rather than finishing when we do.
-    ( while true; do sudo -v; sleep 240; done ) </dev/null &>/dev/null &
-    _SUDO_KEEPALIVE=$!
 fi
 
 # ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
