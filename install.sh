@@ -1166,10 +1166,14 @@ APT_SOURCES_D=/etc/apt/sources.list.d
 # again — anything else under sources.list.d belongs to the user and is left
 # alone. PPAs are matched by their owner prefix, vendor repos by filename.
 APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal'
-# Every vendor repo written by an ensure_*_deb function below. A stale one of
-# these breaks apt-get update for the whole machine exactly as a dead PPA does
-# — and used to do it permanently, because only PPAs were ever cleaned up.
-APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*'
+# Every vendor repo written by an ensure_*_deb function below, plus the mirror
+# fallback. A stale one of these breaks apt-get update for the whole machine
+# exactly as a dead PPA does — and used to do it permanently, because only PPAs
+# were ever cleaned up. The fallback list was the last one still uncleanable:
+# left out of here, the one file written to heal a broken index was the one file
+# that could break it for good. zz-dotfiles-fallback is its pre-rename name, kept
+# so a machine that ran that version can still be healed.
+APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*|zz-installer-fallback|zz-dotfiles-fallback'
 APT_HEALED=0
 
 # An earlier run may have added a source that has since stopped publishing for
@@ -1385,7 +1389,10 @@ apt_add_fallback_mirror() {
     local codename; codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")"
     [ -n "$codename" ] || return 1
 
-    local list=/etc/apt/sources.list.d/zz-dotfiles-fallback.list
+    # The name carries no "dotfiles": /etc outlives $HOME, so a file here is a
+    # more permanent trace than the bashrc hook that dropped the word. The stem
+    # is also in APT_OWN_SOURCES, so this file can be removed again — see there.
+    local list="$APT_SOURCES_D/zz-installer-fallback.list"
     local host
     if [ "$IS_UBUNTU" -eq 1 ]; then
         case "$(deb_arch)" in
