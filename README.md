@@ -217,9 +217,9 @@ Anything already ticked is not added twice, and all of these remain selectable o
 Privacy is its own question, asked before anything else, and it prints the exact list before you choose — nothing is a surprise afterwards. Answering `private` means the machine keeps no sign of where the configs came from or whose they are.
 
 **Deleted outright** (repo scaffolding, no value once the configs are stowed):
-`.git` `.github` `.gitignore` `.gitattributes` `README.md` `CLAUDE.md` `LICENSE` `linux.sh`
+`.git` `.github` `.gitignore` `.gitattributes` `.editorconfig` `.shellcheckrc` `tests/` `README.md` `CLAUDE.md` `LICENSE` `linux.sh`
 
-`.git` is the big one — it carries the remote URL, the whole commit history, and the author name and email on every commit. `linux.sh` carries the GitHub URL.
+`.git` is the big one — it carries the remote URL, the whole commit history, and the author name and email on every commit. `linux.sh` carries the GitHub URL. The rest go because the *shape* gives it away just as plainly: a directory holding `tests/run.sh`, an `.editorconfig` and a shellcheck config is a checkout whatever `.git` says.
 
 **Scrubbed in place** (live configs that must keep working):
 
@@ -229,7 +229,7 @@ Privacy is its own question, asked before anything else, and it prints the exact
 | `fastfetch/config.jsonc` | the author byline — name, GitHub handle, contact address |
 | `install.sh` | any hosted bootstrap URL in its comments |
 
-The byline and the URL are matched structurally, not by name, so the installer itself carries no identity to leak. The config folders and `install.sh` stay, so the stow symlinks keep resolving and it can be re-run.
+The byline and the URL are matched structurally, not by name, so the installer itself carries no identity to leak. The config folders, `install.sh` and `doctor.sh` stay — the symlinks have to keep resolving, the installer has to be re-runnable, and `doctor.sh` is what you run when something misbehaves afterwards. It names nobody and nothing remote, and it already reports the git metadata as `stripped (private mode)`.
 
 What happens to *existing* configs is asked separately, straight after:
 
@@ -238,11 +238,11 @@ What happens to *existing* configs is asked separately, straight after:
 | `backup` | Existing configs move to `.bak` |
 | `delete` | Existing configs are wiped, no backup kept |
 
-`private` removes `.git` (remote URL, full history, author name and email), `.github`, `.gitignore`, `.gitattributes`, `README.md`, `CLAUDE.md`, `LICENSE` and `linux.sh` — the last of which carries the GitHub URL. The config folders and `install.sh` stay, so the stow symlinks keep resolving and you can re-run the installer any time with `bash ~/dotfiles/install.sh` — no clone needed. Only pulling *new changes* from GitHub needs one.
+Both lists above are the whole of it — they are printed straight from the arrays the installer deletes and scrubs from, so what you are shown at the prompt cannot drift from what happens. Afterwards you can still re-run the installer any time with `bash ~/dotfiles/install.sh` — no clone needed. Only pulling *new changes* from GitHub needs one.
 
 It refuses to run against anything that does not look like the checkout (no `install.sh`, or a path equal to `/` or `$HOME`).
 
-Two things it deliberately does not touch, because they are live configs rather than repo metadata: the byline comment in `fastfetch/config.jsonc`, and `user.name`/`user.email` in `git/.gitconfig`. Edit those yourself if the machine should not carry your name.
+It also checks its own work rather than trusting it. Every path is re-tested after the delete, and anything that survived (a clone made under another uid, say) is named at the end with the `rm -rf` to finish it by hand. The scrub reads `user.name`/`user.email` out of `git/.gitconfig` *before* removing them, then greps the whole folder for those values — if your name is still somewhere in there, it says so and where, instead of printing "scrubbed" over the top of it.
 
 ### Headless servers
 

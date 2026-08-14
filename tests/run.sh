@@ -732,6 +732,20 @@ for scen in ubuntu-private ubuntu-private-deadgit; do
             note "$scen" "'$pat' removed"
         fi
     done
+    # Identity is only half the promise. A folder still holding a shellcheck
+    # config and an .editorconfig is legibly a checkout whatever .git says, and
+    # that is what "no sign that ~/dotfiles came from a repo" was leaving behind.
+    # tests/ is on the same list and takes the same code path as .github, but it
+    # cannot be asserted here: build_root strips it from the staged copy.
+    for f in .editorconfig .shellcheckrc; do
+        if [ -e "$d/$f" ]; then bad  "$scen" "$f survived"
+        else                    note "$scen" "$f removed"; fi
+    done
+    # The deliberate exception, asserted so it does not get tidied onto the
+    # delete list later: doctor.sh names nobody and is the only way to work out
+    # what went wrong on a machine that now has no repo to compare against.
+    if [ -f "$d/doctor.sh" ]; then note "$scen" "doctor.sh kept"
+    else                           bad  "$scen" "doctor.sh deleted"; fi
     if [ -f "$d/install.sh" ] && bash -n "$d/install.sh" 2>/dev/null; then
         note "$scen" "scrubbed install.sh still parses"
     else

@@ -2161,7 +2161,17 @@ ensure_zsh_autoexec() {
 # Two kinds of target. Repo scaffolding is deleted outright — it has no value
 # once the configs are stowed. Live configs are scrubbed instead: they have to
 # keep working, they just must not carry a name, an address or a URL.
-PRIVATE_DELETE=(menu_temp .git .github .gitignore .gitattributes
+#
+# tests/, .editorconfig and .shellcheckrc are on the list because stripping the
+# git metadata alone left the *shape* of a checkout behind: a directory holding
+# tests/run.sh and a shellcheck config is a clone whatever .git says, and the
+# line printed above the prompt promises no sign that ~/dotfiles came from a
+# repo. Nothing under tests/ is read at runtime, so a re-run is unaffected.
+# doctor.sh deliberately stays: it carries no name, handle or URL, it is
+# read-only, and it is the thing to run when the install misbehaves later — it
+# already reports git metadata as "stripped (private mode)".
+PRIVATE_DELETE=(menu_temp tests .git .github .gitignore .gitattributes
+                .editorconfig .shellcheckrc
                 README.md CLAUDE.md LICENSE LICENSE.md linux.sh)
 
 # file → what is taken out of it
