@@ -2562,6 +2562,41 @@ PKG_MAP[ccstatusline]="bun"
 PKG_MAP[fresh]="fresh-editor-bin"
 [[ "$DISTRO" == "debian" ]] && PKG_MAP[fresh]="fresh-editor"
 
+# Debian/Ubuntu install-method overrides, same shape as DEP_PKG_DEB/APP_TYPE_DEB:
+# an entry only where a plain `apt install` will not do. Absent means apt.
+declare -A DEB_INSTALLER
+DEB_INSTALLER[ghostty]="ensure_ghostty_deb"
+DEB_INSTALLER[fastfetch]="ensure_fastfetch_deb"
+DEB_INSTALLER[fresh]="ensure_fresh_deb"
+DEB_INSTALLER[protonvpn]="ensure_protonvpn_cli_deb"
+DEB_INSTALLER[starship]="ensure_starship_deb"
+DEB_INSTALLER[ulauncher]="ensure_ulauncher_deb"
+
+# The install-or-fail preamble every config arm opened with — six near-identical
+# copies of it, which is how the wording drifted apart between them. Returns
+# non-zero on failure; the `continue` stays at the call site because it has to
+# continue the config loop, not this function.
+#   ensure_cfg_pkg <cfg> <pkg>   # pkg already resolved by PKG_MAP, per distro
+ensure_cfg_pkg() {
+    local cfg="$1" pkg="$2"
+    if pkg_installed "$pkg"; then
+        substep "${C_ACCENT}${pkg}${C_RESET} already installed"
+        return 0
+    fi
+    substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
+    if [[ "$DISTRO" == "arch" ]]; then
+        # arch_install tries the official repos before the AUR — keep it that way
+        arch_install "$pkg" && return 0
+    else
+        # The ensure_*_deb functions take no arguments and ignore this one; it
+        # is here for the apt_install default, which is the whole point of the
+        # map being sparse.
+        "${DEB_INSTALLER[$cfg]:-apt_install}" "$pkg" && return 0
+    fi
+    error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
+    return 1
+}
+
 FONT_PKG="ttf-jetbrains-mono-nerd"
 MAPLE_FONT_PKG="maplemono-ttf"   # family "Maple Mono" — the name kitty.conf asks for
 
@@ -3939,27 +3974,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── fastfetch / ghostty / kitty / rofi / micro / fresh ──────────────
       fastfetch|ghostty|kitty|rofi|micro|fresh)
-        if pkg_installed "$pkg"; then
-            substep "${C_ACCENT}${pkg}${C_RESET} already installed"
-        else
-            substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
-            _install_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install "$pkg" || _install_ok=0
-            else
-                case "$cfg" in
-                    ghostty)   ensure_ghostty_deb   || _install_ok=0 ;;
-                    fastfetch) ensure_fastfetch_deb || _install_ok=0 ;;
-                    fresh)     ensure_fresh_deb     || _install_ok=0 ;;
-                    *)         apt_install "$pkg"   || _install_ok=0 ;;
-                esac
-            fi
-            if [ "$_install_ok" -eq 0 ]; then
-                error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
-                FAILED+=("$cfg")
-                continue
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         if ! stow_config "$cfg"; then
             FAILED+=("$cfg")
@@ -4048,22 +4063,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── zsh ──────────────────────────────────────────────────────────────
       zsh)
-        if pkg_installed zsh; then
-            substep "${C_ACCENT}zsh${C_RESET} already installed"
-        else
-            substep "Installing ${C_ACCENT}zsh${C_RESET}..."
-            _install_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install zsh || _install_ok=0
-            else
-                apt_install zsh || _install_ok=0
-            fi
-            if [ "$_install_ok" -eq 0 ]; then
-                error "Failed to install zsh — skipping"
-                FAILED+=(zsh)
-                continue
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         backup_file "$HOME/.zshrc"
         if ! stow_home "zsh"; then
@@ -4151,22 +4151,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── protonvpn ────────────────────────────────────────────────────────
       protonvpn)
-        if pkg_installed proton-vpn-cli; then
-            substep "${C_ACCENT}proton-vpn-cli${C_RESET} already installed"
-        else
-            substep "Installing ${C_ACCENT}proton-vpn-cli${C_RESET}..."
-            _install_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install proton-vpn-cli || _install_ok=0
-            else
-                ensure_protonvpn_cli_deb || _install_ok=0
-            fi
-            if [ "$_install_ok" -eq 0 ]; then
-                error "Failed to install proton-vpn-cli — skipping"
-                FAILED+=(protonvpn)
-                continue
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         # Unlink stow-folded dirs from a previous run before backup
         pvpn_dir="$HOME/scripts/pvpn"
@@ -4188,22 +4173,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── starship ─────────────────────────────────────────────────────────
       starship)
-        if pkg_installed starship; then
-            substep "${C_ACCENT}starship${C_RESET} already installed"
-        else
-            substep "Installing ${C_ACCENT}starship${C_RESET}..."
-            _install_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install starship || _install_ok=0
-            else
-                ensure_starship_deb || _install_ok=0
-            fi
-            if [ "$_install_ok" -eq 0 ]; then
-                error "Failed to install starship — skipping"
-                FAILED+=(starship)
-                continue
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         # starship is a single file, not a directory — handle differently.
         #
@@ -4236,22 +4206,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── git ──────────────────────────────────────────────────────────────
       git)
-        if pkg_installed git; then
-            substep "${C_ACCENT}git${C_RESET} already installed"
-        else
-            substep "Installing ${C_ACCENT}git${C_RESET}..."
-            _install_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install git || _install_ok=0
-            else
-                apt_install git || _install_ok=0
-            fi
-            if [ "$_install_ok" -eq 0 ]; then
-                error "Failed to install git — skipping"
-                FAILED+=(git)
-                continue
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         backup_file "$HOME/.gitconfig"
         if ! stow_home "git"; then
@@ -4262,25 +4217,7 @@ for cfg in "${SELECTED[@]}"; do
 
       # ── ulauncher ────────────────────────────────────────────────────────
       ulauncher)
-        if pkg_installed ulauncher; then
-            substep "${C_ACCENT}ulauncher${C_RESET} already installed"
-        else
-            if [[ "$DISTRO" == "arch" ]]; then
-                substep "Installing ${C_ACCENT}ulauncher${C_RESET}..."
-                if ! arch_install ulauncher; then
-                    error "Failed to install ulauncher — skipping"
-                    FAILED+=(ulauncher)
-                    continue
-                fi
-            else
-                substep "Installing ${C_ACCENT}ulauncher${C_RESET}..."
-                if ! ensure_ulauncher_deb; then
-                    error "Failed to install ulauncher — skipping"
-                    FAILED+=(ulauncher)
-                    continue
-                fi
-            fi
-        fi
+        ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         if ! stow_config "ulauncher"; then
             FAILED+=(ulauncher)
