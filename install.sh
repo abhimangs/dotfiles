@@ -1437,6 +1437,22 @@ github_latest_asset_url() {
         | grep -Ei "$pattern" | head -1 | sed 's#^/#https://github.com/#'
 }
 
+# Four of the tools below have no apt package anywhere and publish a .deb per
+# release instead — same download every time, so it lives here once.
+# apt-get on the downloaded file rather than dpkg -i: dpkg leaves unmet deps
+# behind for the next apt run to trip over, apt-get resolves them.
+# The asset pattern belongs to the caller, since every project names its builds
+# differently — but it has to stay $-anchored wherever it is written, or the
+# matching .deb.sha256 asset wins the grep.
+install_release_deb() {
+    local url tmp
+    url=$(github_latest_asset_url "$1" "$2")
+    [ -n "$url" ] || return 1
+    tmp=$(mktemp -p "$RUN_TMPDIR" release_XXXXXX.deb)
+    curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
+    rm -f "$tmp"
+}
+
 # ── ghostty (Debian/Ubuntu) ───────────────────────────────────────────────────
 # mkasberg/ghostty-ubuntu's installer self-detects Ubuntu (PPA) vs Debian
 # Trixie/Forky (signed repo) and grabs the right .deb either way.
@@ -1495,7 +1511,7 @@ ensure_fastfetch_deb() {
         add_ppa ppa:zhangsongcui3371/fastfetch
         apt_install fastfetch
     else
-        local apat url
+        local apat
         # Upstream names 32-bit ARM builds armv7l/armv6l, never Debian's
         # armhf/armel, so those need translating or nothing matches.
         case "$(deb_arch)" in
@@ -1505,12 +1521,7 @@ ensure_fastfetch_deb() {
             armel) apat='armv6l' ;;
             *)     apat="$(deb_arch)" ;;
         esac
-        url=$(github_latest_asset_url "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$")
-        if [ -n "$url" ]; then
-            local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" fastfetch_XXXXXX.deb)
-            curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
-            rm -f "$tmp"
-        fi
+        install_release_deb "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$"
     fi
     apt_pkg_installed fastfetch
 }
@@ -1522,30 +1533,17 @@ ensure_ulauncher_deb() {
         add_ppa ppa:agornostal/ulauncher
         apt_install ulauncher
     else
-        local url; url=$(github_latest_asset_url "Ulauncher/Ulauncher" '_all\.deb$')
-        if [ -n "$url" ]; then
-            local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" ulauncher_XXXXXX.deb)
-            curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
-            rm -f "$tmp"
-        fi
+        install_release_deb "Ulauncher/Ulauncher" '_all\.deb$'
     fi
     apt_pkg_installed ulauncher
 }
 
 # ── fresh (Debian/Ubuntu) ────────────────────────────────────────────────────
 # No apt package anywhere — upstream publishes a .deb per release instead. The
-# arch suffix is Debian's own (amd64/arm64), which is what deb_arch prints, and
-# the $ anchor is what keeps the matching .deb.sha256 asset from winning.
-# apt-get rather than dpkg -i for the local file: dpkg leaves unmet deps behind
-# for the next apt run to trip over, apt-get resolves them.
+# arch suffix is Debian's own (amd64/arm64), which is what deb_arch prints.
 ensure_fresh_deb() {
     apt_pkg_installed fresh-editor && return 0
-    local url; url=$(github_latest_asset_url "sinelaw/fresh" "_$(deb_arch)\.deb$")
-    if [ -n "$url" ]; then
-        local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" fresh_XXXXXX.deb)
-        curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
-        rm -f "$tmp"
-    fi
+    install_release_deb "sinelaw/fresh" "_$(deb_arch)\.deb$"
     apt_pkg_installed fresh-editor
 }
 
@@ -1556,12 +1554,7 @@ ensure_fresh_deb() {
 # so it dies on import on every supported Ubuntu.
 ensure_pay_respects_deb() {
     apt_pkg_installed pay-respects && return 0
-    local url; url=$(github_latest_asset_url "iffse/pay-respects" "_$(deb_arch)\.deb$")
-    if [ -n "$url" ]; then
-        local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" payrespects_XXXXXX.deb)
-        curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
-        rm -f "$tmp"
-    fi
+    install_release_deb "iffse/pay-respects" "_$(deb_arch)\.deb$"
     apt_pkg_installed pay-respects
 }
 
@@ -1724,24 +1717,13 @@ ensure_brave_deb() {
 }
 
 # ── VS Code (Debian/Ubuntu) ───────────────────────────────────────────────────
+# code and code-insiders ship from the same Microsoft repo under the same key,
+# differing only in the package name — so one function takes it as an argument.
+# The keyring guard is why: picking insiders on its own still installs the key,
+# and picking both does not fetch it a second time.
 ensure_vscode_deb() {
-    apt_pkg_installed code && return 0
-    ensure_apt_deps
-    apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
-        /etc/apt/keyrings/packages.microsoft.gpg || return 1
-    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
-        | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
-    APT_UPDATED=0
-    apt_update_once
-    apt_install code
-    apt_pkg_installed code
-}
-
-# code-insiders ships from the same Microsoft repo/key as stable code, just a
-# different package — so this only needs to add that repo when vscode-insiders
-# is picked on its own, without ensure_vscode_deb having done it already.
-ensure_vscode_insiders_deb() {
-    apt_pkg_installed code-insiders && return 0
+    local pkg="$1"
+    apt_pkg_installed "$pkg" && return 0
     ensure_apt_deps
     if [ ! -s /etc/apt/keyrings/packages.microsoft.gpg ]; then
         apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
@@ -1751,8 +1733,8 @@ ensure_vscode_insiders_deb() {
         | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
     APT_UPDATED=0
     apt_update_once
-    apt_install code-insiders
-    apt_pkg_installed code-insiders
+    apt_install "$pkg"
+    apt_pkg_installed "$pkg"
 }
 
 # ── Flatpak ───────────────────────────────────────────────────────────────────
@@ -4411,8 +4393,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                         brave-beta)   ensure_brave_deb beta   "$_pkg" ;;
                     esac
                     ;;
-                vscode) ensure_vscode_deb ;;
-                vscode-insiders) ensure_vscode_insiders_deb ;;
+                vscode|vscode-insiders) ensure_vscode_deb "$_pkg" ;;
                 alacritty) ensure_alacritty_deb ;;
                 wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
