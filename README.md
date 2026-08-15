@@ -191,6 +191,21 @@ meaning you want a working bash.
 **An existing `~/.config/starship.toml` is never replaced.** The repo's is stowed
 only when you do not already have one.
 
+### Collecting the state for a bug report
+
+```bash
+bash ~/dotfiles/doctor.sh
+```
+
+Read-only: it installs nothing, changes nothing and asks nothing. It prints the
+login shell against the one actually running, the `~/.bashrc` hand-off hook and
+its pristine copy, which symlinks stow really made, which tools and fonts are
+present, the Claude Code `statusLine` and whether `bun` can be found, and the
+environment the installer keys off (headless detection, WSL, locale, `TERM`).
+
+Paste the whole output into an issue — it is the quickest way to answer "zsh is
+installed but my shell is still bash", which is the question it was written for.
+
 ### Arch-only items
 
 `rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), and the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
