@@ -2910,6 +2910,32 @@ DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
+# The four outcomes for one dotfile in $HOME — our symlink, present, present
+# with a .bak to rotate, absent — read identically for .bashrc, .zshrc and
+# .gitconfig, and each has to keep step with the install loop. Written out three
+# times that was three places to remember, and a plan that disagrees with the
+# loop is how someone is promised "backup" and gets a delete. Appends to the
+# caller's `steps` by nameref, like strip_items. $3 is the only real difference
+# left: --restore-bash keeps the original .bashrc, so deleting it is not the
+# loss it is for the other two, and the bash arm passes a note saying so.
+plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
+    local -n _steps="$1"
+    local _file="$2" _name="${2##*/}" _note="${3:-}"
+    if [ -L "$_file" ]; then
+        _steps+=("${C_ACCENT}re-stow ${_name}${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
+    elif [ -e "$_file" ]; then
+        if [[ "$BACKUP_MODE" == "delete" ]]; then
+            _steps+=("${C_RED}delete${C_RESET} ${C_DIM}${_name}${C_RESET}${_note}")
+        else
+            [ -e "${_file}.bak" ] && _steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_name}.bak → ${_name}.old.bak${C_RESET}")
+            _steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}${_name} → ${_name}.bak${C_RESET}")
+        fi
+        _steps+=("${C_GREEN}stow ~/${_name}${C_RESET}")
+    else
+        _steps+=("${C_GREEN}stow ~/${_name}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+    fi
+}
+
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
@@ -2995,38 +3021,14 @@ show_plan() {
                 steps+=("${C_GREEN}point Claude Code at it${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}")
             ;;
           bash)
-            local brc="$HOME/.bashrc"
+            # This one line really is bash-only, so it stays out here rather
+            # than becoming a flag on the helper.
             [ -e "$PRISTINE_BASHRC" ] || [ -e "$PRISTINE_ABSENT" ] \
                 || steps+=("${C_YELLOW}keep a pristine copy${C_RESET} ${C_DIM}of .bashrc (once, kept for --restore-bash)${C_RESET}")
-            if [ -L "$brc" ]; then
-                steps+=("${C_ACCENT}re-stow .bashrc${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$brc" ]; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.bashrc${C_RESET} ${C_DIM}(pristine copy still kept)${C_RESET}")
-                else
-                    [ -e "${brc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.bashrc.bak → .bashrc.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.bashrc → .bashrc.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow ~/.bashrc${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow ~/.bashrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-            fi
+            plan_home_file steps "$HOME/.bashrc" " ${C_DIM}(pristine copy still kept)${C_RESET}"
             ;;
           zsh)
-            local rc="$HOME/.zshrc"
-            if [ -L "$rc" ]; then
-                steps+=("${C_ACCENT}re-stow .zshrc${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$rc" ]; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.zshrc${C_RESET}")
-                else
-                    [ -e "${rc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.zshrc.bak → .zshrc.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.zshrc → .zshrc.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow ~/.zshrc${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow ~/.zshrc${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-            fi
+            plan_home_file steps "$HOME/.zshrc"
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
@@ -3055,6 +3057,10 @@ show_plan() {
             unset _pdf
             ;;
           ulauncher)
+            # plan_home_file's shape, none of its words: a directory under
+            # ~/.config, "re-stow config" not the name, and a rotate line that
+            # says "backup". Three more parameters to absorb one caller is the
+            # worse trade, so this one stays written out.
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             if [ -L "$target" ]; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
@@ -3076,20 +3082,7 @@ show_plan() {
             fi
             ;;
           git)
-            local gc="$HOME/.gitconfig"
-            if [ -L "$gc" ]; then
-                steps+=("${C_ACCENT}re-stow .gitconfig${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$gc" ]; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}.gitconfig${C_RESET}")
-                else
-                    [ -e "${gc}.bak" ] && steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}.gitconfig.bak → .gitconfig.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}.gitconfig → .gitconfig.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow ~/.gitconfig${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow ~/.gitconfig${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-            fi
+            plan_home_file steps "$HOME/.gitconfig"
             ;;
         esac
 
