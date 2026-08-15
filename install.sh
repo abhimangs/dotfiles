@@ -390,6 +390,7 @@ tui_build_items() {
 # `apt list --upgradable`, so it runs in the background and the rows fill in
 # when it lands. The menu is usable immediately either way.
 TUI_UPD_READY=""
+TUI_UPD_PID=""
 
 tui_scan_installed() {
     local -A have=()
@@ -414,6 +415,11 @@ tui_scan_installed() {
 tui_start_upgrade_scan() {
     local tmp; tmp=$(mktemp -p "$RUN_TMPDIR" upd_XXXXXX)
     TUI_UPD_READY="${tmp}.ready"
+    # The redirect is on the whole block, not just the scan inside it: when
+    # tui_cleanup kills this, bash announces the dead job from in here
+    # ("Terminated  apt list --upgradable | ...") and the mv below can lose its
+    # race with cleanup's rm and complain about a file that is already gone.
+    # Both would land on the terminal we have just put back.
     {
         if [[ "$DISTRO" == "arch" ]]; then
             pacman -Qu 2>/dev/null | cut -d' ' -f1 > "$tmp"
@@ -422,7 +428,8 @@ tui_start_upgrade_scan() {
         fi
         # Renamed only once complete, so a half-written file is never read.
         mv "$tmp" "$TUI_UPD_READY"
-    } &
+    } 2>/dev/null &
+    TUI_UPD_PID=$!
 }
 
 tui_apply_upgrades() {
@@ -834,6 +841,18 @@ tui_cleanup() {
     TUI_ACTIVE=0
     printf '\033[?25h\033[?1049l'
     [ -n "${TUI_STTY_SAVE:-}" ] && stty "$TUI_STTY_SAVE" <"$TTY_IN" 2>/dev/null
+    # Nothing ever waited on the upgrade scan, so quitting with esc or ctrl-c
+    # left `apt list --upgradable` running detached — seconds of pointless work
+    # on a slow VPS after the installer is gone, and still able to rename its
+    # file into the directory _cleanup is about to remove. The child goes first
+    # for the same reason the sudo keepalive's does: kill the subshell alone and
+    # apt is reparented to init and runs to completion anyway. Silent when the
+    # scan has already finished, which is the usual case.
+    if [ -n "$TUI_UPD_PID" ]; then
+        pkill -P "$TUI_UPD_PID" 2>/dev/null
+        kill "$TUI_UPD_PID" 2>/dev/null
+    fi
+    # After the kill, so a mv that squeezed through still loses to this rm.
     [ -n "$TUI_UPD_READY" ] && rm -f "$TUI_UPD_READY" "${TUI_UPD_READY%.ready}"
     return 0
 }
@@ -3723,23 +3742,6 @@ menu_numeric() {
         done
     fi
 
-    # Everything .zshrc reaches for is guarded by `command -v`, so without these
-    # the shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf
-    # key bindings. The menu ticks them where you can see and undo it; here
-    # there is nothing to see, so they are added.
-    if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
-        local -a _dep_added=()
-        local _d
-        for _d in "${DEPS_LIST[@]}"; do
-            printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
-            DEPS+=("$_d")
-            _dep_added+=("$_d")
-        done
-        if [ "${#_dep_added[@]}" -gt 0 ]; then
-            substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
-        fi
-    fi
-
     info "Optional applications..."
     echo ""
     local _app_i=1
@@ -3790,18 +3792,6 @@ if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ]; then
     menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config"
     menu_from_flags DEPS     DEPS_LIST "${PICK_TOOLS:--}"   "tool"
     menu_from_flags APPS     APPS_LIST "${PICK_APPS:--}"    "app"
-    # Same rule the menu applies when you tick zsh, and said out loud, because
-    # an unattended run has no menu to show it in.
-    if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
-        _dep_added=()
-        for _d in "${DEPS_LIST[@]}"; do
-            printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
-            DEPS+=("$_d"); _dep_added+=("$_d")
-        done
-        [ "${#_dep_added[@]}" -gt 0 ] \
-            && substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
-        unset _d _dep_added
-    fi
 elif tui_available; then
     info "Choose what to install..."
     substep "${C_DIM}dotfiles, tools and apps — one screen, ${G_LEFT} ${G_RIGHT} between them${C_RESET}"
@@ -3834,6 +3824,27 @@ if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
    && ! printf '%s\n' "${SELECTED[@]}" | grep -qx starship; then
     SELECTED+=(starship)
     substep "${C_DIM}zsh draws its prompt with starship — adding starship${C_RESET}"
+fi
+
+# Everything .zshrc reaches for is guarded by `command -v`, so without the tools
+# the shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf key
+# bindings. This lived twice, character for character, inside menu_numeric and
+# the --configs= path — the shape that lets a rule get fixed in one copy only.
+# Last of the three blocks, because it is the only one that writes DEPS and
+# nothing else reads DEPS, while the block above is still adding to SELECTED:
+# from here it sees every config the earlier rules put there.
+# The menu is exempt rather than merely a no-op: it ticks the tools where you
+# can see and untick them, and re-adding one that was deliberately unticked
+# would contradict the screen that was just confirmed.
+if [ "$TUI_CONFIRMED" != 1 ] && printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
+    _dep_added=()
+    for _d in "${DEPS_LIST[@]}"; do
+        printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
+        DEPS+=("$_d"); _dep_added+=("$_d")
+    done
+    [ "${#_dep_added[@]}" -gt 0 ] \
+        && substep "${C_DIM}zsh needs these for its aliases — adding ${_dep_added[*]}${C_RESET}"
+    unset _d _dep_added
 fi
 
 # No configs is a normal answer: "install these apps, leave my dotfiles alone".
