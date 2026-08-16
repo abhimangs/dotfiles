@@ -1050,6 +1050,36 @@ else
 fi
 
 echo
+echo "── menu column invariants ───────────────────────────────"
+# tui_pad pads with printf '%-*s', which counts BYTES, and truncates with
+# ${var:0:n}, which counts CHARACTERS. So one non-ASCII character in a name or
+# a label shifts every column to the right of it, and a Nerd Font glyph is
+# worse again — two columns wide, one character, three bytes. CLAUDE.md states
+# the rule; nothing enforced it, and you found out by looking at a bent menu.
+#
+# Only what tui_pad actually pads is checked: the item names, which come from
+# these three arrays and from APP_LABEL. Descriptions are deliberately NOT
+# here — they are never handed to printf as a padded field. tui_draw truncates
+# them with ${desc:0:n} and passes ${#desc} to tui_box_row, which pads with
+# spaces it counts itself, so characters and columns agree and the · and →
+# already in them are fine.
+menu_src="$HERE/../install.sh"
+menu_lines=$(grep -hE '^(CONFIGS|DEPS_LIST|APPS_LIST)(\+?=)\(|^APP_LABEL\[' "$menu_src")
+# A grep that matches nothing passes for free, so pin the floor: this is well
+# under today's count and only trips if the extraction itself breaks.
+if [ "$(printf '%s\n' "$menu_lines" | grep -c .)" -ge 20 ]; then
+    note menu-ascii "menu strings extracted from install.sh"
+else
+    bad  menu-ascii "extraction matched almost nothing — the test is not looking at the menu"
+fi
+menu_bad=$(printf '%s\n' "$menu_lines" | LC_ALL=C grep -nP '[\x80-\xFF]' | head -3)
+if [ -z "$menu_bad" ]; then
+    note menu-ascii "every padded name and label is ASCII"
+else
+    bad  menu-ascii "non-ASCII would bend the columns: $(printf '%s' "$menu_bad" | tr '\n' ' ')"
+fi
+
+echo
 echo "─────────────────────────────────────────────────────────"
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

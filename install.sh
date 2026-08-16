@@ -3006,9 +3006,12 @@ plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
 show_plan() {
     local cfgs=("$@")
     local wallpaper_stowed=0
-    # cfg and step are the loop variables below; every other local in this
-    # function was declared and these two were missed, so they leaked out.
-    local cfg step
+    # Every loop variable below, declared. cfg and step were missed once
+    # already; _d and _a were missed the same way and leaked into the global
+    # scope, where the install loop's own `for dep in "${DEPS[@]}"` and the
+    # apps loop run afterwards with names close enough to be worth not
+    # gambling on.
+    local cfg step _d _a
 
     local _mode_label
     [[ "$BACKUP_MODE" == "delete" ]] \
@@ -3745,7 +3748,7 @@ declare -a SELECTED=() DEPS=() APPS=()
 menu_numeric() {
     info "Select configs to install..."
     echo ""
-    local attempts=0 valid _i _c _dd _line _disp
+    local attempts=0 valid _i _c _dd _line _disp token
     local -a tmp
     while true; do
         for _i in "${!CONFIGS[@]}"; do
@@ -3837,7 +3840,7 @@ menu_numeric() {
 # unattended run would otherwise look like a successful install of nothing.
 menu_from_flags() {
     local -n _out=$1; local -n _pool=$2
-    local raw=$3 what=$4 name found
+    local raw=$3 what=$4 name found item
     [ "$raw" = "-" ] && return 0
     if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
     local IFS=', '
