@@ -321,6 +321,29 @@ check   agy-again 0
 want    agy-again 'Antigravity CLI already installed' 'the plan finds agy on PATH'
 nowant  agy-again 'Downloading installer'             'no second run of the installer'
 
+# 15f. A GitHub-release .deb is an unsigned binary going into a root install,
+#      so where upstream publishes a checksum it is checked. sinelaw/fresh is
+#      the one of the four that does; the curl stub serves it for that repo
+#      only, exactly as the real releases do.
+run     debian-deb-sha debian "$WORK/k-sel" DOTFILES_CONFIGS="fresh"
+check   debian-deb-sha 0
+nowant  debian-deb-sha 'Checksum mismatch'            'a matching checksum is silent'
+grep -qxF fresh-editor "$WORK/run/debian-deb-sha/state/installed" \
+    && note debian-deb-sha "verified .deb installed" \
+    || bad  debian-deb-sha "verification blocked a good .deb"
+
+# 15g. Same run with the served checksum pointing at other bytes — a tampered
+#      or truncated download. This is the assertion the whole change exists
+#      for: apt must never be handed that file.
+STUB_BAD_SHA=1 run debian-deb-badsha debian "$WORK/k-sel" \
+    DOTFILES_CONFIGS="fresh" STUB_BAD_SHA=1
+check   debian-deb-badsha 1
+want    debian-deb-badsha 'Checksum mismatch'          'mismatch is reported, not swallowed'
+want    debian-deb-badsha 'Refusing to install'        'and says what it did about it'
+grep -qxF fresh-editor "$WORK/run/debian-deb-badsha/state/installed" \
+    && bad  debian-deb-badsha "apt installed the .deb anyway" \
+    || note debian-deb-badsha "nothing was installed"
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has

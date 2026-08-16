@@ -1463,13 +1463,47 @@ github_latest_asset_url() {
 # The asset pattern belongs to the caller, since every project names its builds
 # differently — but it has to stay $-anchored wherever it is written, or the
 # matching .deb.sha256 asset wins the grep.
+#
+# That .deb.sha256 is also the only integrity check any of the four can get.
+# Every apt repo this script adds gets a verified signing key (apt_install_keyring);
+# a release .deb gets nothing, and goes into a root install unsigned. So it is
+# fetched here rather than only avoided. Checked against the live releases:
+# sinelaw/fresh publishes a .sha256 beside every asset, fastfetch-cli/fastfetch,
+# Ulauncher/Ulauncher and iffse/pay-respects publish nothing at all — no combined
+# checksums.txt anywhere either, which is why this is one URL guess and not a
+# per-repo map. A 404 therefore has to stay a normal install: making it fatal
+# would break three working tools for a check that cannot be performed. A
+# checksum that *is* published and does not match is refused, and said out loud.
 install_release_deb() {
-    local url tmp
+    local url tmp want got rc
     url=$(github_latest_asset_url "$1" "$2")
     [ -n "$url" ] || return 1
     tmp=$(mktemp -p "$RUN_TMPDIR" release_XXXXXX.deb)
-    curl -fsSL "$url" -o "$tmp" 2>/dev/null && apt_get install -y "$tmp" &>/dev/null 2>&1
+    curl -fsSL "$url" -o "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+
+    # The file holds "<sha256>  <filename>". Grep the hash out instead of using
+    # `sha256sum -c`, which insists the file sit there under its published name
+    # — this one is a mktemp. Empty $want means nothing was published.
+    want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
+    if [ -n "$want" ]; then
+        # sha256sum is coreutils: Essential:yes on Debian, in base on Arch, so
+        # its absence means a box that cannot apt-get either. If it is somehow
+        # gone $got comes back empty and fails the compare — being handed a
+        # checksum and installing anyway because we could not check it is the
+        # one outcome worth refusing over.
+        got=$(sha256sum "$tmp" 2>/dev/null | cut -d' ' -f1)
+        if [ "$got" != "$want" ]; then
+            rm -f "$tmp"
+            substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
+            substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
+            error "Refusing to install it — that .deb would go in as root"
+            return 1
+        fi
+    fi
+
+    apt_get install -y "$tmp" &>/dev/null 2>&1; rc=$?
     rm -f "$tmp"
+    return "$rc"
 }
 
 # ── ghostty (Debian/Ubuntu) ───────────────────────────────────────────────────

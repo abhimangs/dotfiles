@@ -305,7 +305,12 @@ if [ -n "$out" ]; then
             # Vendor .deb: the -o path is a mktemp name that says nothing, but the
             # URL is the real <pkg>_<ver>_<arch>.deb. Hand the name to the apt stub,
             # which only sees the temp file.
-            b=${url##*/}; printf '%s\n' "${b%%_*}" > "${STUB_STATE:?}/deb_pkg" ;;
+            b=${url##*/}; printf '%s\n' "${b%%_*}" > "${STUB_STATE:?}/deb_pkg"
+            # ... and hash whatever was just written, so the .sha256 served
+            # below is by construction the right one for this file. A literal
+            # constant here would be the hash of an empty file, and would go
+            # stale the day this branch writes anything into it.
+            sha256sum "$out" | cut -d' ' -f1 > "${STUB_STATE:?}/deb_sha" ;;
         *nousresearch.com*)
             # The one vendor installer served for real, because Hermes is the
             # one with an argument that matters: without --skip-setup it ends
@@ -338,6 +343,24 @@ AGY_SH
     esac
     exit 0
 fi
+# The per-asset checksum install_release_deb looks for, served only for
+# sinelaw/fresh — that is the split upstream really has, and fastfetch,
+# Ulauncher and pay-respects publishing none is what keeps the "no checksum, go
+# ahead and install" path under test in every other Debian scenario. Their
+# .sha256 falls through to the 404 at the bottom of this file, like a real one.
+# STUB_BAD_SHA serves a well-formed hash of something else, which is what a
+# tampered or truncated .deb looks like from here.
+case "$url" in
+    *sinelaw/fresh/*.deb.sha256)
+        if [ "${STUB_BAD_SHA:-0}" = 1 ]; then
+            h=0000000000000000000000000000000000000000000000000000000000000000
+        else
+            h=$(cat "${STUB_STATE:?}/deb_sha" 2>/dev/null)
+        fi
+        b=${url##*/}
+        printf '%s  %s\n' "$h" "${b%.sha256}"
+        exit 0 ;;
+esac
 # github_latest_asset_url's first probe. One asset, named the way a release
 # actually names one, so the caller's arch/extension pattern has to match.
 case "$url" in
