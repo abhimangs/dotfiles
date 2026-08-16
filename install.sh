@@ -1991,13 +1991,20 @@ same_shell() {
 PRISTINE_BASHRC="$HOME/.bashrc.orig"
 PRISTINE_ABSENT="$HOME/.bashrc.none"
 
-# True when ~/.bashrc is a stow symlink into the checkout. Writing through one
-# edits the repo itself, which would both dirty the working tree and ship the
-# edit to everyone who clones it.
-bashrc_is_repo_link() {
-    local rc="${1:-$HOME/.bashrc}" t d
-    [ -L "$rc" ] || return 1
-    t="$(readlink -f "$rc" 2>/dev/null)" || return 1
+# True when <path> is a stow symlink into the checkout — ours, put there by an
+# earlier run. Two different rules hang off it:
+#   * never write *through* one: that edits the repo itself, dirtying the
+#     working tree and shipping the edit to everyone who clones it
+#   * removing one is safe and is the whole idempotent re-stow — while removing
+#     any *other* symlink destroys something only the user has
+# A dangling link still counts as ours if it resolves under the checkout, since
+# stow is about to recreate it. One that resolves nowhere at all (its parent
+# directory is gone too) fails the readlink and is treated as foreign, which is
+# the safe way round.
+is_repo_link() {
+    local p="$1" t d
+    [ -L "$p" ] || return 1
+    t="$(readlink -f "$p" 2>/dev/null)" || return 1
     d="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
     [ -n "$t" ] && [ -n "$d" ] && [[ "$t" == "$d"/* ]]
 }
@@ -2018,7 +2025,7 @@ snapshot_bashrc() {
     # the repo's, not the user's. Copying that would record the repo's own rc
     # as "the original" — permanently, because of the write-once rule above.
     # -e follows the link, so none of the tests below would notice.
-    bashrc_is_repo_link "$rc" && return 0
+    is_repo_link "$rc" && return 0
 
     if [ ! -e "$rc" ]; then
         # Record the absence, so a restore knows to remove what we created
@@ -2078,7 +2085,7 @@ bashrc_hook_range() {
 # Copy src to dst with the hook block removed. dst may be src.
 bashrc_hook_strip_to() {
     local src="$1" dst="$2" range b e tmp
-    bashrc_is_repo_link "$dst" && return 2
+    is_repo_link "$dst" && return 2
     range="$(bashrc_hook_range "$src")" || {
         [ "$?" = 2 ] && return 2
         # Nothing to strip — still produce dst.
@@ -2148,7 +2155,7 @@ ensure_zsh_autoexec() {
     command -v zsh &>/dev/null && zsh -c 'exit 0' &>/dev/null || return 1
 
     # Never write through a stow symlink into the checkout.
-    if bashrc_is_repo_link "$rc"; then
+    if is_repo_link "$rc"; then
         _HOOK_STATE="skipped-repo-link"
         return 1
     fi
@@ -2345,9 +2352,19 @@ stow_config() {
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
 
-    if [ -L "$target" ]; then
-        # Dir-level symlink (old wrong stow) — always remove
+    if is_repo_link "$target"; then
+        # Dir-level symlink from an old wrong stow — ours, and the stow below
+        # puts it back.
         rm "$target"
+
+    elif [ -L "$target" ]; then
+        # Not ours: the user pointed ~/.config/<name> somewhere themselves.
+        # `rm` here was the same silent, backup-less delete backup_file had.
+        # Decided before the -d branch, because -d follows the link and would
+        # judge it by contents that are not what gets moved — the link is.
+        # backup_file already rotates, backs up or deletes-and-says-so, and its
+        # wording is this branch's wording.
+        backup_file "$target"
 
     elif [ -d "$target" ]; then
         # Only real files (not symlinks, not dirs) need handling — stow -D
@@ -2531,15 +2548,25 @@ backup_file() {
     local name; name="$(basename "$target")"
     local shown="${target/#$HOME/\~}"
 
-    if [ -L "$target" ]; then
+    # Only *our* symlink is disposable — stow puts it straight back. This used
+    # to be a bare `[ -L ]`, which quietly rm'd any symlink at all, in backup
+    # mode too: someone keeping ~/.zshrc pointed at a sync folder lost the link
+    # with no .bak and not one word said. A foreign link is the user's file as
+    # far as this function is concerned, so it takes the same path as a real
+    # one. Broken ones included — an unresolvable target is usually a drive
+    # that is not mounted right now, and the link is the only record of where
+    # they wanted it.
+    if is_repo_link "$target"; then
         rm "$target"
-    elif [ -e "$target" ]; then
+    elif [ -e "$target" ] || [ -L "$target" ]; then
         if [[ "$BACKUP_MODE" == "delete" ]]; then
             rm -rf "$target"
             substep "Deleted ${C_ACCENT}${shown}${C_RESET}"
         else
-            if [ -e "$bak" ]; then
-                [ -e "$oldbak" ] && rm -rf "$oldbak"
+            # -L as well as -e, or a .bak that is itself a backed-up broken
+            # symlink is invisible here and mv overwrites it without rotating.
+            if [ -e "$bak" ] || [ -L "$bak" ]; then
+                { [ -e "$oldbak" ] || [ -L "$oldbak" ]; } && rm -rf "$oldbak"
                 mv "$bak" "$oldbak"
                 substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
             fi
@@ -2921,13 +2948,19 @@ DEP_DESC[tree]="directory tree listing"
 plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
     local -n _steps="$1"
     local _file="$2" _name="${2##*/}" _note="${3:-}"
-    if [ -L "$_file" ]; then
+    if is_repo_link "$_file"; then
         _steps+=("${C_ACCENT}re-stow ${_name}${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-    elif [ -e "$_file" ]; then
+    elif [ -e "$_file" ] || [ -L "$_file" ]; then
+        # "re-stow (unlink + relink)" for *any* symlink was the plan agreeing
+        # with the old bug. A link that is not ours gets backed up like a real
+        # file, so say that — and name it, or the backup row reads like it is
+        # about a file the user does not think they have.
+        [ -L "$_file" ] && _steps+=("${C_DIM}${_name} is your own symlink, not ours${C_RESET}")
         if [[ "$BACKUP_MODE" == "delete" ]]; then
             _steps+=("${C_RED}delete${C_RESET} ${C_DIM}${_name}${C_RESET}${_note}")
         else
-            [ -e "${_file}.bak" ] && _steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_name}.bak → ${_name}.old.bak${C_RESET}")
+            { [ -e "${_file}.bak" ] || [ -L "${_file}.bak" ]; } && \
+                _steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_name}.bak → ${_name}.old.bak${C_RESET}")
             _steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}${_name} → ${_name}.bak${C_RESET}")
         fi
         _steps+=("${C_GREEN}stow ~/${_name}${C_RESET}")
@@ -2989,8 +3022,12 @@ show_plan() {
           # backup rules. The two that differ do so by one line each at the end.
           fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
-                    ! -type l ! -type d 2>/dev/null | grep -q .; then
+            # The symlink test comes first for the same reason it does in
+            # stow_config: -d follows the link, and what gets moved aside is
+            # the link, not whatever it happens to point at.
+            if { [ -L "$target" ] && ! is_repo_link "$target"; } \
+               || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
+                    ! -type l ! -type d 2>/dev/null | grep -q .; }; then
                 if [[ "$BACKUP_MODE" == "delete" ]]; then
                     steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
                 else
@@ -3032,7 +3069,10 @@ show_plan() {
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
-            if [ -e "$script" ] && [ ! -L "$script" ]; then
+            # Anything here that is not ours, symlink or not — backup_file
+            # moves a foreign link aside now, and a plan that skipped the row
+            # for one promised a backup would not happen.
+            if { [ -e "$script" ] || [ -L "$script" ]; } && ! is_repo_link "$script"; then
                 if [[ "$BACKUP_MODE" == "delete" ]]; then
                     steps+=("${C_RED}delete${C_RESET} ${C_DIM}pvpn.zsh${C_RESET}")
                 else
@@ -3224,7 +3264,7 @@ restore_bash() {
     # immediately stow it straight back — or, with no pristine copy, unstow it
     # and leave the user with no ~/.bashrc at all while printing success.
     local bashrc_action="" stowed_bash=0
-    bashrc_is_repo_link "$rc" && stowed_bash=1
+    is_repo_link "$rc" && stowed_bash=1
     if [ -e "$PRISTINE_BASHRC" ]; then
         bashrc_action="restore"
         steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.bashrc from the copy kept before the first run${C_RESET}")

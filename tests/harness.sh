@@ -79,6 +79,15 @@ build_root() {          # build_root <root> <distro>
         # stacks a second block on top of the first ships unnoticed.
         [ "${STUB_V1_HOOK:-0}" = 1 ] && cat "$SEED_V1_HOOK" >> "$root/home/.bashrc"
     fi
+    # ~/.zshrc as a symlink the user made themselves — into a sync folder, another
+    # checkout, wherever. Not ours, so it must be moved aside like a real file
+    # rather than removed. The target carries a marker so the test can prove the
+    # file behind the link survived too, not just the link.
+    if [ "${STUB_PRESEED_FOREIGN_ZSHRC:-0}" = 1 ]; then
+        mkdir -p "$root/home/Sync"
+        printf '# MINE — reached through a symlink the user made\n' > "$root/home/Sync/zshrc"
+        ln -s "Sync/zshrc" "$root/home/.zshrc"
+    fi
     # A starship.toml the user wrote themselves, which must survive untouched.
     if [ "${STUB_PRESEED_STARSHIP:-0}" = 1 ]; then
         mkdir -p "$root/home/.config"

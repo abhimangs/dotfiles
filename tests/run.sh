@@ -247,6 +247,30 @@ else
     bad  ubuntu-keepstar "their starship.toml was replaced"
 fi
 
+# 15a. A symlink at ~/.zshrc that is not ours. backup_file used to rm any
+#      symlink outright — in backup mode, whose whole promise is that nothing
+#      goes away without a .bak. Someone keeping their rc in a sync folder lost
+#      the link and never saw a word about it.
+STUB_PRESEED_FOREIGN_ZSHRC=1 run ubuntu-foreignlink ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="zsh"
+check   ubuntu-foreignlink 0
+d="$WORK/run/ubuntu-foreignlink/home"
+if [ -L "$d/.zshrc.bak" ]; then
+    note ubuntu-foreignlink "their symlink was moved aside, not deleted"
+else
+    bad  ubuntu-foreignlink "their ~/.zshrc symlink vanished with no .bak"
+fi
+if [ -f "$d/Sync/zshrc" ] && grep -q 'MINE' "$d/Sync/zshrc"; then
+    note ubuntu-foreignlink "the file behind it is untouched"
+else
+    bad  ubuntu-foreignlink "the file the link pointed at was damaged"
+fi
+if [ -L "$d/.zshrc" ] && [ "$(readlink -f "$d/.zshrc")" != "$(readlink -f "$d/Sync/zshrc")" ]; then
+    note ubuntu-foreignlink "and ours is stowed in its place"
+else
+    bad  ubuntu-foreignlink "the repo's .zshrc was not stowed"
+fi
+
 # 15b. Apps without dotfiles: the config menu is skippable, so nothing of the
 #      user's is touched and the backup question is never asked.
 run ubuntu-appsonly ubuntu "$WORK/k-sel" DOTFILES_APPS="docker"
