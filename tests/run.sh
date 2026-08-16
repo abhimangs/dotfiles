@@ -343,6 +343,54 @@ want    debian-deb-badsha 'Refusing to install'        'and says what it did abo
 grep -qxF fresh-editor "$WORK/run/debian-deb-badsha/state/installed" \
     && bad  debian-deb-badsha "apt installed the .deb anyway" \
     || note debian-deb-badsha "nothing was installed"
+# 15h. The rest of the curl apps, in one pass. Each installs into its own bin
+#      dir — the reason CURL_APP_PATH exists at all — and each of the real ones
+#      appends a PATH block to ~/.zshrc unless it is handed the opt-out that
+#      APP_CURL_ARGS/APP_CURL_ENV carries. ~/.zshrc is a stow symlink into the
+#      checkout by the time the apps loop runs, so that write lands on a tracked
+#      dotfile; the stub installers do it whenever the opt-out is missing, which
+#      is what makes "no rc file was touched" an assertion rather than a hope.
+run     curlapps ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" \
+        DOTFILES_APPS="claude-code,codex-cli,opencode,kimi-code,muse,bun"
+check   curlapps 0
+d="$WORK/run/curlapps/home"
+for b in .local/bin/claude .local/bin/codex .opencode/bin/opencode \
+         .kimi-code/bin/kimi .local/bin/muse .bun/bin/bun; do
+    [ -x "$d/$b" ] && note curlapps "${b##*/} installed in ${b%/*}" \
+                   || bad  curlapps "no ${b##*/} at ~/$b"
+done
+nowant  curlapps 'is not on PATH'    'every installer produced its binary'
+nowant  curlapps 'Failed \('         'nothing failed'
+# Both rc files and the checkout behind the symlink, in one sweep — an append
+# to ~/.zshrc follows it into the repo copy, which is the damage that matters.
+if grep -rqs 'STUB PATH BLOCK\|STUB COMPLETIONS' "$d"; then
+    bad  curlapps "an installer edited a shell rc — an opt-out did not arrive"
+else
+    note curlapps "no installer touched a shell rc"
+fi
+
+# Second pass over the same sandbox: found where they were left, not reinstalled.
+rerun   curlapps-again curlapps "$WORK/k-sel" \
+        DOTFILES_APPS="claude-code,codex-cli,opencode,kimi-code,muse,bun"
+check   curlapps-again 0
+want    curlapps-again 'Claude Code CLI already installed' 'found in ~/.local/bin'
+want    curlapps-again 'OpenCode already installed'        'found in ~/.opencode/bin'
+want    curlapps-again 'Kimi Code CLI already installed'   'found in ~/.kimi-code/bin'
+want    curlapps-again 'Bun already installed'             'found in ~/.bun/bin'
+nowant  curlapps-again 'Downloading installer'             'no installer runs twice'
+
+# 15i. bun is the one curl app with a prerequisite of its own: the installer
+#      unpacks a zip, so ensure_unzip has to run first, and unzip is in neither
+#      distro's base install. Apps only — the font step wants unzip too, and
+#      with no config selected it never runs, so this stays about bun. The stub
+#      installer exits 1 without unzip, so a dropped ensure_unzip fails here.
+STUB_NO_UNZIP=1 run bun-unzip ubuntu "$WORK/k-sel" DOTFILES_APPS="bun"
+check   bun-unzip 0
+grep -qxF unzip "$WORK/run/bun-unzip/state/installed" \
+    && note bun-unzip "ensure_unzip installed it first" \
+    || bad  bun-unzip "unzip was never installed"
+[ -x "$WORK/run/bun-unzip/home/.bun/bin/bun" ] \
+    && note bun-unzip "bun installed" || bad bun-unzip "no bun binary"
 
 echo
 echo "── the menu ─────────────────────────────────────────────"
@@ -460,17 +508,13 @@ d="$WORK/run/flags-dry/home"
                    || note flags-dry "nothing written"
 
 # "all" is the shorthand the numbered list has always had.
-# Exit 1 since ccstatusline joined CONFIGS: "all" includes it, it pulls bun in,
-# and the curl stub cannot produce a real bun binary — the same sandbox limit
-# every scenario in the ccstatusline section hits. The selection itself, which
-# is what this scenario is about, is asserted below.
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
-check   flags-all 1
+check   flags-all 0
 want    flags-all 'Configs: .*fastfetch.*zsh'  'all of them selected'
 # Regression: the Debian branch used to re-declare CONFIGS as a second literal
 # list, which silently dropped every config added after it was written.
 want    flags-all 'Configs: .*micro.*fresh'    'including the ones added last'
-nowant  flags-all 'Failed \(2'                 'bun is the only casualty'
+nowant  flags-all 'Failed \('                  'nothing failed'
 
 echo
 echo "── docker app selection ─────────────────────────────────"
@@ -803,14 +847,10 @@ done
 echo
 echo "── ccstatusline ─────────────────────────────────────────"
 # The one config with no package behind it on either distro: Claude Code runs
-# it as `bunx -y ccstatusline@latest`, so selecting it pulls bun in as an app.
-#
-# Every scenario in this section exits 1, and that is the sandbox rather than
-# the code: the curl stub serves an installer that cannot produce a real `bun`
-# binary, so the app is correctly reported failed. The assertions below are on
-# what happens regardless — the pull, the stow, and the settings merge.
+# it as `bunx -y ccstatusline@latest`, so selecting it pulls bun in as an app —
+# and the curl stub installs a real one, so these runs go all the way through.
 RUN_ARGS="--configs=ccstatusline" run ccstatusline ubuntu "$WORK/k-sel"
-check   ccstatusline 1
+check   ccstatusline 0
 want    ccstatusline 'adding bun'            'pulls bun in on its own'
 want    ccstatusline 'statusline wired up'   'wires Claude Code up on its own'
 nowant  ccstatusline 'apt-get install bun'   'never tries to apt bun'
@@ -871,7 +911,7 @@ cat > "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'JSON'
 JSON
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-keep" "$WORK/run/ccsl-keep" "$WORK/k-sel"
-check ccsl-keep 1
+check ccsl-keep 0
 if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -899,7 +939,7 @@ JSON
 cp "$WORK/run/ccsl-foreign/home/.claude/settings.json" "$WORK/seed/foreign.json"
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-foreign" "$WORK/run/ccsl-foreign" "$WORK/k-sel"
-check  ccsl-foreign 1
+check  ccsl-foreign 0
 want   ccsl-foreign 'Left your existing statusLine alone' 'says it stood back'
 if cmp -s "$WORK/seed/foreign.json" "$WORK/run/ccsl-foreign/home/.claude/settings.json"; then
     note ccsl-foreign "a hand-written statusLine is byte-identical afterwards"
@@ -915,7 +955,7 @@ printf '{ "model": "opus", oops not json\n' \
 cp "$WORK/run/ccsl-broken/home/.claude/settings.json" "$WORK/seed/broken.json"
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-broken" "$WORK/run/ccsl-broken" "$WORK/k-sel"
-check  ccsl-broken 1
+check  ccsl-broken 0
 want   ccsl-broken 'not valid JSON'  'reports the file it could not read'
 if cmp -s "$WORK/seed/broken.json" "$WORK/run/ccsl-broken/home/.claude/settings.json"; then
     note ccsl-broken "left the unparseable file exactly as it found it"
@@ -926,13 +966,8 @@ fi
 # 3b. Selecting Claude Code itself is the other trigger — the app is the thing
 # that renders the statusline, so installing it wires the statusline up too,
 # with no config selected at all.
-# Exit 1, not 0: the curl stub serves an installer that cannot produce a real
-# `claude` binary, so the app is correctly reported as failed. The point of the
-# scenario is what happens anyway — a statusline that is wired regardless of
-# whether the vendor installer worked, since the settings file is valid either
-# way and the user asked for Claude Code by name.
 RUN_ARGS="--apps=claude-code" run ccsl-app ubuntu "$WORK/k-sel"
-check ccsl-app 1
+check ccsl-app 0
 want  ccsl-app 'statusline wired up'  'installing Claude Code wires it up'
 if python3 - "$WORK/run/ccsl-app/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
@@ -948,7 +983,7 @@ fi
 # which would still churn mtime and reformat anything hand-edited.
 cp "$WORK/run/ccsl-keep/home/.claude/settings.json" "$WORK/seed/afterfirst.json"
 RUN_ARGS="--configs=ccstatusline" rerun ccsl-again ccsl-keep "$WORK/k-sel"
-check ccsl-again 1
+check ccsl-again 0
 want  ccsl-again 'already wired up'  'second run is a no-op'
 if cmp -s "$WORK/seed/afterfirst.json" "$WORK/run/ccsl-keep/home/.claude/settings.json"; then
     note ccsl-again "already-wired settings.json is left byte-identical"
@@ -971,7 +1006,7 @@ JSON
 RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-managed" "$WORK/run/ccsl-managed" "$WORK/k-sel" \
     CC_MANAGED_SETTINGS="$WORK/run/ccsl-managed/etc/claude-code/managed-settings.json"
-check ccsl-managed 1
+check ccsl-managed 0
 want  ccsl-managed 'managed statusLine overrides it'  'says the write will not win'
 if python3 - "$WORK/run/ccsl-keep/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys

@@ -148,6 +148,7 @@ ulauncher
 vlc
 flatpak
 obsidian
+unzip
 PKGS
 
     sandbox_repo "$root"
@@ -158,6 +159,10 @@ PKGS
     cp -a "$WORK/bin" "$root/bin"
     [ "${STUB_NO_FZF:-0}" = 1 ] && rm -f "$root/bin/fzf"
     [ "${STUB_YAY_ONLY:-0}" = 1 ] && rm -f "$root/bin/paru"
+    # A box without unzip, which is neither distro's base install. bun's stub
+    # installer refuses to run without it, so this is what makes ensure_unzip
+    # something the suite can see.
+    [ "${STUB_NO_UNZIP:-0}" = 1 ] && rm -f "$root/bin/unzip"
     [ "${STUB_DEAD_GIT:-0}" = 1 ] && {
         printf '#!/bin/sh\nexit 0\n' > "$root/bin/git"; chmod +x "$root/bin/git"; }
 

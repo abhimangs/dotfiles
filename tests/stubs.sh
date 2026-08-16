@@ -295,9 +295,18 @@ done
 case "$url" in *deb.debian.org|*archive.ubuntu.com) exit 0 ;; esac
 if [ -n "$out" ]; then
     # Keyring/signing-key fetches need real (non-empty) bytes — apt_install_keyring
-    # rejects an empty download before gpg ever sees it. Everything else on the -o
-    # path (installer scripts, .deb files, font zips) stays an empty stand-in;
-    # nothing currently asserts on their content.
+    # rejects an empty download before gpg ever sees it. .deb files and font zips
+    # stay empty stand-ins; every vendor *installer script* is served for real,
+    # because the applications loop runs them and an empty file is a no-op that
+    # exits 0 — which is indistinguishable from a working install, and is what
+    # let every one of these apps go untested.
+    #
+    # Each one drops its binary where the real installer puts it (which is why
+    # CURL_APP_PATH exists) and appends a PATH block to ~/.zshrc unless it was
+    # handed its opt-out. That write is the point: ~/.zshrc is a stow symlink
+    # into the checkout, so a real installer doing it edits a tracked dotfile,
+    # and a scenario asserting the rc file is clean is the only thing that can
+    # prove APP_CURL_ARGS/APP_CURL_ENV/CURL_APP_PATH reached the installer.
     case "$url" in
         */gpg|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
         *.deb)
@@ -338,6 +347,80 @@ mkdir -p "$HOME/.local/bin"
 printf '#!/bin/sh\necho agy stub\n' > "$HOME/.local/bin/agy"
 chmod +x "$HOME/.local/bin/agy"
 AGY_SH
+            ;;
+        *claude.ai/install.sh)
+            cat > "$out" <<'CLAUDE_SH'
+#!/bin/sh
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho claude stub\n' > "$HOME/.local/bin/claude"
+chmod +x "$HOME/.local/bin/claude"
+CLAUDE_SH
+            ;;
+        *chatgpt.com/codex/*)
+            # No opt-out flag of its own: the only thing stopping the PATH block
+            # is codex seeing ~/.local/bin already on PATH, i.e. CURL_APP_PATH.
+            cat > "$out" <<'CODEX_SH'
+#!/bin/sh
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) echo '# STUB PATH BLOCK (codex)' >> "$HOME/.zshrc" ;;
+esac
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho codex stub\n' > "$HOME/.local/bin/codex"
+chmod +x "$HOME/.local/bin/codex"
+CODEX_SH
+            ;;
+        *opencode.ai/install)
+            cat > "$out" <<'OPENCODE_SH'
+#!/bin/sh
+case " $* " in
+    *" --no-modify-path "*) ;;
+    *) echo '# STUB PATH BLOCK (opencode)' >> "$HOME/.zshrc" ;;
+esac
+mkdir -p "$HOME/.opencode/bin"
+printf '#!/bin/sh\necho opencode stub\n' > "$HOME/.opencode/bin/opencode"
+chmod +x "$HOME/.opencode/bin/opencode"
+OPENCODE_SH
+            ;;
+        *code.kimi.com/*)
+            cat > "$out" <<'KIMI_SH'
+#!/bin/sh
+[ "${KIMI_NO_MODIFY_PATH:-}" = 1 ] || echo '# STUB PATH BLOCK (kimi)' >> "$HOME/.zshrc"
+mkdir -p "$HOME/.kimi-code/bin"
+printf '#!/bin/sh\necho kimi stub\n' > "$HOME/.kimi-code/bin/kimi"
+chmod +x "$HOME/.kimi-code/bin/kimi"
+KIMI_SH
+            ;;
+        *dev.meta.ai/*)
+            cat > "$out" <<'MUSE_SH'
+#!/bin/sh
+[ "${MUSE_NO_MODIFY_PATH:-}" = 1 ] || echo '# STUB PATH BLOCK (muse)' >> "$HOME/.zshrc"
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho muse stub\n' > "$HOME/.local/bin/muse"
+chmod +x "$HOME/.local/bin/muse"
+MUSE_SH
+            ;;
+        *bun.com/install)
+            # Three contracts in one installer: it unpacks a zip, so ensure_unzip
+            # has to have run; its PATH block is guarded by ~/.bun/bin being on
+            # PATH (CURL_APP_PATH); and `bun completions` writes to the rc file of
+            # whatever $SHELL names, which is what SHELL=/bin/sh is for — a shell
+            # it has no completions to write.
+            cat > "$out" <<'BUN_SH'
+#!/bin/sh
+command -v unzip >/dev/null 2>&1 \
+    || { echo "STUBFAIL: bun installer ran without unzip" >&2; exit 1; }
+case ":$PATH:" in
+    *":$HOME/.bun/bin:"*) ;;
+    *) echo '# STUB PATH BLOCK (bun)' >> "$HOME/.zshrc" ;;
+esac
+case "${SHELL##*/}" in
+    zsh|bash) echo '# STUB COMPLETIONS (bun)' >> "$HOME/.${SHELL##*/}rc" ;;
+esac
+mkdir -p "$HOME/.bun/bin"
+printf '#!/bin/sh\necho bun stub\n' > "$HOME/.bun/bin/bun"
+chmod +x "$HOME/.bun/bin/bun"
+BUN_SH
             ;;
         *) : > "$out" ;;
     esac
@@ -462,14 +545,14 @@ wt git <<'EOF'
 exec /usr/bin/git "$@"
 EOF
 
-# ── a system bin mirror without fzf or the AUR helpers ───────────────────────
+# ── a system bin mirror without fzf, the AUR helpers or unzip ────────────────
 # so "fzf is not installed yet" is actually true inside a scenario — and so a
-# host that happens to have paru or yay cannot leak one into a sandbox that is
-# meant to be without it (the stub PATH provides its own).
+# host that happens to have paru, yay or unzip cannot leak one into a sandbox
+# that is meant to be without it (the stub PATH provides its own).
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|paru|yay) continue ;; esac
+    case "$b" in fzf|paru|yay|unzip) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done
