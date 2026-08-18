@@ -969,6 +969,10 @@ fi
 RUN_ARGS="--apps=claude-code" run ccsl-app ubuntu "$WORK/k-sel"
 check ccsl-app 0
 want  ccsl-app 'statusline wired up'  'installing Claude Code wires it up'
+# ~/.claude/settings.json is not a stow target, so the plan has to name the
+# write before it happens. Only the ccstatusline config used to say it, which
+# left this path editing a file nothing had mentioned.
+want  ccsl-app 'point Claude Code at ccstatusline' 'the plan names the settings.json write'
 if python3 - "$WORK/run/ccsl-app/home/.claude/settings.json" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -1028,6 +1032,13 @@ echo "── distro list parity ────────────────
 RUN_ARGS="--dry-run --gui" run parity-arch   arch   "$WORK/k-sel" DOTFILES_CONFIGS="all"
 RUN_ARGS="--dry-run --gui" run parity-debian ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
 
+# Every config is in this plan, so it is also the cheapest place to hold the
+# two ~/.config arms that carry an extra line to their name. ulauncher shares
+# the common arm now — dropping its autostart row is what folding it in could
+# quietly have done.
+want parity-arch 'enable autostart'    'the ulauncher plan still names autostart'
+want parity-arch 'launch: rofi'        'and rofi still names its launch command'
+
 for side in arch debian; do
     sed -n 's/.*Configs: //p' "$WORK/run/parity-$side/clean.txt" | head -1 \
         | tr ' ' '\n' | sed '/^$/d' | sort -u > "$WORK/parity-$side.lst"
@@ -1047,6 +1058,59 @@ else
     else
         bad  parity-configs "Debian-only configs: $only_deb"
     fi
+fi
+
+echo
+echo "── doctor.sh mirrors install.sh ─────────────────────────"
+# doctor.sh's two loops are hand-kept copies of install.sh's arrays, and they
+# have fallen behind before — micro, fresh, ccstatusline and pay-respects were
+# all missing at once. Its whole job is to be pasted into a bug report, so a
+# config it does not report sends whoever reads that after the wrong thing.
+# Nothing enforced it; adding a config is now the thing that fails here.
+doc_src="$HERE/../doctor.sh"
+inst_src="$HERE/../install.sh"
+mapfile -t doc_cfgs  < <(sed -n 's/^for cfg in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
+mapfile -t doc_tools < <(sed -n 's/^for c in \(.*\); do$/\1/p'   "$doc_src" | tr ' ' '\n' | sed '/^$/d')
+if [ "${#doc_cfgs[@]}" -ge 8 ] && [ "${#doc_tools[@]}" -ge 8 ]; then
+    note doctor-lists "both loops extracted from doctor.sh"
+else
+    bad  doctor-lists "extraction matched almost nothing — not looking at doctor.sh"
+fi
+
+# The ~/.config/<name> half of CONFIGS. Derived from the array rather than
+# hand-listed here as well, minus the five that stow to ~ or ~/scripts and so
+# are reported by the symlink block above that loop instead. A config added to
+# either group trips this until doctor.sh is told about it.
+doc_missing=()
+for c in $(sed -n 's/^CONFIGS=(\(.*\))$/\1/p' "$inst_src" | tr ' ' '\n' \
+           | grep -vxE 'bash|zsh|git|starship|protonvpn'); do
+    printf '%s\n' "${doc_cfgs[@]}" | grep -qx "$c" || doc_missing+=("$c")
+done
+if [ "${#doc_missing[@]}" -eq 0 ]; then
+    note doctor-configs "every ~/.config config is in doctor.sh's loop"
+else
+    bad  doctor-configs "doctor.sh never reports: ${doc_missing[*]}"
+fi
+
+doc_missing=()
+for c in $(sed -n 's/^DEPS_LIST=(\(.*\))$/\1/p' "$inst_src" | tr ' ' '\n'); do
+    printf '%s\n' "${doc_tools[@]}" | grep -qx "$c" || doc_missing+=("$c")
+done
+if [ "${#doc_missing[@]}" -eq 0 ]; then
+    note doctor-tools "every dep tool is in doctor.sh's tools loop"
+else
+    bad  doctor-tools "doctor.sh never looks for: ${doc_missing[*]}"
+fi
+
+# Duplicated verbatim, on purpose — doctor.sh installs nothing and sources
+# nothing. A drifted copy is how bun in ~/.bun/bin gets reported missing on a
+# machine where it is installed and working.
+doc_path=$( sed -n 's/^CURL_APP_PATH=//p' "$doc_src"  | head -1)
+inst_path=$(sed -n 's/^CURL_APP_PATH=//p' "$inst_src" | head -1)
+if [ -n "$doc_path" ] && [ "$doc_path" = "$inst_path" ]; then
+    note doctor-path "CURL_APP_PATH is identical in both"
+else
+    bad  doctor-path "CURL_APP_PATH drifted: doctor ${doc_path:-<none>} vs install ${inst_path:-<none>}"
 fi
 
 echo

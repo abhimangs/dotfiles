@@ -3055,9 +3055,9 @@ show_plan() {
         fi
 
         case "$cfg" in
-          # One arm for all seven: same target shape (~/.config/<name>/), same
-          # backup rules. The two that differ do so by one line each at the end.
-          fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline)
+          # One arm for all eight: same target shape (~/.config/<name>/), same
+          # backup rules. The ones that differ do so by a line or two at the end.
+          fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline|ulauncher)
             target="$HOME/.config/$cfg"; bak="${target}.bak"
             # The symlink test comes first for the same reason it does in
             # stow_config: -d follows the link, and what gets moved aside is
@@ -3093,6 +3093,13 @@ show_plan() {
             # to name it rather than let it happen quietly.
             [[ "$cfg" == "ccstatusline" ]] && \
                 steps+=("${C_GREEN}point Claude Code at it${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}")
+            if [[ "$cfg" == "ulauncher" ]]; then
+                if [ ! -f "$HOME/.config/autostart/ulauncher.desktop" ]; then
+                    steps+=("${C_GREEN}enable autostart${C_RESET}")
+                else
+                    steps+=("${C_DIM}autostart already configured${C_RESET}")
+                fi
+            fi
             ;;
           bash)
             # This one line really is bash-only, so it stays out here rather
@@ -3132,31 +3139,6 @@ show_plan() {
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             unset _pdf
-            ;;
-          ulauncher)
-            # plan_home_file's shape, none of its words: a directory under
-            # ~/.config, "re-stow config" not the name, and a rotate line that
-            # says "backup". Three more parameters to absorb one caller is the
-            # worse trade, so this one stays written out.
-            target="$HOME/.config/$cfg"; bak="${target}.bak"
-            if [ -L "$target" ]; then
-                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$target" ]; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
-                else
-                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-                fi
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow ~/.config/${cfg}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-            fi
-            if [ ! -f "$HOME/.config/autostart/ulauncher.desktop" ]; then
-                steps+=("${C_GREEN}enable autostart${C_RESET}")
-            else
-                steps+=("${C_DIM}autostart already configured${C_RESET}")
-            fi
             ;;
           git)
             plan_home_file steps "$HOME/.gitconfig"
@@ -3246,6 +3228,14 @@ show_plan() {
                 fi
             fi
         done
+        # Step 5c½ fires on either trigger, so picking Claude Code alone
+        # still writes to ~/.claude/settings.json. Only the ccstatusline config
+        # said so, which left the apps-only path editing a file the plan never
+        # named — the one thing this section exists to prevent.
+        if printf '%s\n' "${APPS[@]}" | grep -qx claude-code \
+           && ! printf '%s\n' "${cfgs[@]}" | grep -qx ccstatusline; then
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}point Claude Code at ccstatusline${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}"
+        fi
     fi
 
     if [ "$STRIP_REPO" -eq 1 ]; then

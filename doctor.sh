@@ -89,7 +89,8 @@ echo
 echo "── stowed symlinks ───────────────────────────────────"
 # Single-file targets are symlinks; ~/.config/<app> is a real directory by
 # design, with stow linking the files inside it — so look one level in.
-for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/starship.toml"; do
+for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/starship.toml" \
+         "$HOME/scripts/pvpn/pvpn.zsh"; do
     if [ -L "$t" ]; then
         printf "  %-26s -> %-30s %s\n" "${t#"$HOME"/}" "$(readlink "$t")" \
             "$( [ -e "$t" ] && echo '[ok]' || echo '[BROKEN]')"

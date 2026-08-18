@@ -261,7 +261,7 @@ It also checks its own work rather than trusting it. Every path is re-tested aft
 
 ### Headless servers
 
-The installer checks `DISPLAY`, `WAYLAND_DISPLAY`, the systemd default target and the installed session files. With no display server it drops the GUI entries from both menus — terminal emulators (`ghostty`, `kitty`), the launchers (`rofi`, `ulauncher`), and every GUI app (browsers, editors, Notion, Obsidian, Claude Desktop, VLC) — since none of them can run and each pulls in a large X/GTK dependency tree. What remains is the part that makes sense on a server: `zsh`, `starship`, `git`, `fastfetch`, `protonvpn`, the dep tools and the CLI agents.
+The installer checks `DISPLAY`, `WAYLAND_DISPLAY` and the installed session files (`/usr/share/xsessions`, `/usr/share/wayland-sessions`). The systemd default target is deliberately not consulted: Ubuntu server images ship `graphical.target` with no desktop installed at all, so every such VPS looked like a workstation. With no display server it drops the GUI entries from both menus — terminal emulators (`ghostty`, `kitty`), the launchers (`rofi`, `ulauncher`), and every GUI app (browsers, editors, Notion, Obsidian, Claude Desktop, VLC) — since none of them can run and each pulls in a large X/GTK dependency tree. What remains is the part that makes sense on a server: `zsh`, `starship`, `git`, `fastfetch`, `protonvpn`, the dep tools and the CLI agents.
 
 Pass `--gui` to override the detection.
 
