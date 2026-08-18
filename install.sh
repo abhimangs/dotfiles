@@ -1867,8 +1867,17 @@ docker_start_daemon() {
 # Group membership, bringing the service up, and WSL — which has no systemd
 # running by default, so docker.service has nothing to be enabled into.
 docker_postinstall() {
-    sudo usermod -aG docker "$USER" &>/dev/null || true
-    substep "${C_DIM}${USER} added to the docker group — takes effect on your next login${C_RESET}"
+    # id -un, not $USER — the same reason the zsh arm asks the kernel who we
+    # are: $USER is unset under cron, `docker exec` and some non-login shells,
+    # and `usermod -aG docker ""` then fails. Behind `|| true` that failure went
+    # nowhere, and the line under it still claimed the user had been added, on
+    # exactly the boxes the rest of this script already defends against.
+    local _u; _u="$(id -un)"
+    if sudo usermod -aG docker "$_u" &>/dev/null; then
+        substep "${C_DIM}${_u} added to the docker group — takes effect on your next login${C_RESET}"
+    else
+        substep "${C_YELLOW}Could not add ${_u} to the docker group${C_RESET} ${C_DIM}— docker will need sudo until you do${C_RESET}"
+    fi
 
     if [ -d /run/systemd/system ]; then
         if docker_start_daemon; then
@@ -2411,8 +2420,11 @@ stow_config() {
                 # the dep-tool installs reads like the tool was removed.
                 substep "Deleted ${C_ACCENT}~/.config/${name}${C_RESET}"
             else
-                if [ -e "$bak" ]; then
-                    [ -e "$oldbak" ] && rm -rf "$oldbak"
+                # -L as well as -e, the same as backup_file: a .bak that is
+                # itself a backed-up broken symlink is invisible to -e, and the
+                # mv below then fails against it instead of rotating it.
+                if [ -e "$bak" ] || [ -L "$bak" ]; then
+                    { [ -e "$oldbak" ] || [ -L "$oldbak" ]; } && rm -rf "$oldbak"
                     mv "$bak" "$oldbak"
                 fi
                 mv "$target" "$bak"
@@ -3113,6 +3125,18 @@ show_plan() {
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
+            # The directory above it, when it is a symlink someone else made.
+            # The install loop moves that aside now rather than deleting it, so
+            # the plan has to say so — it is a directory, not a file, and the
+            # row below only ever spoke for pvpn.zsh.
+            if [ -L "$HOME/scripts/pvpn" ] && ! is_repo_link "$HOME/scripts/pvpn"; then
+                steps+=("${C_DIM}~/scripts/pvpn is your own symlink, not ours${C_RESET}")
+                if [[ "$BACKUP_MODE" == "delete" ]]; then
+                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}~/scripts/pvpn${C_RESET}")
+                else
+                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}~/scripts/pvpn → pvpn.bak${C_RESET}")
+                fi
+            fi
             # Anything here that is not ours, symlink or not — backup_file
             # moves a foreign link aside now, and a plan that skipped the row
             # for one promised a backup would not happen.
@@ -3130,15 +3154,13 @@ show_plan() {
             # here any more: an existing starship.toml is never moved, so
             # promising a .bak we will not take would be worse than silence.
             target="$HOME/.config/starship.toml"
-            _pdf="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
-            if [ -L "$target" ] && [[ "$(readlink -f "$target" 2>/dev/null)" == "$_pdf"/* ]]; then
+            if is_repo_link "$target"; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
             elif [ -e "$target" ] || [ -L "$target" ]; then
                 steps+=("${C_DIM}keep your existing starship.toml — ours not installed${C_RESET}")
             else
                 steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
-            unset _pdf
             ;;
           git)
             plan_home_file steps "$HOME/.gitconfig"
@@ -3307,16 +3329,24 @@ restore_bash() {
     [ "$stowed_bash" = 1 ] && [ "$bashrc_action" = "restore" ] \
         && steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}the bash config so ~/.bashrc is a real file again${C_RESET}")
 
+    # is_repo_link, not a bare -L. This is the undo command, so it is the last
+    # place that should take a link it did not make: someone who tried this repo
+    # and went back to their own ~/.zshrc symlink had it rm'd with no .bak and
+    # nothing said. The starship branch below already guarded on the target;
+    # this one did not, and the two sat four lines apart.
     local zsh_action=""
-    if [ -L "$HOME/.zshrc" ]; then
+    if is_repo_link "$HOME/.zshrc"; then
         zsh_action="unstow"
         steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.zshrc${C_RESET}")
         [ -e "$HOME/.zshrc.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.zshrc.bak → ~/.zshrc${C_RESET}")
+    elif [ -L "$HOME/.zshrc" ]; then
+        steps+=("${C_DIM}leave ~/.zshrc alone — it is your own symlink, not ours${C_RESET}")
     fi
 
+    # The same test, by the same name now: this was is_repo_link written out by
+    # hand, which is how the two drifted apart in the first place.
     local st="$HOME/.config/starship.toml" st_action=""
-    local _rdf; _rdf="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
-    if [ -L "$st" ] && [[ "$(readlink -f "$st" 2>/dev/null)" == "$_rdf"/* ]]; then
+    if is_repo_link "$st"; then
         st_action="unstow"
         steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.config/starship.toml${C_RESET}")
         [ -e "${st}.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}starship.toml.bak → starship.toml${C_RESET}")
@@ -4234,15 +4264,32 @@ for cfg in "${SELECTED[@]}"; do
       protonvpn)
         ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
-        # Unlink stow-folded dirs from a previous run before backup
+        # Unlink stow-folded dirs from a previous run before backup — ours
+        # only. A bare `rm` on any symlink here was the same silent, backup-less
+        # delete backup_file and stow_config both had: someone keeping
+        # ~/scripts pointed at a synced folder or another drive lost the link,
+        # in backup mode, with not one word said. backup_file already rotates,
+        # backs up or deletes-and-says-so, so a foreign link takes that path.
         pvpn_dir="$HOME/scripts/pvpn"
-        if [ -L "$pvpn_dir" ]; then
+        if is_repo_link "$pvpn_dir"; then
             rm "$pvpn_dir"
+        elif [ -L "$pvpn_dir" ]; then
+            backup_file "$pvpn_dir"
         fi
-        if [ -L "$HOME/scripts" ]; then
+        if is_repo_link "$HOME/scripts"; then
             rm "$HOME/scripts"
         fi
-        mkdir -p "$pvpn_dir"
+        # A foreign ~/scripts is left exactly where it points: mkdir -p follows
+        # it, and moving someone's whole scripts directory aside to install one
+        # VPN helper is not a reasonable reading of "install protonvpn". It can
+        # still fail — a link to an unwritable or unmounted path — and stow's
+        # own error for that names neither the directory nor the reason.
+        if ! mkdir -p "$pvpn_dir" 2>/dev/null; then
+            error "Could not create ${C_ACCENT}~/scripts/pvpn${C_RESET}"
+            substep "${C_DIM}~/scripts may be a symlink to somewhere unwritable or not mounted${C_RESET}"
+            FAILED+=(protonvpn)
+            continue
+        fi
         backup_file "$pvpn_dir/pvpn.zsh"
         # stow proton-vpn/ directly into ~/scripts/pvpn/
         if ! stow_to "$pvpn_dir" "proton-vpn"; then
@@ -4264,8 +4311,10 @@ for cfg in "${SELECTED[@]}"; do
         # reading of "install starship". Ours goes in only when there is
         # nothing there.
         _st="$HOME/.config/starship.toml"
-        _stow_df="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
-        if [ -L "$_st" ] && [[ "$(readlink -f "$_st" 2>/dev/null)" == "$_stow_df"/* ]]; then
+        # is_repo_link, not a fourth hand-written copy of it. There were three,
+        # and the one in restore_bash had already drifted into deleting links
+        # it did not own before anyone noticed they were meant to agree.
+        if is_repo_link "$_st"; then
             # ours from an earlier run — refresh the link
             stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
             if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
@@ -4282,7 +4331,7 @@ for cfg in "${SELECTED[@]}"; do
                 continue
             fi
         fi
-        unset _st _stow_df
+        unset _st
         ;;
 
       # ── git ──────────────────────────────────────────────────────────────
@@ -4431,7 +4480,11 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]]; then
                         substep "Installing docker-compose and docker-buildx..."
-                        pacman_install docker-compose docker-buildx &>/dev/null 2>&1
+                        # The app is called "Docker + Compose" and the plan
+                        # promises both. Losing compose silently and still
+                        # reporting the app done is the label telling a lie.
+                        pacman_install docker-compose docker-buildx &>/dev/null 2>&1 \
+                            || substep "${C_YELLOW}Could not install docker-compose/docker-buildx${C_RESET} ${C_DIM}— docker itself is installed${C_RESET}"
                     fi
                     docker_postinstall
                 fi

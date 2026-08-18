@@ -560,6 +560,20 @@ grep -q 'usermod -aG docker' "$d/state/sudo.log" \
 grep -q 'systemctl enable --now docker' "$d/state/sudo.log" \
     && note debian-docker "docker.service enabled" || bad debian-docker "no systemctl enable call"
 
+# 18b. $USER is not a reliable answer to "who am I": it is unset under cron,
+#      `docker exec` and some non-login shells — the reason the zsh arm asks the
+#      kernel instead. The group add trusted it anyway, so on those boxes
+#      `usermod -aG docker ""` failed behind a `|| true` and the transcript
+#      still said the user had been added.
+run docker-nouser arch "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_APPS="docker" USER=
+check docker-nouser 0
+if grep -qE "usermod -aG docker $(id -un)( |$)" "$WORK/run/docker-nouser/state/sudo.log"; then
+    note docker-nouser "asked the kernel who we are, not \$USER"
+else
+    bad  docker-nouser "added an empty username to the docker group"
+fi
+want docker-nouser "$(id -un) added to the docker group" 'and named the real account'
+
 # 18. Ubuntu: same repo bootstrap, but the ubuntu host + noble codename, so a
 #     copy-paste of the debian URL would go undetected without this.
 run ubuntu-docker ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_APPS="docker"
@@ -725,6 +739,27 @@ check   restore-v1hook-undo 0
 cmp -s "$SEED_BASHRC" "$rb_v1/.bashrc" \
     && note restore-v1hook-undo "~/.bashrc is byte-identical to the pre-v1 original" \
     || bad  restore-v1hook-undo "~/.bashrc came back changed"
+
+# 21. A ~/.zshrc symlink that is not ours. The undo used to unstow on a bare
+#     -L, so it `rm`'d any symlink it found there: someone who tried this repo
+#     and went back to pointing ~/.zshrc at their own dotfiles lost the link,
+#     with no .bak and not one word said. This is the recovery command — it is
+#     the last place that should take a file it did not make. The starship
+#     branch four lines below it had checked the target all along.
+build_root "$WORK/run/restore-foreign" ubuntu
+mkdir -p "$WORK/run/restore-foreign/home/mydots"
+printf '# my own zshrc, from before any of this\n' > "$WORK/run/restore-foreign/home/mydots/zshrc"
+ln -s "$WORK/run/restore-foreign/home/mydots/zshrc" "$WORK/run/restore-foreign/home/.zshrc"
+RUN_ARGS=--restore-bash install_pass "$WORK/run/restore-foreign" \
+    "$WORK/run/restore-foreign" "$WORK/k-restore"
+check restore-foreign 0
+rb_f="$WORK/run/restore-foreign/home"
+if [ -L "$rb_f/.zshrc" ] && [ "$(readlink "$rb_f/.zshrc")" = "$rb_f/mydots/zshrc" ]; then
+    note restore-foreign "left a ~/.zshrc symlink that is not ours alone"
+else
+    bad  restore-foreign "deleted the user's own ~/.zshrc symlink"
+fi
+want restore-foreign 'your own symlink, not ours' 'and said why it was left'
 
 echo
 echo "── interrupt ────────────────────────────────────────────"
@@ -1020,6 +1055,56 @@ PY
 then note ccsl-again "settings still intact after a second pass"
 else bad  ccsl-again "the second pass damaged settings.json"
 fi
+
+echo
+echo "── protonvpn: the symlinks under ~/scripts ──────────────"
+# ~/scripts is a directory plenty of people already have, and pointing it at a
+# synced folder or a second drive is an ordinary thing to do. This arm used to
+# `rm` any symlink it found at ~/scripts or ~/scripts/pvpn before stowing — no
+# .bak, no message, in backup mode too. The link is the only record of where
+# they wanted it, and it was the one arm the "stop deleting symlinks that are
+# not ours" pass missed.
+
+# 1. A foreign ~/scripts is left exactly where it points, and the stow goes
+#    through it into the real directory.
+build_root "$WORK/run/pvpn-scripts" ubuntu
+mkdir -p "$WORK/run/pvpn-scripts/home/elsewhere"
+ln -s "$WORK/run/pvpn-scripts/home/elsewhere" "$WORK/run/pvpn-scripts/home/scripts"
+install_pass "$WORK/run/pvpn-scripts" "$WORK/run/pvpn-scripts" "$WORK/k-sel" \
+    DOTFILES_CONFIGS="protonvpn"
+check pvpn-scripts 0
+h="$WORK/run/pvpn-scripts/home"
+if [ -L "$h/scripts" ] && [ "$(readlink "$h/scripts")" = "$h/elsewhere" ]; then
+    note pvpn-scripts "left ~/scripts pointing where the user put it"
+else
+    bad  pvpn-scripts "deleted or replaced the user's own ~/scripts symlink"
+fi
+if [ -L "$h/elsewhere/pvpn/pvpn.zsh" ]; then
+    note pvpn-scripts "stowed through the link into the real directory"
+else
+    bad  pvpn-scripts "pvpn.zsh did not land through the ~/scripts link"
+fi
+
+# 2. A foreign ~/scripts/pvpn is moved aside, not deleted — the same treatment
+#    backup_file gives every other symlink that is not ours.
+build_root "$WORK/run/pvpn-dir" ubuntu
+mkdir -p "$WORK/run/pvpn-dir/home/scripts" "$WORK/run/pvpn-dir/home/mine"
+ln -s "$WORK/run/pvpn-dir/home/mine" "$WORK/run/pvpn-dir/home/scripts/pvpn"
+install_pass "$WORK/run/pvpn-dir" "$WORK/run/pvpn-dir" "$WORK/k-sel" \
+    DOTFILES_CONFIGS="protonvpn"
+check pvpn-dir 0
+h="$WORK/run/pvpn-dir/home"
+if [ -L "$h/scripts/pvpn.bak" ] && [ "$(readlink "$h/scripts/pvpn.bak")" = "$h/mine" ]; then
+    note pvpn-dir "the foreign pvpn symlink was backed up, not deleted"
+else
+    bad  pvpn-dir "lost the user's ~/scripts/pvpn symlink"
+fi
+if [ -L "$h/scripts/pvpn/pvpn.zsh" ]; then
+    note pvpn-dir "and ours stowed into a real directory in its place"
+else
+    bad  pvpn-dir "pvpn.zsh was not stowed after the backup"
+fi
+want pvpn-dir 'is your own symlink, not ours' 'the plan warned before touching it'
 
 echo
 echo "── distro list parity ───────────────────────────────────"
