@@ -2741,7 +2741,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
@@ -2773,6 +2773,7 @@ APP_LABEL[opencode]="OpenCode"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
 APP_LABEL[hermes]="Hermes Agent"
+APP_LABEL[devin]="Devin CLI"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[notion]="Notion"
@@ -2804,6 +2805,7 @@ APP_TYPE[opencode]="paru"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
 APP_TYPE[hermes]="curl"
+APP_TYPE[devin]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[notion]="paru"
@@ -2873,6 +2875,7 @@ APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
 APP_BIN[hermes]="hermes"
+APP_BIN[devin]="devin"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 
@@ -2898,6 +2901,7 @@ APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[hermes]="curl"
+APP_TYPE_DEB[devin]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
@@ -2963,6 +2967,7 @@ APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
 APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
+APP_DESC[devin]="Cognition's coding agent  ${G_DOT}  run 'devin setup' after"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[notion]="notes and workspace"
@@ -4412,6 +4417,11 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
                     muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
                     hermes)          _curl_url="https://hermes-agent.nousresearch.com/install.sh" ; _shell=bash ;;
+                    # ends by launching its interactive setup wizard, with no
+                    # flag to skip it — </dev/null below is what stops that,
+                    # and the exit status it leaves behind is why the check
+                    # after it looks at the binary instead.
+                    devin)           _curl_url="https://cli.devin.ai/install.sh"                ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash
@@ -4421,19 +4431,31 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     substep "Running installer..."
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
                     _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
-                    if env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}"; then
-                        # Verified against reality, the way the package path is.
-                        # A vendor installer that swallows its own failure and
-                        # exits 0 otherwise gets reported as a success.
-                        if [ -z "$_bin" ] || curl_app_installed "$_bin"; then
-                            success "${C_ACCENT}${_lbl}${C_RESET} installed"
-                            INSTALLED+=("$_lbl")
-                        else
-                            error "Installer finished but ${C_ACCENT}${_bin}${C_RESET} is not on PATH"
-                            FAILED+=("$_lbl")
-                        fi
-                    else
+                    # </dev/null: a vendor installer must never read this
+                    # script's stdin — under `curl … | bash` that is the rest of
+                    # the download stream, and on a terminal it is the keys the
+                    # remaining prompts are waiting for. Devin's is the one that
+                    # would actually sit there: it ends by running `devin setup`,
+                    # an interactive login with no flag to skip it.
+                    env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}" </dev/null
+                    _rc=$?
+                    # Verified against reality, the way the package path is, and
+                    # the binary is the verdict rather than the exit status. An
+                    # installer that swallows its own failure and exits 0 leaves
+                    # nothing behind and still fails here; Devin's, which installs
+                    # cleanly and *then* exits 1 because the login it launched was
+                    # cancelled, is not a failed install. Only an app with no
+                    # APP_BIN entry to probe has nothing but the status to go on.
+                    _ok=1
+                    if [ -n "$_bin" ] && ! curl_app_installed "$_bin"; then _ok=0; fi
+                    if [ "$_ok" -eq 1 ] && { [ -n "$_bin" ] || [ "$_rc" -eq 0 ]; }; then
+                        success "${C_ACCENT}${_lbl}${C_RESET} installed"
+                        INSTALLED+=("$_lbl")
+                    elif [ "$_rc" -ne 0 ]; then
                         error "Installer exited with error for ${C_ACCENT}${_lbl}${C_RESET}"
+                        FAILED+=("$_lbl")
+                    else
+                        error "Installer finished but ${C_ACCENT}${_bin}${C_RESET} is not on PATH"
                         FAILED+=("$_lbl")
                     fi
                 else
@@ -4441,7 +4463,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     FAILED+=("$_lbl")
                 fi
                 rm -f "$_tmpsh"
-                unset _tmpsh _curl_url _shell _cenv _cargs
+                unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok
             fi
         else
             _pkg="$(app_pkg_name "$app")"

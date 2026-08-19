@@ -336,6 +336,24 @@ printf '#!/bin/sh\necho hermes stub\n' > "$HOME/.local/bin/hermes"
 chmod +x "$HOME/.local/bin/hermes"
 HERMES_SH
             ;;
+        *cli.devin.ai/*)
+            # Served for real because Devin's installer is the one that ends by
+            # launching an interactive login and then exits non-zero when it is
+            # cancelled — the binary is on disk, the status says failure. This
+            # reproduces both halves: it exits 1 after a clean install, and it
+            # checks what it was handed on stdin — the wizard reads it, so a run
+            # that does not redirect it would stall against the real installer.
+            cat > "$out" <<'DEVIN_SH'
+#!/bin/sh
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho devin stub\n' > "$HOME/.local/bin/devin"
+chmod +x "$HOME/.local/bin/devin"
+[ "$(readlink /proc/self/fd/0 2>/dev/null)" = /dev/null ] \
+    || echo "STUBFAIL: devin installer was handed the run's own stdin" >&2
+echo "Error: Login canceled" >&2
+exit 1
+DEVIN_SH
+            ;;
         *antigravity*)
             # Served for real too, because the name is the whole point: this
             # installer writes `agy`, nothing resembling the app key, so a run

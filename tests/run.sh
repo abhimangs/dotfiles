@@ -392,6 +392,31 @@ grep -qxF unzip "$WORK/run/bun-unzip/state/installed" \
 [ -x "$WORK/run/bun-unzip/home/.bun/bin/bun" ] \
     && note bun-unzip "bun installed" || bad bun-unzip "no bun binary"
 
+# 15j. Devin is the curl app that installs cleanly and *then* fails: its
+#      installer ends by running `devin setup`, an interactive login with no
+#      flag to skip it, which exits non-zero the moment it is cancelled. The
+#      binary is on disk and the exit status says failure, so the run has to
+#      believe the binary. The stub reproduces both halves, and reads a line
+#      from stdin as well — which only produces anything if </dev/null failed
+#      to reach it, i.e. if a real run would have stalled on that login. Arch
+#      and Ubuntu because a missing APP_TYPE_DEB entry is the way this lands on
+#      `apt install devin` instead; Debian takes the identical branch.
+for _d in arch ubuntu; do
+    run    devin-$_d "$_d" "$WORK/k-sel" DOTFILES_APPS="devin" \
+           SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
+    check  devin-$_d 0
+    want   devin-$_d 'Devin CLI installed'  'a cancelled login is not a failed install'
+    nowant devin-$_d 'Failed \('            'and nothing reached the failure list'
+    [ -x "$WORK/run/devin-$_d/home/.local/bin/devin" ] \
+        && note devin-$_d "devin binary installed" \
+        || bad  devin-$_d "no devin binary"
+done
+unset _d
+rerun   devin-again devin-ubuntu "$WORK/k-sel" DOTFILES_APPS="devin"
+check   devin-again 0
+want    devin-again 'Devin CLI already installed' 'found in ~/.local/bin'
+nowant  devin-again 'Downloading installer'       'no second run of the installer'
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has
