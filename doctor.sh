@@ -117,7 +117,7 @@ echo "── tools ────────────────────�
 # Mirrors install.sh's CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on
 # the PATH of a non-login shell — without this it reports as missing on a
 # machine where it is installed and working.
-CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin"
+CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin:$HOME/.grok/bin"
 # Debian/Ubuntu ship these two under other names, and the ~/.local/bin shims
 # install.sh adds are best-effort — it reports "installed as batcat; could not
 # add the bat shim" and carries on. So "found, wrong name" is a real state and

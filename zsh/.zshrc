@@ -7,6 +7,7 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
 export PATH="$HOME/.kimi-code/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.grok/bin:$PATH"
 
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"

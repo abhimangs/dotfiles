@@ -417,6 +417,28 @@ check   devin-again 0
 want    devin-again 'Devin CLI already installed' 'found in ~/.local/bin'
 nowant  devin-again 'Downloading installer'       'no second run of the installer'
 
+# 15k. Grok is the bluntest of the rc-file writers: no opt-out flag, no check
+#      for its bin dir already being on PATH, and it resolves symlinks before
+#      writing — so left alone it appends its block to the tracked zsh/.zshrc
+#      through the stow link. `zsh` is selected here for exactly that reason,
+#      and the sweep below looks inside the checkout too. Its other write is
+#      the pair of symlinks it drops into ~/.local/bin when ~/.grok/bin is not
+#      on PATH, which is what the CURL_APP_PATH entry is for.
+run     grok ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" DOTFILES_APPS="grok-cli"
+check   grok 0
+want    grok 'Grok CLI installed'  'grok reached the summary'
+d="$WORK/run/grok/home"
+[ -x "$d/.grok/bin/grok" ] && note grok "grok installed in ~/.grok/bin" \
+                           || bad  grok "no grok binary"
+if grep -rqs 'STUB PATH BLOCK (grok)' "$d"; then
+    bad  grok "grok edited a shell rc — SHELL=/bin/sh did not arrive"
+else
+    note grok "no rc file was touched"
+fi
+[ -e "$d/.local/bin/agent" ] \
+    && bad  grok "grok symlinked itself into ~/.local/bin as well" \
+    || note grok "left ~/.local/bin alone"
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has

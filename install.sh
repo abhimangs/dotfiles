@@ -2741,7 +2741,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
@@ -2774,6 +2774,7 @@ APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
 APP_LABEL[hermes]="Hermes Agent"
 APP_LABEL[devin]="Devin CLI"
+APP_LABEL[grok-cli]="Grok CLI"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[notion]="Notion"
@@ -2806,6 +2807,7 @@ APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
 APP_TYPE[hermes]="curl"
 APP_TYPE[devin]="curl"
+APP_TYPE[grok-cli]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[notion]="paru"
@@ -2838,7 +2840,7 @@ APP_PKG[docker]="docker"
 # all append a PATH block to ~/.zshrc, which is a stow symlink into this repo —
 # they would silently edit the tracked dotfile. Seeing their dir already on
 # PATH (plus the opt-out flags below) makes them leave it alone.
-CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin"
+CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin:$HOME/.grok/bin"
 
 declare -A APP_CURL_ARGS APP_CURL_ENV
 APP_CURL_ARGS[opencode]="--no-modify-path"
@@ -2854,6 +2856,13 @@ APP_CURL_ARGS[hermes]="--skip-setup"
 # above) and the completions line, written by `bun completions` — which picks
 # the rc file off $SHELL and does nothing at all for a shell it cannot handle.
 APP_CURL_ENV[bun]="SHELL=/bin/sh"
+# Grok is the same trick for a blunter installer: it appends its PATH and
+# completions block to the rc file $SHELL names, unconditionally — no flag,
+# no "already on PATH" check, and it resolves the symlink first so the write
+# lands on the tracked zsh/.zshrc in this repo. A $SHELL it has no block for
+# is the only way out. ~/.grok/bin in CURL_APP_PATH above stops the other
+# half: without it, grok and `agent` get symlinked into ~/.local/bin too.
+APP_CURL_ENV[grok-cli]="SHELL=/bin/sh"
 
 # These CLIs install into their own bin dirs, which are not necessarily on the
 # PATH of whatever shell is running this script — search them explicitly, or an
@@ -2876,6 +2885,8 @@ APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
 APP_BIN[hermes]="hermes"
 APP_BIN[devin]="devin"
+# ...and `agent`, a second name for the same binary, beside it in ~/.grok/bin
+APP_BIN[grok-cli]="grok"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 
@@ -2902,6 +2913,7 @@ APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[hermes]="curl"
 APP_TYPE_DEB[devin]="curl"
+APP_TYPE_DEB[grok-cli]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
@@ -2968,6 +2980,7 @@ APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
 APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
 APP_DESC[devin]="Cognition's coding agent  ${G_DOT}  run 'devin setup' after"
+APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[notion]="notes and workspace"
@@ -4422,6 +4435,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # and the exit status it leaves behind is why the check
                     # after it looks at the binary instead.
                     devin)           _curl_url="https://cli.devin.ai/install.sh"                ; _shell=bash ;;
+                    grok-cli)        _curl_url="https://x.ai/cli/install.sh"                    ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash

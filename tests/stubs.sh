@@ -418,6 +418,32 @@ printf '#!/bin/sh\necho muse stub\n' > "$HOME/.local/bin/muse"
 chmod +x "$HOME/.local/bin/muse"
 MUSE_SH
             ;;
+        *x.ai/cli/*)
+            # Grok writes its PATH block to the rc file $SHELL names with no
+            # guard at all — not a flag, not an "already on PATH" check — so
+            # SHELL=/bin/sh is the only thing standing between it and the
+            # tracked zsh/.zshrc it reaches through the stow symlink. Second
+            # write, second guard: it symlinks grok and `agent` into whatever
+            # PATH dir it can find unless its own bin dir is already there.
+            cat > "$out" <<'GROK_SH'
+#!/bin/sh
+# The real installer only symlinks into a candidate that already exists and
+# is writable, and a grok-only sandbox has no ~/.local/bin yet — so make one,
+# or the branch this is here to catch cannot be taken at all.
+mkdir -p "$HOME/.grok/bin" "$HOME/.local/bin"
+printf '#!/bin/sh\necho grok stub\n' > "$HOME/.grok/bin/grok"
+cp "$HOME/.grok/bin/grok" "$HOME/.grok/bin/agent"
+chmod +x "$HOME/.grok/bin/grok" "$HOME/.grok/bin/agent"
+case "${SHELL##*/}" in
+    zsh|bash) echo '# STUB PATH BLOCK (grok)' >> "$HOME/.${SHELL##*/}rc" ;;
+esac
+case ":$PATH:" in
+    *":$HOME/.grok/bin:"*) ;;
+    *) ln -sf "$HOME/.grok/bin/grok"  "$HOME/.local/bin/grok"
+       ln -sf "$HOME/.grok/bin/agent" "$HOME/.local/bin/agent" ;;
+esac
+GROK_SH
+            ;;
         *bun.com/install)
             # Three contracts in one installer: it unpacks a zip, so ensure_unzip
             # has to have run; its PATH block is guarded by ~/.bun/bin being on
