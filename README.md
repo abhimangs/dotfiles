@@ -110,7 +110,7 @@ merge is deliberately conservative:
 
 - **One menu** — dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab** — bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree (all of them come automatically with zsh — see below)
-- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Postman CLI, Bun, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
+- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)

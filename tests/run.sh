@@ -439,6 +439,25 @@ fi
     && bad  grok "grok symlinked itself into ~/.local/bin as well" \
     || note grok "left ~/.local/bin alone"
 
+# 15l. Mistral is a wrapper around uv, which puts the rc-file writer one level
+#      down: uv's installer shotguns its PATH line into .profile, .bashrc,
+#      .zshrc and .zshenv alike, and the third of those is the stow symlink
+#      into the checkout — hence `zsh`, so there is one to write through.
+#      UV_NO_MODIFY_PATH=1 is the only opt-out that reaches that far, and it
+#      only reaches it by inheritance, so a dropped APP_CURL_ENV entry lands
+#      as a tracked dotfile with a PATH block appended to it.
+run     mistral ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" DOTFILES_APPS="mistral-cli"
+check   mistral 0
+want    mistral 'Mistral CLI installed'  'mistral reached the summary'
+d="$WORK/run/mistral/home"
+[ -x "$d/.local/bin/vibe" ] && note mistral "vibe installed in ~/.local/bin" \
+                            || bad  mistral "no vibe binary"
+if grep -rqs 'STUB PATH BLOCK (uv)' "$d"; then
+    bad  mistral "uv edited a shell rc — UV_NO_MODIFY_PATH did not arrive"
+else
+    note mistral "no rc file was touched"
+fi
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has

@@ -2741,7 +2741,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
@@ -2775,6 +2775,7 @@ APP_LABEL[muse]="Muse"
 APP_LABEL[hermes]="Hermes Agent"
 APP_LABEL[devin]="Devin CLI"
 APP_LABEL[grok-cli]="Grok CLI"
+APP_LABEL[mistral-cli]="Mistral CLI"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[notion]="Notion"
@@ -2808,6 +2809,7 @@ APP_TYPE[muse]="curl"
 APP_TYPE[hermes]="curl"
 APP_TYPE[devin]="curl"
 APP_TYPE[grok-cli]="curl"
+APP_TYPE[mistral-cli]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[notion]="paru"
@@ -2863,6 +2865,14 @@ APP_CURL_ENV[bun]="SHELL=/bin/sh"
 # is the only way out. ~/.grok/bin in CURL_APP_PATH above stops the other
 # half: without it, grok and `agent` get symlinked into ~/.local/bin too.
 APP_CURL_ENV[grok-cli]="SHELL=/bin/sh"
+# Mistral ships a wrapper, so the rc-file writer is one level down: it
+# installs uv when uv is missing, and uv's installer shotguns a PATH line
+# into .profile, .bashrc, .bash_profile, .bash_login, .zshrc and .zshenv —
+# ~/.zshrc among them, the stow symlink into this repo. UV_NO_MODIFY_PATH=1
+# is its documented opt-out and reaches it by inheritance. ~/.local/bin in
+# CURL_APP_PATH above is a second guard, but only for the default install
+# dir — UV_INSTALL_DIR or XDG_BIN_HOME moves it out from under that.
+APP_CURL_ENV[mistral-cli]="UV_NO_MODIFY_PATH=1"
 
 # These CLIs install into their own bin dirs, which are not necessarily on the
 # PATH of whatever shell is running this script — search them explicitly, or an
@@ -2887,6 +2897,9 @@ APP_BIN[hermes]="hermes"
 APP_BIN[devin]="devin"
 # ...and `agent`, a second name for the same binary, beside it in ~/.grok/bin
 APP_BIN[grok-cli]="grok"
+# `uv tool install mistral-vibe`, so the binary carries neither name:
+# vibe (and vibe-acp beside it) in ~/.local/bin
+APP_BIN[mistral-cli]="vibe"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 
@@ -2914,6 +2927,7 @@ APP_TYPE_DEB[muse]="curl"
 APP_TYPE_DEB[hermes]="curl"
 APP_TYPE_DEB[devin]="curl"
 APP_TYPE_DEB[grok-cli]="curl"
+APP_TYPE_DEB[mistral-cli]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
@@ -2981,6 +2995,7 @@ APP_DESC[muse]="terminal agent"
 APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
 APP_DESC[devin]="Cognition's coding agent  ${G_DOT}  run 'devin setup' after"
 APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
+APP_DESC[mistral-cli]="Mistral's coding agent  ${G_DOT}  run 'vibe --setup' after"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[notion]="notes and workspace"
@@ -4436,6 +4451,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # after it looks at the binary instead.
                     devin)           _curl_url="https://cli.devin.ai/install.sh"                ; _shell=bash ;;
                     grok-cli)        _curl_url="https://x.ai/cli/install.sh"                    ; _shell=bash ;;
+                    # a wrapper: it installs uv first when uv is missing, then
+                    # `uv tool install mistral-vibe`
+                    mistral-cli)     _curl_url="https://mistral.ai/vibe/install.sh"             ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash

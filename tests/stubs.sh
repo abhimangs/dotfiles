@@ -444,6 +444,29 @@ case ":$PATH:" in
 esac
 GROK_SH
             ;;
+        *mistral.ai/vibe/*)
+            # Mistral is a wrapper, so the rc-file writer is one level down:
+            # it installs uv when uv is missing, and uv's installer appends its
+            # PATH line to .profile, .bashrc, .zshrc and .zshenv alike — the
+            # third of those being the stow symlink into the checkout. Only
+            # UV_NO_MODIFY_PATH=1 stops it, and it gets there by inheritance
+            # through the wrapper's `sh "$installer"`, which is the whole thing
+            # this is here to catch. Written flat rather than as two nested
+            # installers, since inheritance is the only step between them.
+            cat > "$out" <<'VIBE_SH'
+#!/usr/bin/env bash
+mkdir -p "$HOME/.local/bin"
+if [ -z "${UV_NO_MODIFY_PATH:-}" ]; then
+    for rc in .profile .bashrc .zshrc .zshenv; do
+        echo '# STUB PATH BLOCK (uv)' >> "$HOME/$rc"
+    done
+fi
+printf '#!/bin/sh\necho uv stub\n'   > "$HOME/.local/bin/uv"
+printf '#!/bin/sh\necho vibe stub\n' > "$HOME/.local/bin/vibe"
+cp "$HOME/.local/bin/vibe" "$HOME/.local/bin/vibe-acp"
+chmod +x "$HOME/.local/bin/uv" "$HOME/.local/bin/vibe" "$HOME/.local/bin/vibe-acp"
+VIBE_SH
+            ;;
         *bun.com/install)
             # Three contracts in one installer: it unpacks a zip, so ensure_unzip
             # has to have run; its PATH block is guarded by ~/.bun/bin being on
