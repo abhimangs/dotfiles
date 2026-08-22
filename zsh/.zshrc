@@ -151,7 +151,7 @@ if [[ -n "$_upd" ]]; then
 fi
 unset _upd
 alias reload='source ~/.zshrc'
-alias zshrc='nano ~/.zshrc'
+alias zshrc='${EDITOR:-nano} ~/.zshrc'
 alias myip='curl ifconfig.me'
 alias ports='ss -tulpn'
 
