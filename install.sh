@@ -1919,6 +1919,19 @@ vicinae_postinstall() {
         substep "${C_YELLOW}Could not enable vicinae.service${C_RESET} ${C_DIM}— start it with: ${C_ACCENT}vicinae server${C_RESET}"
         return
     fi
+    # Already up as the unit: enabling was the only thing missing.
+    if systemctl --user is-active --quiet vicinae.service; then
+        substep "${C_GREEN}vicinae.service is running${C_RESET}"
+        return
+    fi
+    # Up, but started some other way — a compositor's exec-once line, or by
+    # hand. The unit runs `vicinae server --replace`, so starting it now would
+    # kill and relaunch a live launcher mid-session to gain nothing: it is
+    # enabled either way, so the next login is the managed one.
+    if command -v pgrep &>/dev/null && pgrep -x vicinae-server &>/dev/null; then
+        substep "${C_DIM}vicinae is already running — the unit takes over at your next login${C_RESET}"
+        return
+    fi
     if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
         substep "${C_DIM}vicinae.service enabled — starts with your next graphical session${C_RESET}"
         return

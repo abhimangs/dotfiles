@@ -691,6 +691,22 @@ grep -q -- '--user start vicinae.service' "$WORK/run/vicinae-session/state/syste
     || bad  vicinae-session "enabled but never started"
 want    vicinae-session 'vicinae.service is running'  'and verified it, not the exit status'
 
+# 19d. Already running, started by something else — a compositor's exec-once
+#      line, or by hand. The unit is `vicinae server --replace`, so starting it
+#      would kill and relaunch a live launcher mid-session; enabling it is the
+#      whole job. Found on a real desktop, where the unit was disabled and the
+#      server was up anyway.
+STUB_RUNNING=vicinae-server RUN_ARGS=--gui run vicinae-running arch "$WORK/k-sel" \
+    DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
+check   vicinae-running 0
+grep -q -- '--user enable vicinae.service' "$WORK/run/vicinae-running/state/systemctl.log" \
+    && note vicinae-running "still enabled for the next login" \
+    || bad  vicinae-running "did not enable it"
+grep -q -- '--user start vicinae' "$WORK/run/vicinae-running/state/systemctl.log" \
+    && bad  vicinae-running "replaced a running launcher mid-session" \
+    || note vicinae-running "left the running instance alone"
+want    vicinae-running 'already running'  'and said why it did not start it'
+
 # 19c. A container, WSL without systemd, a non-systemd distro: there is no user
 #      manager to enable anything into, so it has to say what to run by hand
 #      rather than report a service it never created.

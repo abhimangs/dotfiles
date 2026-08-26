@@ -179,10 +179,49 @@ exit 0'
 # Logged, not merely swallowed: `systemctl --user enable …` runs unprivileged,
 # so sudo.log — where every other service call in this suite is asserted — never
 # sees it, and the user-unit branches would have been untestable.
+#
+# It also has to remember what it was told to start. A stub that answers 0 to
+# everything makes `is-active` true for a unit nobody started, which is the one
+# question the callers actually ask — and it silently turned "did we start it?"
+# into "did we call systemctl at all?".
 w systemctl <<'EOF'
 #!/bin/sh
-echo "systemctl $*" >> "${STUB_STATE:?}/systemctl.log"
+st="${STUB_STATE:?}"
+echo "systemctl $*" >> "$st/systemctl.log"
+
+verb=""; unit=""; now=0
+for a in "$@"; do
+    case "$a" in
+        --now) now=1 ;;
+        -*) ;;
+        *)  if [ -z "$verb" ]; then verb="$a"
+            elif [ -z "$unit" ]; then unit="$a"
+            fi ;;
+    esac
+done
+unit="${unit%.service}"
+
+case "$verb" in
+    start|restart)  [ -n "$unit" ] && echo "$unit" >> "$st/active" ;;
+    enable)         [ "$now" = 1 ] && [ -n "$unit" ] && echo "$unit" >> "$st/active" ;;
+    is-active)      grep -qxF "$unit" "$st/active" 2>/dev/null || exit 3 ;;
+esac
 exit 0
+EOF
+
+# Only the -x form install.sh uses, answered from a file a scenario writes.
+# The stub PATH mirrors /usr/bin, so without this the *host's* process list
+# decides which branch runs — and on a machine where vicinae is running, it
+# does not take the branch the assertion is about.
+w pgrep <<'EOF'
+#!/bin/sh
+st="${STUB_STATE:?}"
+pat=""
+for a in "$@"; do
+    case "$a" in -*) ;; *) pat="$a" ;; esac
+done
+grep -qxF "$pat" "$st/processes" 2>/dev/null || exit 1
+echo 4242
 EOF
 w pacman-key           <<< '#!/bin/sh
 exit 0'

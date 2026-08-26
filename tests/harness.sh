@@ -65,6 +65,9 @@ build_root() {          # build_root <root> <distro>
     # have quietly skipped those branches anywhere else. STUB_NO_SYSTEMD is the
     # other box — a container, WSL without systemd, a non-systemd distro.
     [ "${STUB_NO_SYSTEMD:-0}" = 1 ] || mkdir -p "$root/run/systemd/system"
+    # What the stub pgrep sees. Empty unless a scenario says otherwise — the
+    # host's own process list must never be the answer.
+    printf '%s\n' ${STUB_RUNNING:-} > "$root/state/processes"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"
     # Local-only state, never part of a clone — and a landmine if it comes
