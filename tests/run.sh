@@ -739,6 +739,45 @@ check   headless-vicinae 2
 want    headless-vicinae 'Unknown app'      'hidden with no display server'
 
 echo
+echo "── obs-studio + zoom ────────────────────────────────────"
+# 22. OBS is the only app whose extras are not optional: without
+#     v4l2loopback-dkms the virtual camera fails at runtime and without
+#     qt6-wayland the UI falls back to XWayland. They have no menu row of their
+#     own, so nothing but this says they were actually installed. Zoom rides
+#     along in the same run — it is the second AUR-only entry, so it also proves
+#     the fallback is not something only vicinae's name reaches.
+RUN_ARGS=--gui run arch-obs arch "$WORK/k-sel" DOTFILES_APPS="obs-studio,zoom"
+check   arch-obs 0
+want    arch-obs 'OBS Studio.*done'  'app reported installed'
+want    arch-obs 'Zoom.*done'        'and so did zoom'
+d="$WORK/run/arch-obs"
+for p in obs-studio v4l2loopback-dkms qt6-wayland zoom; do
+    grep -qxF "$p" "$d/state/installed" \
+        && note arch-obs "$p installed" || bad arch-obs "$p missing"
+done
+grep -qxF zoom "$d/state/aur-installed" 2>/dev/null \
+    && note arch-obs "zoom came through the AUR helper" \
+    || bad  arch-obs "zoom never reached the AUR fallback"
+
+# 23. Same two packages on apt, under the same names — which is why there is no
+#     *_DEB map entry for them, and why a typo there would be invisible without
+#     a run on the other distro.
+RUN_ARGS=--gui run debian-obs debian "$WORK/k-sel" DOTFILES_APPS="obs-studio"
+check   debian-obs 0
+want    debian-obs 'OBS Studio.*done'  'app reported installed'
+d="$WORK/run/debian-obs"
+for p in obs-studio v4l2loopback-dkms qt6-wayland; do
+    grep -qxF "$p" "$d/state/installed" \
+        && note debian-obs "$p installed" || bad debian-obs "$p missing"
+done
+
+# 24. Zoom has no apt repo, so the name is rejected rather than quietly skipped
+#     — the same contract vicinae has on Debian.
+RUN_ARGS="--gui --apps=zoom" run debian-zoom debian "$WORK/k-sel"
+check   debian-zoom 2
+want    debian-zoom 'Unknown app'  'rejected on Debian/Ubuntu'
+
+echo
 echo "── restore bash ─────────────────────────────────────────"
 # --restore-bash is the undo for the zsh setup, and the last thing between a
 # botched zsh install and a box you cannot get a usable shell on over SSH. It

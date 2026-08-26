@@ -112,7 +112,7 @@ merge is deliberately conservative:
 
 - **One menu** — dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab** — bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree (all of them come automatically with zsh — see below)
-- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
+- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it — both are required for it to work, not optional extras
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
@@ -210,7 +210,7 @@ installed but my shell is still bash", which is the question it was written for.
 
 ### Arch-only items
 
-`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), and `vicinae` (AUR only — upstream ships a release tarball and a Nix flake, no apt repo) are only offered on Arch. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` — the command to bind to a hotkey — is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only — upstream ships a release tarball and a Nix flake, no apt repo) and `zoom` (a vendor `.deb` behind a download page, no apt repo) are only offered on Arch. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` — the command to bind to a hotkey — is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
 
 ### Debian/Ubuntu-only items
 

@@ -162,11 +162,15 @@ flatpak
 obsidian
 unzip
 vicinae-bin
+obs-studio
+v4l2loopback-dkms
+qt6-wayland
+zoom
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
-    # AUR fallback for it, which is how it installs on a real Arch box.
-    printf 'vicinae-bin\n' > "$root/state/aur-only"
+    # AUR fallback for them, which is how they install on a real Arch box.
+    printf 'vicinae-bin\nzoom\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 

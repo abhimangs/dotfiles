@@ -171,7 +171,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vicinae vlc)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vicinae vlc obs-studio zoom)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -2789,16 +2789,17 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
-    # moving target on apt) and Vicinae (AUR only — upstream ships a tarball and
-    # a Nix flake, no apt repo) are Arch-only for now.
+    # moving target on apt), Vicinae (AUR only — upstream ships a tarball and a
+    # Nix flake, no apt repo) and Zoom (a vendor .deb behind a download page, no
+    # apt repo — the same shape as Obsidian) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note below.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -2832,6 +2833,8 @@ APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
+APP_LABEL[obs-studio]="OBS Studio"
+APP_LABEL[zoom]="Zoom"
 APP_LABEL[flatpak]="Flatpak"
 APP_LABEL[docker]="Docker + Compose"
 
@@ -2866,6 +2869,9 @@ APP_TYPE[vicinae]="paru"
 APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
+APP_TYPE[obs-studio]="pacman"
+# AUR-only, like vicinae — no zoom in the official repos
+APP_TYPE[zoom]="paru"
 APP_TYPE[flatpak]="pacman"
 APP_TYPE[docker]="pacman"
 
@@ -2883,6 +2889,11 @@ APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
 APP_PKG[vlc]="vlc"
+# v4l2loopback-dkms (virtual camera) and qt6-wayland (Wayland rendering) are
+# pulled in as a post-install step, same shape as docker's compose/buildx:
+# app_pkg_name carries one name, and this is the anchor for the installed check.
+APP_PKG[obs-studio]="obs-studio"
+APP_PKG[zoom]="zoom"
 APP_PKG[flatpak]="flatpak"
 # docker-compose and docker-buildx are pulled in as a post-install step (see
 # the "docker" branch after the install loop) — pacman needs all three in one
@@ -3055,6 +3066,8 @@ APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
 APP_DESC[vlc]="plays anything"
+APP_DESC[obs-studio]="screen recording and streaming  ${G_DOT}  virtual camera, Wayland"
+APP_DESC[zoom]="video calls"
 APP_DESC[flatpak]="sandboxed app runtime  ${G_DOT}  adds flathub"
 APP_DESC[docker]="containers  ${G_DOT}  compose, buildx, group, service"
 
@@ -4611,6 +4624,18 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 elif [[ "$app" == "vicinae" ]]; then
                     vicinae_postinstall
                     substep "${C_DIM}Toggle command: ${C_ACCENT}vicinae toggle${C_RESET} ${C_DIM}— bind it to a hotkey in your compositor${C_RESET}"
+                elif [[ "$app" == "obs-studio" ]]; then
+                    # Both are required, not extras: without v4l2loopback-dkms
+                    # the Start Virtual Camera button fails at runtime, and
+                    # without qt6-wayland OBS falls back to XWayland (blurry UI,
+                    # broken screen capture) on a Wayland session. Same package
+                    # names on Arch and apt, so no *_DEB map entry.
+                    substep "Installing v4l2loopback-dkms and qt6-wayland..."
+                    if [[ "$DISTRO" == "arch" ]]; then
+                        pacman_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
+                    else
+                        apt_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
+                    fi || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]]; then
                         substep "Installing docker-compose and docker-buildx..."
