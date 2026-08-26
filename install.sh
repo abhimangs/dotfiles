@@ -3693,6 +3693,31 @@ else
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
 fi
 
+# "No internet" and "no curl" are different facts, and reading the second as
+# the first is how a minimal Debian or Ubuntu install — neither ships curl —
+# got told it had no network on a box that was online, and stopped there before
+# the step that would have installed curl. The bare debian:12 and ubuntu:24.04
+# images the smoke job runs are exactly that box.
+net_reachable() {       # <host> [host...] — false only if a probe ran and failed
+    local h probed=0
+    for h in "$@"; do
+        if command -v curl &>/dev/null; then
+            probed=1
+            curl -fsSL --connect-timeout 5 --max-time 8 "https://$h" -o /dev/null 2>/dev/null && return 0
+        elif command -v wget &>/dev/null; then
+            probed=1
+            wget -q --timeout=8 --tries=1 -O /dev/null "https://$h" 2>/dev/null && return 0
+        fi
+    done
+    # A minimal Debian or Ubuntu has neither — and bash's own /dev/tcp is not a
+    # dependable stand-in, since some builds compile net redirections out. With
+    # nothing to probe with, "cannot tell" is not "offline": carry on and let
+    # the install itself produce the real error. apt is about to refresh its
+    # index anyway, and it says what actually went wrong.
+    [ "$probed" -eq 1 ] || return 0
+    return 1
+}
+
 # ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
 if [[ "$DISTRO" == "arch" ]]; then
     info "Checking AUR helper..."
@@ -3719,7 +3744,7 @@ if [[ "$DISTRO" == "arch" ]]; then
         else
         substep "No AUR helper found — installing paru..."
         substep "Checking internet connection..."
-        if ! curl -fsSL --connect-timeout 5 --max-time 8 https://archlinux.org -o /dev/null 2>/dev/null; then
+        if ! net_reachable archlinux.org; then
             error "No internet connection — paru requires internet to install."
             exit 1
         fi
@@ -3770,8 +3795,7 @@ if [[ "$DISTRO" == "arch" ]]; then
 else
     info "Preparing apt..."
     substep "Checking internet connection..."
-    if ! curl -fsSL --connect-timeout 5 --max-time 8 https://deb.debian.org -o /dev/null 2>/dev/null \
-        && ! curl -fsSL --connect-timeout 5 --max-time 8 https://archive.ubuntu.com -o /dev/null 2>/dev/null; then
+    if ! net_reachable deb.debian.org archive.ubuntu.com; then
         error "No internet connection — apt requires internet to install packages."
         exit 1
     fi
