@@ -66,7 +66,10 @@ build_root() {          # build_root <root> <distro>
     # other box — a container, WSL without systemd, a non-systemd distro.
     [ "${STUB_NO_SYSTEMD:-0}" = 1 ] || mkdir -p "$root/run/systemd/system"
     # What the stub pgrep sees. Empty unless a scenario says otherwise — the
-    # host's own process list must never be the answer.
+    # host's own process list must never be the answer. Unquoted deliberately:
+    # a scenario may name more than one process, and the stub matches whole
+    # lines, so each has to land on its own.
+    # shellcheck disable=SC2086
     printf '%s\n' ${STUB_RUNNING:-} > "$root/state/processes"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"

@@ -699,12 +699,17 @@ want    vicinae-session 'vicinae.service is running'  'and verified it, not the 
 STUB_RUNNING=vicinae-server RUN_ARGS=--gui run vicinae-running arch "$WORK/k-sel" \
     DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
 check   vicinae-running 0
-grep -q -- '--user enable vicinae.service' "$WORK/run/vicinae-running/state/systemctl.log" \
-    && note vicinae-running "still enabled for the next login" \
-    || bad  vicinae-running "did not enable it"
-grep -q -- '--user start vicinae' "$WORK/run/vicinae-running/state/systemctl.log" \
-    && bad  vicinae-running "replaced a running launcher mid-session" \
-    || note vicinae-running "left the running instance alone"
+vlog="$WORK/run/vicinae-running/state/systemctl.log"
+if grep -q -- '--user enable vicinae.service' "$vlog"; then
+    note vicinae-running "still enabled for the next login"
+else
+    bad  vicinae-running "did not enable it"
+fi
+if grep -q -- '--user start vicinae' "$vlog"; then
+    bad  vicinae-running "replaced a running launcher mid-session"
+else
+    note vicinae-running "left the running instance alone"
+fi
 want    vicinae-running 'already running'  'and said why it did not start it'
 
 # 19c. A container, WSL without systemd, a non-systemd distro: there is no user
