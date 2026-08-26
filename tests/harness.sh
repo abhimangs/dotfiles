@@ -149,7 +149,12 @@ vlc
 flatpak
 obsidian
 unzip
+vicinae-bin
 PKGS
+
+    # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
+    # AUR fallback for it, which is how it installs on a real Arch box.
+    printf 'vicinae-bin\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 

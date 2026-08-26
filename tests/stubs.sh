@@ -251,15 +251,28 @@ EOF
 w pacman <<'EOF'
 #!/usr/bin/env bash
 st="${STUB_STATE:?}"
+# paru and yay are copies of this file. Names listed in state/aur-only are
+# visible to them and invisible to pacman — which is the whole shape of
+# arch_install (official repos first, AUR helper second) and the only way the
+# suite can tell the two paths apart: without it every AUR package installs
+# through the repo branch and the fallback is never taken.
+have() {
+    grep -qxF "$1" "$st/available" 2>/dev/null || return 1
+    [ "${0##*/}" = pacman ] && grep -qxF "$1" "$st/aur-only" 2>/dev/null && return 1
+    return 0
+}
 case "${1:-}" in
   -Q)  grep -qxF "${2:-}" "$st/installed" 2>/dev/null ;;
-  -Si) grep -qxF "${2:-}" "$st/available" 2>/dev/null ;;
+  -Si) have "${2:-}" ;;
   -S|-Sy|-Syu)
       rc=0
       for a in "$@"; do
           case "$a" in -*) continue ;; esac
-          if grep -qxF "$a" "$st/available" 2>/dev/null; then
+          if have "$a"; then
               grep -qxF "$a" "$st/installed" 2>/dev/null || echo "$a" >> "$st/installed"
+              # Only paru/yay can see an aur-only name, so reaching here with
+              # one is proof the helper did it and not the repo branch.
+              grep -qxF "$a" "$st/aur-only" 2>/dev/null && echo "$a" >> "$st/aur-installed"
               if [ ! -e "$STUB_BIN/$a" ]; then
                   if [ -x "${STUB_TPL:-}/$a" ]; then cp "$STUB_TPL/$a" "$STUB_BIN/$a"
                   else printf '#!/bin/sh\necho "%s stub"\n' "$a" > "$STUB_BIN/$a"; fi

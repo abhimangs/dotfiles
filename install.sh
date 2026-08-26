@@ -171,7 +171,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vlc)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vicinae vlc)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -2741,15 +2741,16 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun notion obsidian vlc flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
-    # apt, no repo) and the Antigravity desktop/IDE (upstream packaging still a
-    # moving target on apt) are Arch-only for now.
+    # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
+    # moving target on apt) and Vicinae (AUR only — upstream ships a tarball and
+    # a Nix flake, no apt repo) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note below.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -2778,6 +2779,7 @@ APP_LABEL[grok-cli]="Grok CLI"
 APP_LABEL[mistral-cli]="Mistral CLI"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
+APP_LABEL[vicinae]="Vicinae"
 APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[claude-desktop]="Claude Desktop"
@@ -2812,6 +2814,7 @@ APP_TYPE[grok-cli]="curl"
 APP_TYPE[mistral-cli]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
+APP_TYPE[vicinae]="paru"
 APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
 APP_TYPE[vlc]="pacman"
@@ -2828,6 +2831,7 @@ APP_PKG[wezterm]="wezterm-git"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[opencode]="opencode"
+APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
 APP_PKG[vlc]="vlc"
@@ -2998,6 +3002,7 @@ APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
 APP_DESC[mistral-cli]="Mistral's coding agent  ${G_DOT}  run 'vibe --setup' after"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
+APP_DESC[vicinae]="Raycast-style launcher  ${G_DOT}  bind: vicinae toggle"
 APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
@@ -4531,6 +4536,13 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     substep "Adding Flathub remote..."
                     ensure_flathub_remote \
                         || substep "${C_YELLOW}Could not add Flathub — add it manually${C_RESET}"
+                elif [[ "$app" == "vicinae" ]]; then
+                    # `vicinae toggle` talks to the daemon over IPC, so a hotkey
+                    # bound to it does nothing until the user unit the package
+                    # ships is running. Naming the command without naming that
+                    # is a notice that reads as working and is not.
+                    substep "${C_DIM}Toggle command: ${C_ACCENT}vicinae toggle${C_RESET} ${C_DIM}— bind it to a hotkey in your compositor${C_RESET}"
+                    substep "${C_DIM}Needs the daemon: ${C_ACCENT}systemctl --user enable --now vicinae${C_RESET}"
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]]; then
                         substep "Installing docker-compose and docker-buildx..."

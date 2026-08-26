@@ -110,7 +110,7 @@ merge is deliberately conservative:
 
 - **One menu** — dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab** — bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree (all of them come automatically with zsh — see below)
-- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
+- **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, OpenCode, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, VLC, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below)
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
@@ -208,7 +208,7 @@ installed but my shell is still bash", which is the question it was written for.
 
 ### Arch-only items
 
-`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), and the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), and `vicinae` (AUR only — upstream ships a release tarball and a Nix flake, no apt repo) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
 
 ### Debian/Ubuntu-only items
 
@@ -261,7 +261,7 @@ It also checks its own work rather than trusting it. Every path is re-tested aft
 
 ### Headless servers
 
-The installer checks `DISPLAY`, `WAYLAND_DISPLAY` and the installed session files (`/usr/share/xsessions`, `/usr/share/wayland-sessions`). The systemd default target is deliberately not consulted: Ubuntu server images ship `graphical.target` with no desktop installed at all, so every such VPS looked like a workstation. With no display server it drops the GUI entries from both menus — terminal emulators (`ghostty`, `kitty`), the launchers (`rofi`, `ulauncher`), and every GUI app (browsers, editors, Notion, Obsidian, Claude Desktop, VLC) — since none of them can run and each pulls in a large X/GTK dependency tree. What remains is the part that makes sense on a server: `zsh`, `starship`, `git`, `fastfetch`, `protonvpn`, the dep tools and the CLI agents.
+The installer checks `DISPLAY`, `WAYLAND_DISPLAY` and the installed session files (`/usr/share/xsessions`, `/usr/share/wayland-sessions`). The systemd default target is deliberately not consulted: Ubuntu server images ship `graphical.target` with no desktop installed at all, so every such VPS looked like a workstation. With no display server it drops the GUI entries from both menus — terminal emulators (`ghostty`, `kitty`), the launchers (`rofi`, `ulauncher`), and every GUI app (browsers, editors, Vicinae, Notion, Obsidian, Claude Desktop, VLC) — since none of them can run and each pulls in a large X/GTK dependency tree. What remains is the part that makes sense on a server: `zsh`, `starship`, `git`, `fastfetch`, `protonvpn`, the dep tools and the CLI agents.
 
 Pass `--gui` to override the detection.
 
@@ -269,7 +269,7 @@ Pass `--gui` to override the detection.
 
 What is *not* supported is `sudo bash install.sh`: under sudo the configs would be stowed into root's home, or into yours owned by root, depending on the sudoers policy. The installer detects that case and tells you which of the two supported ways to use instead.
 
-One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
+One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Vicinae, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
 **Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login) — and can exit 0 without changing anything at all. The installer therefore reads `/etc/passwd` back after each attempt, falls through to `usermod` if the entry did not change, and only reports success once the shell really is zsh; otherwise it prints the exact command to run. The change applies at the next login — or run `exec zsh` to switch the current session immediately.
 

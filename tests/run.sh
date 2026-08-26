@@ -653,6 +653,43 @@ else
 fi
 
 echo
+echo "── vicinae (Arch only) ──────────────────────────────────"
+# 19. The first app in the suite that is AUR-only: pacman -Si misses it, so
+#     arch_install has to fall through to the helper. Every other Arch app here
+#     is in the official repos, so that fallback — the shape of every AUR entry
+#     in the app list — had never actually been taken by a scenario. Apps only:
+#     a run that installs a config installs both fonts too, which is a second
+#     thing to go wrong in a scenario about neither.
+RUN_ARGS=--gui run arch-vicinae arch "$WORK/k-sel" DOTFILES_APPS="vicinae"
+check   arch-vicinae 0
+want    arch-vicinae 'Vicinae.*done'        'app reported installed'
+d="$WORK/run/arch-vicinae"
+grep -qxF vicinae-bin "$d/state/installed" \
+    && note arch-vicinae "vicinae-bin installed" || bad arch-vicinae "vicinae-bin missing"
+grep -qxF vicinae-bin "$d/state/aur-installed" 2>/dev/null \
+    && note arch-vicinae "installed through the AUR helper" \
+    || bad  arch-vicinae "never reached the AUR fallback"
+# The package on its own is a launcher with nothing bound to it, and the toggle
+# is an IPC call to a daemon that is not running yet. Both halves have to be
+# said or the notice is advice that does not work.
+want    arch-vicinae 'vicinae toggle'                       'the toggle command is named'
+want    arch-vicinae 'systemctl --user enable --now vicinae' 'and the daemon it needs'
+
+# 20. No apt package exists at all, so the name has to be rejected outright —
+#     an unattended run that quietly installs nothing is the failure mode the
+#     --apps= flag exists to prevent.
+RUN_ARGS="--gui --apps=vicinae" run debian-vicinae debian "$WORK/k-sel"
+check   debian-vicinae 2
+want    debian-vicinae 'Unknown app'        'rejected on Debian/Ubuntu'
+want    debian-vicinae 'available:'         'and listed the real ones'
+
+# 21. A launcher needs a display server, so it is stripped on a headless box
+#     like every other GUI app — including on Arch, where the package exists.
+run headless-vicinae arch "$WORK/k-sel" DOTFILES_APPS="vicinae"
+check   headless-vicinae 2
+want    headless-vicinae 'Unknown app'      'hidden with no display server'
+
+echo
 echo "── restore bash ─────────────────────────────────────────"
 # --restore-bash is the undo for the zsh setup, and the last thing between a
 # botched zsh install and a box you cannot get a usable shell on over SSH. It
