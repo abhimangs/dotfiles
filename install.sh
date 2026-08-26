@@ -1899,6 +1899,41 @@ docker_postinstall() {
     fi
 }
 
+# ── vicinae ──────────────────────────────────────────────────────────────────
+# The package ships a user unit, and `vicinae toggle` is an IPC call into it —
+# so a hotkey bound to the toggle does nothing at all until it is running.
+#
+# Enabling is safe wherever systemd's *user* instance is reachable. Starting is
+# not: the server attaches a layer-shell surface to a compositor, so on a box
+# being provisioned ahead of its desktop (--gui with no session yet) it is
+# enabled and left for the next login rather than started into nothing.
+vicinae_postinstall() {
+    # Two separate facts. /run/systemd/system is "systemd is the init here";
+    # `systemctl --user` additionally needs a user manager and a session bus,
+    # which an SSH login to an account without lingering does not have.
+    if [ ! -d /run/systemd/system ] || ! systemctl --user show-environment &>/dev/null; then
+        substep "${C_YELLOW}No systemd user session${C_RESET} ${C_DIM}— start it yourself: ${C_ACCENT}vicinae server${C_RESET}"
+        return
+    fi
+    if ! systemctl --user enable vicinae.service &>/dev/null; then
+        substep "${C_YELLOW}Could not enable vicinae.service${C_RESET} ${C_DIM}— start it with: ${C_ACCENT}vicinae server${C_RESET}"
+        return
+    fi
+    if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+        substep "${C_DIM}vicinae.service enabled — starts with your next graphical session${C_RESET}"
+        return
+    fi
+    # Checked against reality rather than the exit status, the way every other
+    # service and installer in here is: `start` returning 0 and the unit dying
+    # a second later is the failure this is here to catch.
+    systemctl --user start vicinae.service &>/dev/null
+    if systemctl --user is-active --quiet vicinae.service; then
+        substep "${C_GREEN}vicinae.service is running${C_RESET}"
+    else
+        substep "${C_YELLOW}vicinae.service enabled but did not start${C_RESET} ${C_DIM}— check: ${C_ACCENT}systemctl --user status vicinae${C_RESET}"
+    fi
+}
+
 # ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
 FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
 MAPLE_FONT_DIR_DEB="$HOME/.local/share/fonts/MapleMono"
@@ -4537,12 +4572,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     ensure_flathub_remote \
                         || substep "${C_YELLOW}Could not add Flathub — add it manually${C_RESET}"
                 elif [[ "$app" == "vicinae" ]]; then
-                    # `vicinae toggle` talks to the daemon over IPC, so a hotkey
-                    # bound to it does nothing until the user unit the package
-                    # ships is running. Naming the command without naming that
-                    # is a notice that reads as working and is not.
+                    vicinae_postinstall
                     substep "${C_DIM}Toggle command: ${C_ACCENT}vicinae toggle${C_RESET} ${C_DIM}— bind it to a hotkey in your compositor${C_RESET}"
-                    substep "${C_DIM}Needs the daemon: ${C_ACCENT}systemctl --user enable --now vicinae${C_RESET}"
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]]; then
                         substep "Installing docker-compose and docker-buildx..."

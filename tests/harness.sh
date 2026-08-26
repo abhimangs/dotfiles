@@ -15,7 +15,7 @@ PASS=0; FAIL=0
 
 sandbox_repo() {        # sandbox_repo <root>
     local root="$1" f="$1/home/dotfiles/install.sh"
-    local etc="$root/etc" share="$root/share"
+    local etc="$root/etc" share="$root/share" run="$root/run"
     sed -i \
         -e "s#/etc/os-release#$etc/os-release#g" \
         -e "s#/etc/arch-release#$etc/arch-release#g" \
@@ -23,6 +23,7 @@ sandbox_repo() {        # sandbox_repo <root>
         -e "s#/etc/shells#$etc/shells#g" \
         -e "s#/usr/share/xsessions#$share/xsessions#g" \
         -e "s#/usr/share/wayland-sessions#$share/wayland-sessions#g" \
+        -e "s#/run/systemd/system#$run/systemd/system#g" \
         "$f"
     # The replacement paths end in /etc/… themselves, so verify by counting the
     # sandboxed form rather than by absence of the original.
@@ -59,6 +60,11 @@ V1
 build_root() {          # build_root <root> <distro>
     local root="$1" distro="$2"
     rm -rf "$root"; mkdir -p "$root/home" "$root/state" "$root/etc/apt/sources.list.d" "$root/share"
+    # "systemd is the init here", which every service branch tests for. It used
+    # to be read off the *host*: the suite passed on a systemd laptop and would
+    # have quietly skipped those branches anywhere else. STUB_NO_SYSTEMD is the
+    # other box — a container, WSL without systemd, a non-systemd distro.
+    [ "${STUB_NO_SYSTEMD:-0}" = 1 ] || mkdir -p "$root/run/systemd/system"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"
     # Local-only state, never part of a clone — and a landmine if it comes

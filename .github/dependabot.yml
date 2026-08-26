@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # The actions in ci.yml are pinned to commit SHAs, which is the only pin a
+  # tag cannot be moved out from under — and the reason they need something to
+  # bump them. Dependabot reads the `# v7.0.1` comment beside each SHA and
+  # opens one PR when a new release lands.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    labels: []

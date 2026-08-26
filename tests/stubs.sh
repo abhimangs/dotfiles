@@ -176,8 +176,14 @@ w apt-cache            <<< '#!/bin/sh
 exit 0'
 w add-apt-repository   <<< '#!/bin/sh
 exit 0'
-w systemctl            <<< '#!/bin/sh
-exit 0'
+# Logged, not merely swallowed: `systemctl --user enable …` runs unprivileged,
+# so sudo.log — where every other service call in this suite is asserted — never
+# sees it, and the user-unit branches would have been untestable.
+w systemctl <<'EOF'
+#!/bin/sh
+echo "systemctl $*" >> "${STUB_STATE:?}/systemctl.log"
+exit 0
+EOF
 w pacman-key           <<< '#!/bin/sh
 exit 0'
 w fc-cache             <<< '#!/bin/sh

@@ -1,5 +1,7 @@
 # dotfiles
 
+[![CI](https://github.com/abhimangs/dotfiles/actions/workflows/ci.yml/badge.svg)](https://github.com/abhimangs/dotfiles/actions/workflows/ci.yml)
+
 Arch Linux, Debian, and Ubuntu dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level folder mirrors the path relative to its stow target so files symlink directly into place. Snap is never used — every install path goes through pacman/AUR, apt, an official vendor apt repo, or a direct upstream download.
 
 ## Quick start — fresh install
@@ -208,7 +210,7 @@ installed but my shell is still bash", which is the question it was written for.
 
 ### Arch-only items
 
-`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), and `vicinae` (AUR only — upstream ships a release tarball and a Nix flake, no apt repo) are only offered on Arch. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build — only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), and `vicinae` (AUR only — upstream ships a release tarball and a Nix flake, no apt repo) are only offered on Arch. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` — the command to bind to a hotkey — is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
 
 ### Debian/Ubuntu-only items
 

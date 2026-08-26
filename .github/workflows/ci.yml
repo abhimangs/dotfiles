@@ -5,52 +5,170 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # A weekly canary. Nothing in this repo rots on its own — what rots is
+  # everything it installs *from*: an AUR package that gets renamed, an apt
+  # package that leaves the archive, a vendor install script that changes its
+  # flags. The smoke job below notices; a repo that only builds on push finds
+  # out from a person whose machine is already half-installed.
+  schedule:
+    - cron: '0 6 * * 1'
+
+# One run per ref: a second push cancels the first instead of queueing behind
+# it. Nothing here deploys, so the older answer is never the one wanted.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default — the whole workflow only ever reads the checkout. A job
+# that some day needs more asks for it in its own block rather than widening
+# this one for everything.
+permissions:
+  contents: read
 
 jobs:
-  shellcheck:
+  lint:
+    name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      # Gate on errors only. These scripts predate any linting, so failing on
-      # style would mean a permanently red pipeline nobody reads; the full
-      # report still runs below and is visible in the log.
-      - name: Run shellcheck (errors are fatal)
-        run: |
-          shellcheck --version
-          # zsh/.zshrc is excluded: shellcheck has no zsh dialect and would
-          # flag every setopt/zstyle/bindkey line. bash/.bashrc is sourced and
-          # has no shebang, hence -e SC2148.
-          shellcheck -S error -s bash install.sh linux.sh doctor.sh tests/*.sh
-          shellcheck -S error -s bash -e SC2148 bash/.bashrc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The advisory pass reports only on lines this change touched, which
+          # needs the commit before it — a shallow clone has neither that nor
+          # the pull request's base.
+          fetch-depth: 0
 
-      - name: Full shellcheck report (advisory)
-        continue-on-error: true
-        run: |
-          shellcheck -s bash install.sh linux.sh doctor.sh tests/*.sh
-          shellcheck -s bash -e SC2148 bash/.bashrc
+      # Both passes, the file list, and the changed-line filter live in the
+      # script: one source of truth, and runnable by hand before pushing
+      # rather than only discoverable from a red pipeline.
+      - name: shellcheck
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: .github/lint.sh
 
-  tests:
-    runs-on: ubuntu-latest
+      # actionlint checks this file the way shellcheck checks the scripts — and
+      # it runs shellcheck over every `run:` block, which plain shellcheck
+      # cannot see from outside the YAML. Pinned and checksum-verified, the same
+      # rule install.sh applies to everything it downloads.
+      - name: actionlint
+        run: |
+          ver=1.7.12
+          sum=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          curl -fsSL -o actionlint.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz"
+          echo "${sum}  actionlint.tgz" | sha256sum -c -
+          tar -xzf actionlint.tgz actionlint
+          ./actionlint -color
+
+  test:
+    name: suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      # Two runners, and the interesting difference between them is bash: 5.1
+      # on 22.04, 5.2 on 24.04. This is 4600 lines of bash leaning on namerefs,
+      # ${var,,} and printf %-*s, so "works on my bash" is a real failure mode.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Install harness dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y stow zsh
+
+      # The suite stubs every package manager and sandboxes HOME, so it never
+      # touches the runner's real system. KEEP_WORK keeps the sandbox alive past
+      # the trap so a failure has something to upload.
       - name: Run the suite
-        # The suite stubs every package manager and sandboxes HOME, so it never
-        # touches the runner's real system.
-        run: bash tests/run.sh
+        env:
+          WORK: ${{ runner.temp }}/sandbox
+          KEEP_WORK: '1'
+        run: |
+          set -o pipefail
+          mkdir -p "$WORK"
+          bash tests/run.sh 2>&1 | tee "$RUNNER_TEMP/suite.log"
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Suite — ${{ matrix.os }} (bash ${BASH_VERSION})"
+            echo
+            echo '```'
+            grep -E '^  FAIL' "$RUNNER_TEMP/suite.log" | head -20 || true
+            tail -n 2 "$RUNNER_TEMP/suite.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every assertion in the suite reads a transcript inside the sandbox, and
+      # the sandbox dies with the runner — which makes a CI-only failure close to
+      # undebuggable. Collect the transcripts alone: each scenario also holds a
+      # full copy of the repo, so the whole tree would be a huge artifact.
+      - name: Collect transcripts
+        if: failure()
+        run: |
+          dest="$RUNNER_TEMP/transcripts"
+          mkdir -p "$dest"
+          for d in "$RUNNER_TEMP"/sandbox/run/*/; do
+            [ -d "$d" ] || continue
+            cp "$d/clean.txt" "$dest/$(basename "$d").txt" 2>/dev/null || true
+          done
+          cp "$RUNNER_TEMP/suite.log" "$dest/" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: transcripts-${{ matrix.os }}
+          path: ${{ runner.temp }}/transcripts
+          retention-days: 7
+
+  smoke:
+    name: real ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['archlinux:base', 'debian:12', 'ubuntu:24.04']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The stubbed suite proves the branches; this proves the assumptions
+      # underneath them — that the package names still exist, that real
+      # pacman/apt accept the flags we hand them, and that stow lands where the
+      # plan said it would. Nothing else in this repo runs against a real
+      # distro, which is exactly where an installer breaks.
+      - name: Plan everything, then install some of it for real
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            "${{ matrix.image }}" bash .github/smoke.sh
 
   linux-sh-unchanged:
+    name: linux.sh deploy reminder
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
+
+      # It is deployed by hand to a hosted URL, so a change here means the
+      # hosted copy is stale until someone re-pastes it. A warning, never a
+      # failure: the deploy is a human step and cannot be verified from here.
       - name: Warn if linux.sh changed
-        # It is deployed by hand to a hosted URL, so a change here means the
-        # hosted copy is now stale until someone re-pastes it.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if git diff --quiet "${{ github.event.pull_request.base.sha || github.event.before }}" HEAD -- linux.sh 2>/dev/null; then
+          # A first push to a branch reports an all-zero "before", and a tag or
+          # a schedule reports nothing at all — neither is a diff, so fall back
+          # to the previous commit rather than printing a git error.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE=$(git rev-parse 'HEAD^' 2>/dev/null || git rev-parse HEAD)
+          fi
+          if git diff --quiet "$BASE" HEAD -- linux.sh; then
             echo "linux.sh unchanged"
           else
             echo "::warning file=linux.sh::linux.sh changed — re-deploy it to the hosted URL"
+            echo '### linux.sh changed — re-deploy it to the hosted URL' >> "$GITHUB_STEP_SUMMARY"
           fi

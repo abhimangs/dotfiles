@@ -96,7 +96,7 @@ printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
 printf '\n\033[B\n\n\n'    > "$WORK/k-del"       # keep · delete · then the plan
 
 echo "── static ───────────────────────────────────────────────"
-for f in install.sh linux.sh doctor.sh; do
+for f in install.sh linux.sh doctor.sh .github/smoke.sh; do
     if bash -n "$HERE/../$f" 2>/dev/null; then note "$f" "parses"; else bad "$f" "syntax error"; fi
 done
 if command -v zsh >/dev/null && zsh -n "$HERE/../zsh/.zshrc" 2>/dev/null; then
@@ -670,10 +670,38 @@ grep -qxF vicinae-bin "$d/state/aur-installed" 2>/dev/null \
     && note arch-vicinae "installed through the AUR helper" \
     || bad  arch-vicinae "never reached the AUR fallback"
 # The package on its own is a launcher with nothing bound to it, and the toggle
-# is an IPC call to a daemon that is not running yet. Both halves have to be
-# said or the notice is advice that does not work.
-want    arch-vicinae 'vicinae toggle'                       'the toggle command is named'
-want    arch-vicinae 'systemctl --user enable --now vicinae' 'and the daemon it needs'
+# is an IPC call into a daemon — so the unit is enabled and the command to bind
+# is named, or what ships is a hotkey wired to nothing.
+want    arch-vicinae 'vicinae toggle'    'the toggle command is named'
+grep -q -- '--user enable vicinae.service' "$d/state/systemctl.log" \
+    && note arch-vicinae "the user unit was enabled" \
+    || bad  arch-vicinae "nothing enabled vicinae.service"
+# No display in the sandbox, so starting it would attach a layer-shell surface
+# to a compositor that is not there. Enable now, start at the next login.
+nowant  arch-vicinae 'start vicinae'                 'not started with no session'
+want    arch-vicinae 'starts with your next graphical session' 'and says so'
+
+# 19b. The same box once a compositor is up: the run that installs it can start
+#      it too, so the hotkey works without logging out first.
+RUN_ARGS=--gui run vicinae-session arch "$WORK/k-sel" \
+    DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
+check   vicinae-session 0
+grep -q -- '--user start vicinae.service' "$WORK/run/vicinae-session/state/systemctl.log" \
+    && note vicinae-session "started against a live session" \
+    || bad  vicinae-session "enabled but never started"
+want    vicinae-session 'vicinae.service is running'  'and verified it, not the exit status'
+
+# 19c. A container, WSL without systemd, a non-systemd distro: there is no user
+#      manager to enable anything into, so it has to say what to run by hand
+#      rather than report a service it never created.
+STUB_NO_SYSTEMD=1 RUN_ARGS=--gui run vicinae-nosystemd arch "$WORK/k-sel" \
+    DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
+check   vicinae-nosystemd 0
+want    vicinae-nosystemd 'No systemd user session' 'said so plainly'
+want    vicinae-nosystemd 'vicinae server'          'and named the command to run'
+[ -s "$WORK/run/vicinae-nosystemd/state/systemctl.log" ] \
+    && bad  vicinae-nosystemd "tried systemctl anyway" \
+    || note vicinae-nosystemd "never touched systemctl"
 
 # 20. No apt package exists at all, so the name has to be rejected outright —
 #     an unattended run that quietly installs nothing is the failure mode the
