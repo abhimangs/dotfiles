@@ -683,20 +683,37 @@ want    arch-vicinae 'starts with your next graphical session' 'and says so'
 
 # 19b. The same box once a compositor is up: the run that installs it can start
 #      it too, so the hotkey works without logging out first.
-RUN_ARGS=--gui run vicinae-session arch "$WORK/k-sel" \
+STUB_ACTIVE=graphical-session.target \
+    RUN_ARGS=--gui run vicinae-session arch "$WORK/k-sel" \
     DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
 check   vicinae-session 0
 grep -q -- '--user start vicinae.service' "$WORK/run/vicinae-session/state/systemctl.log" \
     && note vicinae-session "started against a live session" \
     || bad  vicinae-session "enabled but never started"
 want    vicinae-session 'vicinae.service is running'  'and verified it, not the exit status'
+nowant  vicinae-session 'never reaches graphical-session' 'no autostart warning where it does'
+
+# 19e. The same live session under a compositor that never starts
+#      graphical-session.target — a bare Hyprland or sway launched from a TTY.
+#      `enable` writes the symlink and systemd still never pulls it in, so the
+#      run starts the server, reports it running, and every login after this
+#      one has a hotkey wired to nothing. Say it here or the next reboot does.
+RUN_ARGS=--gui run vicinae-notarget arch "$WORK/k-sel" \
+    DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
+check   vicinae-notarget 0
+grep -q -- '--user enable vicinae.service' "$WORK/run/vicinae-notarget/state/systemctl.log" \
+    && note vicinae-notarget "enabled it anyway" \
+    || bad  vicinae-notarget "did not enable it"
+want    vicinae-notarget 'never reaches graphical-session' 'warned that it will not autostart'
+want    vicinae-notarget 'exec-once = vicinae server'      'and named the line to add'
 
 # 19d. Already running, started by something else — a compositor's exec-once
 #      line, or by hand. The unit is `vicinae server --replace`, so starting it
 #      would kill and relaunch a live launcher mid-session; enabling it is the
 #      whole job. Found on a real desktop, where the unit was disabled and the
 #      server was up anyway.
-STUB_RUNNING=vicinae-server RUN_ARGS=--gui run vicinae-running arch "$WORK/k-sel" \
+STUB_RUNNING=vicinae-server STUB_ACTIVE=graphical-session.target \
+    RUN_ARGS=--gui run vicinae-running arch "$WORK/k-sel" \
     DOTFILES_APPS="vicinae" WAYLAND_DISPLAY=wayland-0
 check   vicinae-running 0
 vlog="$WORK/run/vicinae-running/state/systemctl.log"

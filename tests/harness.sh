@@ -71,6 +71,12 @@ build_root() {          # build_root <root> <distro>
     # lines, so each has to land on its own.
     # shellcheck disable=SC2086
     printf '%s\n' ${STUB_RUNNING:-} > "$root/state/processes"
+    # Which units the stub systemctl answers `is-active` for before this run
+    # starts anything. Same shape and same reason as STUB_RUNNING: a session
+    # that reaches graphical-session.target and one that never does are two
+    # different boxes, and the host's own targets must not decide which.
+    # shellcheck disable=SC2086
+    printf '%s\n' ${STUB_ACTIVE:-} > "$root/state/active"
     cp -a "$REPO" "$root/home/dotfiles"
     rm -rf "$root/home/dotfiles/tests"
     # Local-only state, never part of a clone — and a landmine if it comes

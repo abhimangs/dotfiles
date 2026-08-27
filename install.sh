@@ -1919,6 +1919,15 @@ vicinae_postinstall() {
         substep "${C_YELLOW}Could not enable vicinae.service${C_RESET} ${C_DIM}— start it with: ${C_ACCENT}vicinae server${C_RESET}"
         return
     fi
+    # `enable` only hooks the unit onto graphical-session.target, and that
+    # target is reached by session managers with systemd integration — Plasma
+    # and GNOME start it, a bare Hyprland or sway launched from a TTY never
+    # does. There the unit is enabled and still dead at every login, which the
+    # "is running" line below would otherwise paper over until the next reboot.
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] \
+        && ! systemctl --user is-active --quiet graphical-session.target; then
+        substep "${C_YELLOW}This session never reaches graphical-session.target${C_RESET} ${C_DIM}— enabled, but it will not come back by itself: add ${C_ACCENT}exec-once = vicinae server${C_RESET} ${C_DIM}to your compositor config${C_RESET}"
+    fi
     # Already up as the unit: enabling was the only thing missing.
     if systemctl --user is-active --quiet vicinae.service; then
         substep "${C_GREEN}vicinae.service is running${C_RESET}"
