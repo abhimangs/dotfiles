@@ -1073,7 +1073,7 @@ aur_install_y() { _aur_run_robust "y" "$1"; }
 
 # Official repos first, AUR only as a fallback. Repo packages are signed,
 # prebuilt and install in seconds, where the AUR builds from source — and some
-# names now exist in both places (opencode, thefuck), so asking paru blindly
+# names now exist in both places (pay-respects, thefuck), so asking paru blindly
 # could pick the slower path. 'pacman -Si' answers "is this in a sync repo?"
 # without touching the network, so an AUR-only name costs nothing here.
 arch_install() {
@@ -2798,7 +2798,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -2828,7 +2828,8 @@ APP_LABEL[claude-code]="Claude Code CLI"
 APP_LABEL[antigravity]="Antigravity 2.0"
 APP_LABEL[antigravity-cli]="Antigravity CLI"
 APP_LABEL[codex-cli]="Codex CLI"
-APP_LABEL[opencode]="OpenCode"
+APP_LABEL[cursor-cli]="Cursor CLI"
+APP_LABEL[opencode]="Opencode CLI"
 APP_LABEL[kimi-code]="Kimi Code CLI"
 APP_LABEL[muse]="Muse"
 APP_LABEL[hermes]="Hermes Agent"
@@ -2865,7 +2866,8 @@ APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
 APP_TYPE[antigravity-cli]="curl"
 APP_TYPE[codex-cli]="curl"
-APP_TYPE[opencode]="paru"
+APP_TYPE[cursor-cli]="curl"
+APP_TYPE[opencode]="curl"
 APP_TYPE[kimi-code]="curl"
 APP_TYPE[muse]="curl"
 APP_TYPE[hermes]="curl"
@@ -2893,7 +2895,6 @@ APP_PKG[alacritty]="alacritty"
 APP_PKG[wezterm]="wezterm-git"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
-APP_PKG[opencode]="opencode"
 APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
@@ -2954,6 +2955,22 @@ curl_app_installed() {
     PATH="${CURL_APP_PATH}:$PATH" command -v "$1" &>/dev/null
 }
 
+# The interactive CLIs among the curl apps. Their installers are first-install
+# scripts, so a re-run is the wrong tool for an existing one — the value is the
+# update command it ships instead, and an empty value means it ships none and
+# the installer is all there is. Being in this map is also what earns an app the
+# "run it like this" line, so the keys are the ones you launch by name.
+declare -A APP_UPDATE
+APP_UPDATE[antigravity-cli]="agy update"
+APP_UPDATE[codex-cli]="codex update"
+APP_UPDATE[cursor-cli]="agent update"
+APP_UPDATE[opencode]=""
+
+app_open_hint() {
+    [ -n "${APP_UPDATE[$1]+x}" ] || return 0
+    substep "${C_DIM}Run ${C_ACCENT}${APP_BIN[$1]}${C_RESET}${C_DIM} in a terminal to open it${C_RESET}"
+}
+
 APP_BIN[claude-code]="claude"
 # 'agy', not 'antigravity' — that name is the IDE's, and the vendor installer
 # writes $TARGET_DIR/agy. Missing here, the ':-' fallbacks made the row read new
@@ -2962,6 +2979,7 @@ APP_BIN[claude-code]="claude"
 # whose installer ends in '|| true' was the one never verified against reality.
 APP_BIN[antigravity-cli]="agy"
 APP_BIN[codex-cli]="codex"
+APP_BIN[cursor-cli]="agent"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
@@ -2993,6 +3011,7 @@ APP_TYPE_DEB[vscode-insiders]="vscode-insiders"
 APP_TYPE_DEB[claude-code]="curl"
 APP_TYPE_DEB[antigravity-cli]="curl"
 APP_TYPE_DEB[codex-cli]="curl"
+APP_TYPE_DEB[cursor-cli]="curl"
 APP_TYPE_DEB[opencode]="curl"
 APP_TYPE_DEB[kimi-code]="curl"
 APP_TYPE_DEB[muse]="curl"
@@ -3061,6 +3080,7 @@ APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
 APP_DESC[antigravity-cli]="the CLI half of Antigravity"
 APP_DESC[codex-cli]="OpenAI's coding agent"
+APP_DESC[cursor-cli]="Cursor's coding agent in the terminal"
 APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
@@ -4529,19 +4549,32 @@ if [ "${#APPS[@]}" -gt 0 ]; then
 
         if [[ "$_type" == "curl" ]]; then
             _bin="${APP_BIN[$app]:-}"
-            if curl_app_installed "$_bin"; then
+            _have=0; curl_app_installed "$_bin" && _have=1
+            if [ "$_have" -eq 1 ] && [ -z "${APP_UPDATE[$app]+x}" ]; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
-                # its installer is a first-install script, not an updater
-                [ "$app" = codex-cli ] && substep "${C_DIM}Update it with: ${C_ACCENT}codex update${C_RESET}"
+                success "${C_ACCENT}${_lbl}${C_RESET} done"
+                INSTALLED+=("$_lbl")
+            elif [ "$_have" -eq 1 ] && [ -n "${APP_UPDATE[$app]}" ]; then
+                substep "${C_ACCENT}${_lbl}${C_RESET} already installed — updating..."
+                # A failed update still leaves the working version behind, so it
+                # is a warning here, not a failed app.
+                read -ra _ucmd <<< "${APP_UPDATE[$app]}"
+                PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null \
+                    || substep "${C_DIM}Update failed — keeping the installed version${C_RESET}"
+                app_open_hint "$app"
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
             else
+                # $_have here means an app with no update command: its installer
+                # is the only updater it has, so it runs again.
+                [ "$_have" -eq 1 ] && substep "${C_ACCENT}${_lbl}${C_RESET} already installed — its installer is its updater"
                 substep "Downloading installer for ${C_ACCENT}${_lbl}${C_RESET}..."
                 _tmpsh=$(mktemp -p "$RUN_TMPDIR" installer_XXXXXX.sh)
                 case "$app" in
                     claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
                     antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
                     codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell=sh   ;;
+                    cursor-cli)      _curl_url="https://cursor.com/install"                ; _shell=bash ;;
                     opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
                     kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
                     muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
@@ -4583,7 +4616,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     if [ -n "$_bin" ] && ! curl_app_installed "$_bin"; then _ok=0; fi
                     if [ "$_ok" -eq 1 ] && { [ -n "$_bin" ] || [ "$_rc" -eq 0 ]; }; then
                         success "${C_ACCENT}${_lbl}${C_RESET} installed"
-                        [ "$app" = codex-cli ] && substep "${C_DIM}Run: ${C_ACCENT}codex${C_RESET} ${C_DIM}to open it${C_RESET}"
+                        app_open_hint "$app"
                         INSTALLED+=("$_lbl")
                     elif [ "$_rc" -ne 0 ]; then
                         error "Installer exited with error for ${C_ACCENT}${_lbl}${C_RESET}"

@@ -374,10 +374,16 @@ rerun   curlapps-again curlapps "$WORK/k-sel" \
         DOTFILES_APPS="claude-code,codex-cli,opencode,kimi-code,muse,bun"
 check   curlapps-again 0
 want    curlapps-again 'Claude Code CLI already installed' 'found in ~/.local/bin'
-want    curlapps-again 'OpenCode already installed'        'found in ~/.opencode/bin'
+want    curlapps-again 'Codex CLI already installed — updating'  'codex update, not a reinstall'
+want    curlapps-again 'Opencode CLI already installed'   'found in ~/.opencode/bin'
 want    curlapps-again 'Kimi Code CLI already installed'   'found in ~/.kimi-code/bin'
 want    curlapps-again 'Bun already installed'             'found in ~/.bun/bin'
-nowant  curlapps-again 'Downloading installer'             'no installer runs twice'
+# Opencode is the one curl app with no update subcommand, so its installer
+# *is* its updater and runs again; nobody else's does.
+nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Kimi|Muse|Bun)' \
+                                                          'no installer runs twice'
+want    curlapps-again 'Downloading installer for .*Opencode CLI' \
+                                                          'except opencode, which has no updater'
 
 # 15i. bun is the one curl app with a prerequisite of its own: the installer
 #      unpacks a zip, so ensure_unzip has to run first, and unzip is in neither
