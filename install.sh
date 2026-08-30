@@ -2962,6 +2962,7 @@ curl_app_installed() {
 # "run it like this" line, so the keys are the ones you launch by name.
 declare -A APP_UPDATE
 APP_UPDATE[antigravity-cli]="agy update"
+APP_UPDATE[claude-code]="claude update"
 APP_UPDATE[codex-cli]="codex update"
 APP_UPDATE[cursor-cli]="agent update"
 APP_UPDATE[opencode]=""

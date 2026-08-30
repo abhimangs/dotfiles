@@ -420,7 +420,7 @@ DEVIN_SH
             cat > "$out" <<'AGY_SH'
 #!/bin/sh
 mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho agy stub\n' > "$HOME/.local/bin/agy"
+printf '#!/bin/sh\necho agy stub "$@"\n' > "$HOME/.local/bin/agy"
 chmod +x "$HOME/.local/bin/agy"
 AGY_SH
             ;;
@@ -428,7 +428,7 @@ AGY_SH
             cat > "$out" <<'CLAUDE_SH'
 #!/bin/sh
 mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho claude stub\n' > "$HOME/.local/bin/claude"
+printf '#!/bin/sh\necho claude stub "$@"\n' > "$HOME/.local/bin/claude"
 chmod +x "$HOME/.local/bin/claude"
 CLAUDE_SH
             ;;
@@ -442,9 +442,21 @@ case ":$PATH:" in
     *) echo '# STUB PATH BLOCK (codex)' >> "$HOME/.zshrc" ;;
 esac
 mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho codex stub\n' > "$HOME/.local/bin/codex"
+printf '#!/bin/sh\necho codex stub "$@"\n' > "$HOME/.local/bin/codex"
 chmod +x "$HOME/.local/bin/codex"
 CODEX_SH
+            ;;
+        *cursor.com/install)
+            cat > "$out" <<'CURSOR_SH'
+#!/bin/sh
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) echo '# STUB PATH BLOCK (cursor)' >> "$HOME/.zshrc" ;;
+esac
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho agent stub "$@"\n' > "$HOME/.local/bin/agent"
+chmod +x "$HOME/.local/bin/agent"
+CURSOR_SH
             ;;
         *opencode.ai/install)
             cat > "$out" <<'OPENCODE_SH'

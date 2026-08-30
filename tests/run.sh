@@ -319,6 +319,7 @@ check   agy-first 0
 rerun   agy-again agy-first "$WORK/k-sel" DOTFILES_APPS="antigravity-cli"
 check   agy-again 0
 want    agy-again 'Antigravity CLI already installed' 'the plan finds agy on PATH'
+want    agy-again 'agy stub update'                    'and updates it with agy update'
 nowant  agy-again 'Downloading installer'             'no second run of the installer'
 
 # 15f. A GitHub-release .deb is an unsigned binary going into a root install,
@@ -351,10 +352,10 @@ grep -qxF fresh-editor "$WORK/run/debian-deb-badsha/state/installed" \
 #      dotfile; the stub installers do it whenever the opt-out is missing, which
 #      is what makes "no rc file was touched" an assertion rather than a hope.
 run     curlapps ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" \
-        DOTFILES_APPS="claude-code,codex-cli,opencode,kimi-code,muse,bun"
+        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,bun"
 check   curlapps 0
 d="$WORK/run/curlapps/home"
-for b in .local/bin/claude .local/bin/codex .opencode/bin/opencode \
+for b in .local/bin/claude .local/bin/codex .local/bin/agent .opencode/bin/opencode \
          .kimi-code/bin/kimi .local/bin/muse .bun/bin/bun; do
     [ -x "$d/$b" ] && note curlapps "${b##*/} installed in ${b%/*}" \
                    || bad  curlapps "no ${b##*/} at ~/$b"
@@ -371,16 +372,21 @@ fi
 
 # Second pass over the same sandbox: found where they were left, not reinstalled.
 rerun   curlapps-again curlapps "$WORK/k-sel" \
-        DOTFILES_APPS="claude-code,codex-cli,opencode,kimi-code,muse,bun"
+        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,bun"
 check   curlapps-again 0
 want    curlapps-again 'Claude Code CLI already installed' 'found in ~/.local/bin'
-want    curlapps-again 'Codex CLI already installed — updating'  'codex update, not a reinstall'
+# The update commands are run, not just printed: each stub binary echoes the
+# arguments it was handed back at the transcript.
+want    curlapps-again 'claude stub update'                'claude update ran'
+want    curlapps-again 'codex stub update'                 'codex update ran'
+want    curlapps-again 'agent stub update'                 'agent update ran'
+want    curlapps-again 'Run claude in a terminal to open it' 'and says how to launch it'
 want    curlapps-again 'Opencode CLI already installed'   'found in ~/.opencode/bin'
 want    curlapps-again 'Kimi Code CLI already installed'   'found in ~/.kimi-code/bin'
 want    curlapps-again 'Bun already installed'             'found in ~/.bun/bin'
 # Opencode is the one curl app with no update subcommand, so its installer
 # *is* its updater and runs again; nobody else's does.
-nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Kimi|Muse|Bun)' \
+nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Cursor|Kimi|Muse|Bun)' \
                                                           'no installer runs twice'
 want    curlapps-again 'Downloading installer for .*Opencode CLI' \
                                                           'except opencode, which has no updater'
