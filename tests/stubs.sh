@@ -597,6 +597,12 @@ case "$url" in
             dandavison/delta) pkg=git-delta ;;
             *)             pkg=${repo#*/} ;;
         esac
+        # delta really does publish two assets whose names both end in
+        # _<arch>.deb, with the musl one listed first — which is what makes
+        # "first match wins" pick the wrong package. Served in that order.
+        [ "$repo" = dandavison/delta ] && \
+            printf '"browser_download_url": "https://github.com/%s/releases/download/v1.0/git-delta-musl_1.0_%s.deb"\n' \
+                "$repo" "${STUB_ARCH:-amd64}"
         printf '"browser_download_url": "https://github.com/%s/releases/download/v1.0/%s_1.0_%s.deb"\n' \
             "$repo" "$pkg" "${STUB_ARCH:-amd64}"
         exit 0 ;;

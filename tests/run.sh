@@ -639,6 +639,14 @@ run     env-badmode ubuntu "$WORK/k-none" DOTFILES_CONFIGS="git" DOTFILES_BACKUP
 check   env-badmode 2
 want    env-badmode 'Unknown DOTFILES_BACKUP_MODE' 'the env twin is checked too'
 
+# A bare --dry-run still walks the menus, so it is NOT an unattended run: it
+# must ask the two questions rather than announce that nobody is there and then
+# wait for arrow keys.
+RUN_ARGS="--dry-run" run dry-bare ubuntu "$WORK/k-num"
+check   dry-bare 0
+nowant  dry-bare 'no one at the keyboard'  'a run that draws a menu does not claim otherwise'
+want    dry-bare 'dry run'                 'and still stops at the plan'
+
 # --dry-run with a named selection: the whole plan, nothing written.
 RUN_ARGS="--dry-run --configs=zsh --apps=docker" run flags-dry ubuntu "$WORK/k-sel"
 check   flags-dry 0
@@ -1487,6 +1495,30 @@ else
 fi
 
 echo
+echo "── release asset patterns ───────────────────────────────"
+# github_latest_asset_url matches with `grep -Ei "$pattern" | head -1`, so when a
+# project publishes more than one asset ending the same way the pattern has to
+# separate them by name. delta is that project: it lists
+# git-delta-musl_<v>_<arch>.deb BEFORE git-delta_<v>_<arch>.deb, and the musl
+# build installs under the package name git-delta-musl — which made the check
+# right after it report a perfectly good install as a failure. Run against the
+# real asset names, so it does not depend on what this machine has installed.
+inst_src="$HERE/../install.sh"
+delta_pat=$(sed -n 's|.*install_release_deb "dandavison/delta" "\(.*\)".*|\1|p' "$inst_src")
+delta_pat=${delta_pat//\$(deb_arch)/amd64}
+if [ -z "$delta_pat" ]; then
+    bad  delta-asset "no dandavison/delta pattern found in install.sh"
+else
+    picked=$(printf 'git-delta-musl_0.19.2_amd64.deb\ngit-delta_0.19.2_amd64.deb\n' \
+        | grep -Ei "$delta_pat" | head -1)
+    if [ "$picked" = "git-delta_0.19.2_amd64.deb" ]; then
+        note delta-asset "the glibc .deb is what the pattern picks"
+    else
+        bad  delta-asset "pattern picks ${picked:-nothing}, not the glibc .deb"
+    fi
+fi
+unset delta_pat picked
+
 echo "── curl app update map ──────────────────────────────────"
 # APP_UPDATE does three jobs at once: it decides whether an installed app is
 # updated in place, carries the command that does it, and is what earns an app

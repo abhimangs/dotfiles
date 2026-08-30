@@ -123,12 +123,23 @@ CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.
 # add the bat shim" and carries on. So "found, wrong name" is a real state and
 # a completely different problem from "not installed", which is exactly what
 # someone runs this script to tell apart.
-declare -A ALT_BIN=([bat]=batcat [fd]=fdfind [ripgrep]=rg [delta]=delta)
+# ripgrep is here for a different reason: its binary is rg on every distro, so
+# finding rg is normal and reporting it as a missing shim would be a lie in a
+# file whose whole job is to be pasted into a bug report. delta needs no entry
+# at all — package and binary are both delta.
+declare -A ALT_BIN=([bat]=batcat [fd]=fdfind [ripgrep]=rg)
+declare -A ALT_SHIM=([bat]=1 [fd]=1)
 for c in stow fzf git zsh starship fastfetch bat eza fd zoxide pay-respects lazygit btop tree gh ripgrep delta tmux micro fresh bun; do
     p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$c")"
     if [ -z "$p" ] && [ -n "${ALT_BIN[$c]:-}" ]; then
         p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${ALT_BIN[$c]}")"
-        [ -n "$p" ] && p="$p  (Debian name — no $c shim)"
+        if [ -n "$p" ]; then
+            if [ -n "${ALT_SHIM[$c]:-}" ]; then
+                p="$p  (Debian name — no $c shim)"
+            else
+                p="$p  (installs as ${ALT_BIN[$c]})"
+            fi
+        fi
     fi
     printf "  %-12s %s\n" "$c" "${p:--}"
 done

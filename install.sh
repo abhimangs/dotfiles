@@ -56,9 +56,10 @@ Options:
                    .bak) or "delete" (wipe, no backup kept).
   -h, --help       This text.
 
-Any of --configs/--tools/--apps, or --dry-run, means nobody is at the keyboard:
-the two prompts are then not asked at all. They take the same answers Enter
-takes — keep, and backup — unless --private or --backup-mode= says otherwise.
+Naming a selection with --configs/--tools/--apps means nobody is at the
+keyboard: no menu is drawn, and the two prompts are not asked either. They take
+the same answers Enter takes — keep, and backup — unless --private or
+--backup-mode= says otherwise.
 
 Reached through the hosted bootstrap there is no argv to put a flag in, so each
 one also has an environment variable:
@@ -1668,7 +1669,11 @@ ensure_delta_deb() {
     apt_pkg_installed git-delta && return 0
     apt_install git-delta
     apt_pkg_installed git-delta && return 0
-    install_release_deb "dandavison/delta" "_$(deb_arch)\.deb$"
+    # Two assets end in _<arch>.deb here — git-delta_ and git-delta-musl_ —
+    # and github_latest_asset_url takes the first match, which is the musl one.
+    # It installs under the package name git-delta-musl, so the check below
+    # then calls a good install a failure. The prefix is what separates them.
+    install_release_deb "dandavison/delta" "git-delta_.*_$(deb_arch)\.deb$"
     apt_pkg_installed git-delta
 }
 
@@ -3815,9 +3820,11 @@ STRIP_REPO=0
 # reads the download stream and under cloud-init waits forever. So they are not
 # asked at all on that path: --private / --backup-mode= answer them, and
 # without either they take the answers Enter would have given.
+# Not --dry-run: that still walks the menu, and a run that is about to ask for
+# arrow keys has no business claiming nobody is at the keyboard. A dry run with
+# a selection is covered by the line below like any other.
 UNATTENDED=0
 [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] && UNATTENDED=1
-[ "$DRY_RUN" -eq 1 ]                        && UNATTENDED=1
 
 if [ -n "$OPT_PRIVATE" ] || [ "$UNATTENDED" -eq 1 ]; then
     STRIP_REPO="${OPT_PRIVATE:-0}"

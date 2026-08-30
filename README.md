@@ -40,7 +40,7 @@ bash install.sh
 
 Any of the three selection flags may be left out, which means "none of those" — `--apps=docker` on its own installs Docker and touches no dotfile. An unknown name exits 2 with the list of real ones rather than quietly installing nothing.
 
-**Unattended runs.** Naming a selection (or passing `--dry-run`) means nobody is at the keyboard, so the two single-key questions — privacy, and what happens to existing configs — are not asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. So this is a complete, hands-off install:
+**Unattended runs.** Naming a selection means nobody is at the keyboard — no menu is drawn, and the two single-key questions — privacy, and what happens to existing configs — are not asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. So this is a complete, hands-off install:
 
 ```bash
 DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code \
