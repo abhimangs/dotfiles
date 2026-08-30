@@ -2965,6 +2965,7 @@ APP_UPDATE[antigravity-cli]="agy update"
 APP_UPDATE[claude-code]="claude update"
 APP_UPDATE[codex-cli]="codex update"
 APP_UPDATE[cursor-cli]="agent update"
+APP_UPDATE[devin]="devin update"
 APP_UPDATE[opencode]=""
 
 app_open_hint() {

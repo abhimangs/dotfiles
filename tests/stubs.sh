@@ -404,7 +404,7 @@ HERMES_SH
             cat > "$out" <<'DEVIN_SH'
 #!/bin/sh
 mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho devin stub\n' > "$HOME/.local/bin/devin"
+printf '#!/bin/sh\necho devin stub "$@"\n' > "$HOME/.local/bin/devin"
 chmod +x "$HOME/.local/bin/devin"
 [ "$(readlink /proc/self/fd/0 2>/dev/null)" = /dev/null ] \
     || echo "STUBFAIL: devin installer was handed the run's own stdin" >&2
@@ -442,7 +442,12 @@ case ":$PATH:" in
     *) echo '# STUB PATH BLOCK (codex)' >> "$HOME/.zshrc" ;;
 esac
 mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho codex stub "$@"\n' > "$HOME/.local/bin/codex"
+cat > "$HOME/.local/bin/codex" <<'CODEX_BIN'
+#!/bin/sh
+echo "codex stub $*"
+if [ "${STUB_UPDATE_FAILS:-0}" = 1 ] && [ "$1" = update ]; then exit 1; fi
+exit 0
+CODEX_BIN
 chmod +x "$HOME/.local/bin/codex"
 CODEX_SH
             ;;

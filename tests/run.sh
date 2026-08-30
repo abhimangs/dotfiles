@@ -391,6 +391,17 @@ nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Cursor|Ki
 want    curlapps-again 'Downloading installer for .*Opencode CLI' \
                                                           'except opencode, which has no updater'
 
+# 15h2. A vendor updater that fails on an app already on disk is not a failed
+#       app — the working version is still there, so it is a warning and the run
+#       carries on. codex's stub binary is the one that can fail on demand.
+rerun   curlapps-badupd curlapps "$WORK/k-sel" \
+        DOTFILES_APPS="codex-cli" STUB_UPDATE_FAILS=1
+check   curlapps-badupd 0
+want    curlapps-badupd 'Update failed — keeping the installed version' 'the failure is reported'
+want    curlapps-badupd 'Codex CLI done'   'and the app still counts as installed'
+nowant  curlapps-badupd 'Failed \('        'nothing reached the failure list'
+nowant  curlapps-badupd 'Downloading installer' 'a failed update is not a reinstall'
+
 # 15i. bun is the one curl app with a prerequisite of its own: the installer
 #      unpacks a zip, so ensure_unzip has to run first, and unzip is in neither
 #      distro's base install. Apps only — the font step wants unzip too, and
@@ -427,6 +438,8 @@ unset _d
 rerun   devin-again devin-ubuntu "$WORK/k-sel" DOTFILES_APPS="devin"
 check   devin-again 0
 want    devin-again 'Devin CLI already installed' 'found in ~/.local/bin'
+want    devin-again 'devin stub update'           'and updates it with devin update'
+want    devin-again 'Run devin in a terminal'     'and says how to launch it'
 nowant  devin-again 'Downloading installer'       'no second run of the installer'
 
 # 15k. Grok is the bluntest of the rc-file writers: no opt-out flag, no check
@@ -1419,6 +1432,34 @@ else
 fi
 
 echo
+echo "── curl app update map ──────────────────────────────────"
+# APP_UPDATE does three jobs at once: it decides whether an installed app is
+# updated in place, carries the command that does it, and is what earns an app
+# the "run it like this" line. A key that is not a curl app, or one whose
+# APP_BIN is missing, fails none of the scenarios above — it just quietly does
+# nothing, or prints a hint with a hole where the command should be.
+inst_src="$HERE/../install.sh"
+mapfile -t upd_keys < <(sed -n 's/^APP_UPDATE\[\([a-z0-9-]*\)\]=.*/\1/p' "$inst_src")
+apps_line=$(sed -n 's/^APPS_LIST=(\(.*\))$/\1/p' "$inst_src")
+if [ "${#upd_keys[@]}" -ge 5 ] && [ -n "$apps_line" ]; then
+    note upd-map "APP_UPDATE extracted (${#upd_keys[@]} apps)"
+else
+    bad  upd-map "extraction matched almost nothing — not looking at install.sh"
+fi
+upd_bad=()
+for k in "${upd_keys[@]}"; do
+    case " $apps_line " in *" $k "*) ;; *) upd_bad+=("$k is not in APPS_LIST") ;; esac
+    grep -q "^APP_TYPE\[$k\]=\"curl\""     "$inst_src" || upd_bad+=("$k is not curl on Arch")
+    grep -q "^APP_TYPE_DEB\[$k\]=\"curl\"" "$inst_src" || upd_bad+=("$k is not curl on Debian")
+    grep -q "^APP_BIN\[$k\]="                "$inst_src" || upd_bad+=("$k has no APP_BIN")
+done
+if [ "${#upd_bad[@]}" -eq 0 ]; then
+    note upd-map "every entry is a curl app with a binary to run"
+else
+    for _m in "${upd_bad[@]}"; do bad upd-map "$_m"; done
+fi
+unset upd_keys apps_line upd_bad _m
+
 echo "── menu column invariants ───────────────────────────────"
 # tui_pad pads with printf '%-*s', which counts BYTES, and truncates with
 # ${var:0:n}, which counts CHARACTERS. So one non-ASCII character in a name or
