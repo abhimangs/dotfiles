@@ -41,8 +41,10 @@ echo
 # the full timeout instead of failing an assertion. Every prompt past the last
 # meaningful key defaults to yes on Enter.
 printf '\n\n\n\n\n'        > "$WORK/k-sel"      # selection came from --configs/--tools/--apps
+printf ''                  > "$WORK/k-none"     # nothing at all — for runs that must not read a key
 printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numbered menus: config 2, skip, skip
-printf 'p\n\n\n\n\n'       > "$WORK/k-private"  # private mode, then straight to the plan
+# k-private is gone: a run whose selection comes from the environment is not
+# asked about privacy at all, it is told — DOTFILES_PRIVATE=1 / --private.
 # The menu is driven by a *script* rather than a file of bytes: it puts the
 # terminal in raw mode, which throws away anything already in the input queue,
 # so its keys have to be sent once it is actually on screen. These wait for it.
@@ -88,12 +90,12 @@ menu_up
 printf ' '; sleep 0.3
 printf '\033'; sleep 1               # esc — cancels the whole run
 FEED
-printf '\n\ny\n\n\n\n'     > "$WORK/k-lock-yes" # ... then "yes, stop the updater"
-printf '\n\nn\n\n\n\n'     > "$WORK/k-lock-no"  # ... then "no, leave it"
+printf 'y\n\n\n\n'         > "$WORK/k-lock-yes" # "yes, stop the updater"
+printf 'n\n\n\n\n'         > "$WORK/k-lock-no"  # "no, leave it"
 # --restore-bash skips every prompt above it and asks exactly one question.
 printf '\n\n'          > "$WORK/k-restore"    # Proceed? → yes
 printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
-printf '\n\033[B\n\n\n'    > "$WORK/k-del"       # keep · delete · then the plan
+# k-del likewise: --backup-mode=delete says it, rather than arrowing to it.
 
 echo "── static ───────────────────────────────────────────────"
 for f in install.sh linux.sh doctor.sh .github/smoke.sh; do
@@ -171,14 +173,14 @@ check   ubuntu-wsl 0
 want    ubuntu-wsl 'WSL'                                  'WSL detected'
 
 # 7. Private mode with a working git (uses git config --unset).
-run ubuntu-private ubuntu "$WORK/k-private" DOTFILES_CONFIGS="fastfetch"
+run ubuntu-private ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="fastfetch" DOTFILES_PRIVATE=1
 check   ubuntu-private 0
 want    ubuntu-private 'private'                          'private selected'
 
 # 8. Private mode where git does nothing when asked — the scrub must notice and
 #    finish with sed rather than report a success it did not achieve.
-STUB_DEAD_GIT=1 run ubuntu-private-deadgit ubuntu "$WORK/k-private" \
-    DOTFILES_CONFIGS="fastfetch" STUB_DEAD_GIT=1
+STUB_DEAD_GIT=1 run ubuntu-private-deadgit ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="fastfetch" DOTFILES_PRIVATE=1 STUB_DEAD_GIT=1
 check   ubuntu-private-deadgit 0
 nowant  ubuntu-private-deadgit 'Still present in'         'no leftover identity'
 
@@ -588,7 +590,8 @@ want    tui-nosize 'Choice \(e.g. 1 4'         'numbered list instead'
 # bat and btop carry a theme as well as a binary, so picking them touches
 # ~/.config — which delete mode removes with no .bak. The plan has to say so
 # before the Proceed prompt, not after the fact.
-STUB_PRESEED_BTOP=1 RUN_ARGS="--dry-run --tools=btop" run dep-config-plan ubuntu "$WORK/k-del"
+STUB_PRESEED_BTOP=1 RUN_ARGS="--dry-run --tools=btop --backup-mode=delete" \
+    run dep-config-plan ubuntu "$WORK/k-sel"
 check   dep-config-plan 0
 want    dep-config-plan 'delete.*~/.config/btop'   'the plan warns before deleting a dep config'
 want    dep-config-plan 'stow → ~/.config/btop'    'and says it stows the theme'
@@ -609,6 +612,32 @@ RUN_ARGS="--configs=zshh" run flags-typo ubuntu "$WORK/k-sel"
 check   flags-typo 2
 want    flags-typo 'Unknown config'            'named the bad value'
 want    flags-typo 'available:'                'listed the real ones'
+
+# The two single-key prompts are the thing that made a truly unattended run
+# impossible: `read -n 1` under `curl … | bash` reads the download stream, and
+# under cloud-init it waits for a keyboard that is not there. A named selection
+# now answers both without asking, and says which answer it took.
+RUN_ARGS="--configs=git" run flags-noprompt ubuntu "$WORK/k-none"
+check   flags-noprompt 0
+want    flags-noprompt 'not asked — no one at the keyboard' 'the prompts are skipped, not defaulted silently'
+want    flags-noprompt 'the reversible answer'  'and backups are what it assumed'
+nowant  flags-noprompt 'navigate'               'neither pick2 was drawn'
+
+# ... and the flags that answer them explicitly, including the one that is
+# never assumed: delete.
+RUN_ARGS="--configs=git --private --backup-mode=delete" run flags-answers ubuntu "$WORK/k-none"
+check   flags-answers 0
+want    flags-answers 'private given'          'privacy answered by flag'
+want    flags-answers 'backup-mode=delete'     'and the destructive mode named'
+
+# A bad mode is a stop, not a silent fallback to backup — the value decides
+# whether someone's config is moved or deleted.
+RUN_ARGS="--configs=git --backup-mode=wipe" run flags-badmode ubuntu "$WORK/k-none"
+check   flags-badmode 2
+want    flags-badmode 'Unknown backup mode'     'named the bad value'
+run     env-badmode ubuntu "$WORK/k-none" DOTFILES_CONFIGS="git" DOTFILES_BACKUP_MODE=wipe
+check   env-badmode 2
+want    env-badmode 'Unknown DOTFILES_BACKUP_MODE' 'the env twin is checked too'
 
 # --dry-run with a named selection: the whole plan, nothing written.
 RUN_ARGS="--dry-run --configs=zsh --apps=docker" run flags-dry ubuntu "$WORK/k-sel"

@@ -29,6 +29,9 @@ OPT_NO_COLOR=0
 PICK_CONFIGS=""
 PICK_TOOLS=""
 PICK_APPS=""
+# Empty means "nobody said" — the two single-key prompts decide instead.
+OPT_PRIVATE=""
+OPT_BACKUP_MODE=""
 
 usage() {
     cat <<'USAGE'
@@ -47,7 +50,15 @@ Options:
                    or "all". --tools=LIST and --apps=LIST do the same for the
                    dep tools and the applications. Any of the three may be
                    left out, which means "none of those".
+  --private        Answer the privacy prompt with "private": remove every sign
+                   the checkout came from a repo at the end of the run.
+  --backup-mode=M  Answer the existing-configs prompt. M is "backup" (move to
+                   .bak) or "delete" (wipe, no backup kept).
   -h, --help       This text.
+
+Any of --configs/--tools/--apps, or --dry-run, means nobody is at the keyboard:
+the two prompts are then not asked at all. They take the same answers Enter
+takes — keep, and backup — unless --private or --backup-mode= says otherwise.
 
 Reached through the hosted bootstrap there is no argv to put a flag in, so each
 one also has an environment variable:
@@ -55,6 +66,7 @@ one also has an environment variable:
   DOTFILES_DRY_RUN   DOTFILES_GUI     DOTFILES_RESTORE_BASH
   DOTFILES_ASCII     DOTFILES_NO_COLOR
   DOTFILES_CONFIGS   DOTFILES_TOOLS   DOTFILES_APPS
+  DOTFILES_PRIVATE   DOTFILES_BACKUP_MODE
 
   DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
 USAGE
@@ -70,6 +82,14 @@ for _arg in "$@"; do
         --configs=*)    PICK_CONFIGS="${_arg#*=}" ;;
         --tools=*)      PICK_TOOLS="${_arg#*=}" ;;
         --apps=*)       PICK_APPS="${_arg#*=}" ;;
+        --private)      OPT_PRIVATE=1 ;;
+        --backup-mode=*)
+            OPT_BACKUP_MODE="${_arg#*=}"
+            case "$OPT_BACKUP_MODE" in
+                backup|delete) ;;
+                *)  echo "Unknown backup mode: $OPT_BACKUP_MODE (want backup or delete)" >&2
+                    exit 2 ;;
+            esac ;;
         -h|--help)      usage; exit 0 ;;
         *)
             echo "Unknown option: $_arg" >&2
@@ -90,6 +110,14 @@ unset _arg
 [ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
 [ -n "${DOTFILES_TOOLS:-}" ]        && PICK_TOOLS="$DOTFILES_TOOLS"
 [ -n "${DOTFILES_APPS:-}" ]         && PICK_APPS="$DOTFILES_APPS"
+[ -n "${DOTFILES_PRIVATE:-}" ]      && OPT_PRIVATE=1
+if [ -n "${DOTFILES_BACKUP_MODE:-}" ]; then
+    case "$DOTFILES_BACKUP_MODE" in
+        backup|delete) OPT_BACKUP_MODE="$DOTFILES_BACKUP_MODE" ;;
+        *)  echo "Unknown DOTFILES_BACKUP_MODE: $DOTFILES_BACKUP_MODE (want backup or delete)" >&2
+            exit 2 ;;
+    esac
+fi
 
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
@@ -3782,6 +3810,27 @@ fi
 # choice — nothing here should be a surprise afterwards.
 STRIP_REPO=0
 
+# A selection given on the command line, or a dry run, means nobody is at the
+# keyboard — and both prompts below are `read -n 1`, which under `curl … | bash`
+# reads the download stream and under cloud-init waits forever. So they are not
+# asked at all on that path: --private / --backup-mode= answer them, and
+# without either they take the answers Enter would have given.
+UNATTENDED=0
+[ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] && UNATTENDED=1
+[ "$DRY_RUN" -eq 1 ]                        && UNATTENDED=1
+
+if [ -n "$OPT_PRIVATE" ] || [ "$UNATTENDED" -eq 1 ]; then
+    STRIP_REPO="${OPT_PRIVATE:-0}"
+    info "Privacy"
+    if [ "$STRIP_REPO" -eq 1 ]; then
+        substep "${C_DIM}--private given — traces removed at the end of the run${C_RESET}"
+        success "${C_RED}private${C_RESET}"
+    else
+        substep "${C_DIM}not asked — no one at the keyboard, and --private was not given${C_RESET}"
+        success "keep"
+    fi
+else
+
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Privacy${C_RESET}"
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ~/dotfiles came from a repo, or whose:${C_RESET}"
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
@@ -3800,12 +3849,30 @@ else
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} keep\n"
 fi
 
+fi
+
 # ── Existing configs: backup or delete ───────────────────────────────────────
 # Stays here, before the menus, even though it only matters once a config is
 # selected: both single-key prompts have to be asked back to back at the very
 # start. A `read -n 1` puts the terminal in raw mode, which discards whatever is
 # already sitting in the input queue — harmless for a human typing, fatal for
 # anything feeding keystrokes from a file (see tests/harness.sh).
+if [ -n "$OPT_BACKUP_MODE" ] || [ "$UNATTENDED" -eq 1 ]; then
+    # Deleting someone's configs is never assumed — only --backup-mode=delete
+    # gets there, never the unattended default.
+    BACKUP_MODE="${OPT_BACKUP_MODE:-backup}"
+    info "Existing configs"
+    if [ -n "$OPT_BACKUP_MODE" ]; then
+        substep "${C_DIM}--backup-mode=${BACKUP_MODE}${C_RESET}"
+    else
+        substep "${C_DIM}not asked — no one at the keyboard, so the reversible answer${C_RESET}"
+    fi
+    if [[ "$BACKUP_MODE" == "delete" ]]; then
+        success "${C_RED}delete${C_RESET}"
+    else
+        success "backup"
+    fi
+else
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
 pick2 "backup" "move to .bak, safe and reversible" "$C_GREEN" \
       "delete" "wipe cleanly, no backup kept"      "$C_RED"
@@ -3816,6 +3883,7 @@ if [ "$PICK2" -eq 1 ]; then
 else
     BACKUP_MODE="backup"
     echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
+fi
 fi
 
 # "No internet" and "no curl" are different facts, and reading the second as

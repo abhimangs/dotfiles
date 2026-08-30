@@ -26,7 +26,7 @@ bash install.sh
 
 | Flag | Effect |
 |------|--------|
-| `--dry-run` | Walks the menus and prints the full plan, then exits without changing anything |
+| `--dry-run` | Walks the menus and prints the full plan, then exits without touching a dotfile. It is not a no-op on the machine: the AUR helper (Arch) or apt prerequisites, plus `stow` and `fzf`, are installed before the plan can be built, since the plan describes what *those* would do |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
 | `--restore-bash` | Undoes the zsh setup — rc files, the `.bashrc` hand-off hook and the login shell. Runs alone, skipping every menu |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
@@ -34,9 +34,18 @@ bash install.sh
 | `--configs=LIST` | Skip the menu and take these configs — comma-separated, or `all` |
 | `--tools=LIST` | Same for the dep tools |
 | `--apps=LIST` | Same for the applications |
+| `--private` | Answers the privacy question with *private* instead of asking — the repo scaffolding and your identity are scrubbed at the end of the run |
+| `--backup-mode=M` | Answers the existing-configs question. `backup` moves them to `.bak`, `delete` wipes them with no backup kept |
 | `-h`, `--help` | Prints the above and exits |
 
 Any of the three selection flags may be left out, which means "none of those" — `--apps=docker` on its own installs Docker and touches no dotfile. An unknown name exits 2 with the list of real ones rather than quietly installing nothing.
+
+**Unattended runs.** Naming a selection (or passing `--dry-run`) means nobody is at the keyboard, so the two single-key questions — privacy, and what happens to existing configs — are not asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. So this is a complete, hands-off install:
+
+```bash
+DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code \
+  curl -fsSL https://abhiman.io/linux.sh | bash
+```
 
 Anything else is rejected with exit 2 rather than ignored — a mistyped `--dryrun`
 would otherwise have run a real install.
@@ -116,7 +125,7 @@ merge is deliberately conservative:
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode** — its own first question: remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
-- **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit, the CLI installers) are detected rather than reinstalled
+- **Idempotent** — safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI or Devin is *updated in place* with its own `<tool> update` command, and Opencode — which ships no updater — reruns its installer. Each one then prints how to launch it
 - **Repo before AUR** — on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
 - **paru or yay** — whichever is already installed is used; if neither is, paru is bootstrapped (`paru-bin` first, so there is no rust toolchain to compile)
 - **Shell change** — switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
