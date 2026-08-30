@@ -152,3 +152,7 @@ command -v fastfetch &>/dev/null && fastfetch
 # ~/.bashrc` returns 1 — which leaves $? set at the prompt and aborts any
 # provisioning script that sources it under `set -e`.
 true
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/abhi/.local/bin:$PATH"

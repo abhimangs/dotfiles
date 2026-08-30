@@ -4531,6 +4531,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             _bin="${APP_BIN[$app]:-}"
             if curl_app_installed "$_bin"; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
+                # its installer is a first-install script, not an updater
+                [ "$app" = codex-cli ] && substep "${C_DIM}Update it with: ${C_ACCENT}codex update${C_RESET}"
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
             else
@@ -4581,6 +4583,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     if [ -n "$_bin" ] && ! curl_app_installed "$_bin"; then _ok=0; fi
                     if [ "$_ok" -eq 1 ] && { [ -n "$_bin" ] || [ "$_rc" -eq 0 ]; }; then
                         success "${C_ACCENT}${_lbl}${C_RESET} installed"
+                        [ "$app" = codex-cli ] && substep "${C_DIM}Run: ${C_ACCENT}codex${C_RESET} ${C_DIM}to open it${C_RESET}"
                         INSTALLED+=("$_lbl")
                     elif [ "$_rc" -ne 0 ]; then
                         error "Installer exited with error for ${C_ACCENT}${_lbl}${C_RESET}"

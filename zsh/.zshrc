@@ -191,3 +191,7 @@ alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=
 
 # ── Fastfetch ─────────────────────────────────────────────────
 command -v fastfetch &>/dev/null && fastfetch
+
+
+# Added by Antigravity CLI installer
+export PATH="/home/abhi/.local/bin:$PATH"
