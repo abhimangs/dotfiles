@@ -408,6 +408,21 @@ want    curlapps-badupd 'Codex CLI done'   'and the app still counts as installe
 nowant  curlapps-badupd 'Failed \('        'nothing reached the failure list'
 nowant  curlapps-badupd 'Downloading installer' 'a failed update is not a reinstall'
 
+# 15h3. gh and git-delta are in Ubuntu universe and Debian trixie but NOT in
+#       bookworm, which is the release this repo still supports — so the apt
+#       name existing is not enough, and ensure_gh_deb has to fall back to the
+#       upstream release .deb. Taking the name out of the stub's package list is
+#       exactly what bookworm looks like from the installer's side.
+build_root "$WORK/run/deb-gh-fallback" ubuntu
+sed -i '/^gh$/d' "$WORK/run/deb-gh-fallback/state/available"
+RUN_ARGS="--tools=gh" install_pass \
+    "$WORK/run/deb-gh-fallback" "$WORK/run/deb-gh-fallback" "$WORK/k-sel"
+check   deb-gh-fallback 0
+nowant  deb-gh-fallback 'Failed to install gh'  'apt missing it is not the end of the road'
+grep -qxF gh "$WORK/run/deb-gh-fallback/state/installed" \
+    && note deb-gh-fallback "installed from the upstream release .deb" \
+    || bad  deb-gh-fallback "no gh after the release-deb fallback"
+
 # 15i. bun is the one curl app with a prerequisite of its own: the installer
 #      unpacks a zip, so ensure_unzip has to run first, and unzip is in neither
 #      distro's base install. Apps only — the font step wants unzip too, and

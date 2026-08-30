@@ -123,8 +123,8 @@ CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.
 # add the bat shim" and carries on. So "found, wrong name" is a real state and
 # a completely different problem from "not installed", which is exactly what
 # someone runs this script to tell apart.
-declare -A ALT_BIN=([bat]=batcat [fd]=fdfind)
-for c in stow fzf git zsh starship fastfetch bat eza fd zoxide pay-respects lazygit btop tree micro fresh bun; do
+declare -A ALT_BIN=([bat]=batcat [fd]=fdfind [ripgrep]=rg [delta]=delta)
+for c in stow fzf git zsh starship fastfetch bat eza fd zoxide pay-respects lazygit btop tree gh ripgrep delta tmux micro fresh bun; do
     p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$c")"
     if [ -z "$p" ] && [ -n "${ALT_BIN[$c]:-}" ]; then
         p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${ALT_BIN[$c]}")"

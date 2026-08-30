@@ -592,7 +592,9 @@ case "$url" in
     *api.github.com/repos/*/releases/latest)
         repo=${url#*api.github.com/repos/}; repo=${repo%/releases/latest}
         case "$repo" in
-            sinelaw/fresh) pkg=fresh-editor ;;
+            sinelaw/fresh)    pkg=fresh-editor ;;
+            cli/cli)          pkg=gh ;;
+            dandavison/delta) pkg=git-delta ;;
             *)             pkg=${repo#*/} ;;
         esac
         printf '"browser_download_url": "https://github.com/%s/releases/download/v1.0/%s_1.0_%s.deb"\n' \

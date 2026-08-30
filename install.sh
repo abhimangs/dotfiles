@@ -963,6 +963,9 @@ PKG_BIN[zoxide]="zoxide"
 PKG_BIN[fd-find]="fdfind"
 PKG_BIN[pay-respects-bin]="pay-respects"
 PKG_BIN[pay-respects]="pay-respects"
+PKG_BIN[github-cli]="gh"
+PKG_BIN[ripgrep]="rg"
+PKG_BIN[git-delta]="delta"
 
 pkg_installed() {
     local pkg="$1"
@@ -1617,6 +1620,28 @@ ensure_pay_respects_deb() {
     apt_pkg_installed pay-respects && return 0
     install_release_deb "iffse/pay-respects" "_$(deb_arch)\.deb$"
     apt_pkg_installed pay-respects
+}
+
+# ── gh (Debian/Ubuntu) ───────────────────────────────────────────────────────
+# In Ubuntu universe and Debian trixie, but not in bookworm. Upstream's own apt
+# repo would work; the release .deb is one fewer third-party source on the
+# machine, and it is named the way install_release_deb already expects.
+ensure_gh_deb() {
+    apt_pkg_installed gh && return 0
+    apt_install gh
+    apt_pkg_installed gh && return 0
+    install_release_deb "cli/cli" "_$(deb_arch)\.deb$"
+    apt_pkg_installed gh
+}
+
+# ── git-delta (Debian/Ubuntu) ────────────────────────────────────────────────
+# Same story as gh: Ubuntu 23.04+ and Debian trixie have it, bookworm does not.
+ensure_delta_deb() {
+    apt_pkg_installed git-delta && return 0
+    apt_install git-delta
+    apt_pkg_installed git-delta && return 0
+    install_release_deb "dandavison/delta" "_$(deb_arch)\.deb$"
+    apt_pkg_installed git-delta
 }
 
 # ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
@@ -2790,13 +2815,21 @@ DEP_PKG[pay-respects]="pay-respects-bin"
 DEP_PKG[lazygit]="lazygit"
 DEP_PKG[btop]="btop"
 DEP_PKG[tree]="tree"
-DEPS_LIST=(bat eza fd zoxide pay-respects lazygit btop tree)
+# Arch calls it github-cli; the binary is gh either way.
+DEP_PKG[gh]="github-cli"
+DEP_PKG[ripgrep]="ripgrep"
+# Arch calls it git-delta; the binary is delta.
+DEP_PKG[delta]="git-delta"
+DEP_PKG[tmux]="tmux"
+DEPS_LIST=(bat eza fd zoxide pay-respects lazygit btop tree gh ripgrep delta tmux)
 
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
 DEP_PKG_DEB[fd]="fd-find"
 # The AUR package is the -bin one; the .deb upstream publishes is plain.
 DEP_PKG_DEB[pay-respects]="pay-respects"
+DEP_PKG_DEB[gh]="gh"
+DEP_PKG_DEB[delta]="git-delta"
 
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop)
@@ -3129,6 +3162,10 @@ DEP_DESC[pay-respects]="corrects last command  ${G_RIGHT}  fuck alias"
 DEP_DESC[lazygit]="git TUI  ${G_RIGHT}  lg alias"
 DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
+DEP_DESC[gh]="GitHub CLI  ${G_RIGHT}  gh auth login, PRs, issues"
+DEP_DESC[ripgrep]="fast recursive grep  ${G_RIGHT}  rg command"
+DEP_DESC[delta]="side-by-side git diffs  ${G_DOT}  pairs with lazygit"
+DEP_DESC[tmux]="terminal multiplexer"
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 # The four outcomes for one dotfile in $HOME — our symlink, present, present
@@ -4215,6 +4252,8 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             else
                 case "$dep" in
                     eza)          ensure_eza_deb          || _dep_ok=0 ;;
+                    gh)           ensure_gh_deb           || _dep_ok=0 ;;
+                    delta)        ensure_delta_deb        || _dep_ok=0 ;;
                     lazygit)      ensure_lazygit_deb      || _dep_ok=0 ;;
                     pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
                     *)            apt_install "$dep_pkg"  || _dep_ok=0 ;;

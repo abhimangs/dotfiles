@@ -172,6 +172,11 @@ obs-studio
 v4l2loopback-dkms
 qt6-wayland
 zoom
+github-cli
+gh
+ripgrep
+git-delta
+tmux
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the

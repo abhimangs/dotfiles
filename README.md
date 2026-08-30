@@ -111,7 +111,7 @@ merge is deliberately conservative:
 ## Installer features
 
 - **One menu** — dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
-- **Dep tools tab** — bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree (all of them come automatically with zsh — see below)
+- **Dep tools tab** — bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux (all of them come automatically with zsh — see below)
 - **App tab** — select apps to install: Brave Origin Beta/Stable, Visual Studio Code, Neovim, Alacritty, WezTerm, Claude Desktop†, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose (\*Arch only, †Debian/Ubuntu only — see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it — both are required for it to work, not optional extras
 - **Confirmation plan** — shows exactly what will be installed before proceeding
 - **Backup rotation** — existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
@@ -221,7 +221,7 @@ installed but my shell is still bash", which is the question it was written for.
 Everything in `.zshrc` is guarded by `command -v`, so a missing tool means a silently absent feature rather than an error. Selecting `zsh` therefore also installs:
 
 - **starship** — the entire prompt is `eval "$(starship init zsh)"`
-- **bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree** — the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-T`/`Alt-C` integration
+- **bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux** — the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-T`/`Alt-C` integration
 
 Anything already ticked is not added twice, and all of these remain selectable on their own if you are not using zsh.
 
