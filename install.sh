@@ -2864,6 +2864,11 @@ APP_TYPE[wezterm]="paru"
 APP_TYPE[antigravity-ide]="paru"
 APP_TYPE[claude-code]="curl"
 APP_TYPE[antigravity]="paru"
+# `agy install`, which the installer runs at the end, appends its own PATH
+# block to ~/.zshrc and ~/.bashrc with no opt-out flag — and since both are
+# stow symlinks by then, that lands on the tracked copy in this repo with a
+# hardcoded /home/<user> path in it. It has happened once already. Check
+# `git diff` on zsh/.zshrc and bash/.bashrc after running this app.
 APP_TYPE[antigravity-cli]="curl"
 APP_TYPE[codex-cli]="curl"
 APP_TYPE[cursor-cli]="curl"
