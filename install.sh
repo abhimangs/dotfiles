@@ -314,6 +314,10 @@ header() {
 }
 
 info()    { echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} $1${C_RESET}"; }
+# Space-joined arrays turn into one run-on the moment an entry has a space in
+# it — "Claude Code CLI Codex CLI Cursor CLI" reads as one item, or six. Every
+# user-facing list of names goes through here.
+join_list() { local out="" x; for x in "$@"; do out+="${out:+, }$x"; done; printf '%s' "$out"; }
 substep() { echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW} ${C_RESET}$1"; }
 success() { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}$1\n"; }
@@ -623,6 +627,10 @@ tui_draw() {
     local lw=$(( TUI_COLS * 60 / 100 ))
     local rw=$(( TUI_COLS - lw - 1 ))
     (( rw > 46 )) && { rw=46; lw=$(( TUI_COLS - rw - 1 )); }
+    # Under 100 columns the 60/40 split starves the list: at 80 the description
+    # column lands on its 6-character floor and every row reads "modern…".
+    # The details pane is legible at its own floor, so it gives the width up.
+    (( TUI_COLS < 100 )) && rw=24 && lw=$(( TUI_COLS - rw - 1 ))
     (( rw < 24 )) && { rw=24; lw=$(( TUI_COLS - rw - 1 )); }
     local liw=$(( lw - 4 )) riw=$(( rw - 4 ))
     local descw=$(( liw - 2 - 3 - 1 - TUI_NAMEW - 1 - TUI_STATEW - 1 ))
@@ -2527,17 +2535,17 @@ wire_claude_statusline() {
     # file ends up unparseable, which is the one outcome worth avoiding here.
     if ! command -v python3 &>/dev/null; then
         substep "${C_YELLOW}python3 not found${C_RESET} ${C_DIM}— set${C_RESET} ${C_ACCENT}statusLine.command${C_RESET} ${C_DIM}to${C_RESET} ${C_ACCENT}${CCSTATUSLINE_CMD}${C_RESET} ${C_DIM}by hand${C_RESET}"
-        return 0
+        return 1
     fi
 
-    mkdir -p "$HOME/.claude" 2>/dev/null || return 0
+    mkdir -p "$HOME/.claude" 2>/dev/null || return 1
 
     # Deliberately NOT $RUN_TMPDIR: that lives in /tmp, which is a different
     # filesystem (often tmpfs), and mv across filesystems is copy-then-unlink —
     # interruptible halfway, which is exactly the truncated settings.json this
     # whole function exists to avoid. Same directory as the target makes the mv
     # a rename, which is atomic.
-    local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 0
+    local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 1
 
     # stdout carries advisory notes, the exit status carries the outcome.
     local out rc
@@ -2611,6 +2619,10 @@ PY
 )
     rc=$?
 
+    # Nothing below is a failure of the run — a statusLine we deliberately left
+    # alone is a correct outcome. It is only not a *wiring*, and the caller
+    # closes its box with a different word for each. 0 = ours is in place.
+    local wired=1
     case "$rc" in
       0)
         # Keep one copy of whatever was there before the first edit. Write-once,
@@ -2619,12 +2631,13 @@ PY
         [ -e "$f" ] && [ ! -e "${f}.orig" ] && cp -p "$f" "${f}.orig" 2>/dev/null
         if mv "$tmp" "$f"; then
             substep "Claude Code statusline ${C_GREEN}wired up${C_RESET}"
+            wired=0
         else
             rm -f "$tmp"
             substep "${C_YELLOW}Could not write ~/.claude/settings.json${C_RESET}"
         fi
         ;;
-      1) rm -f "$tmp"; substep "${C_DIM}Claude Code statusline already wired up${C_RESET}" ;;
+      1) rm -f "$tmp"; wired=0; substep "${C_DIM}Claude Code statusline already wired up${C_RESET}" ;;
       2) rm -f "$tmp"
          substep "${C_YELLOW}Left your existing statusLine alone${C_RESET} ${C_DIM}— it does not point at ccstatusline${C_RESET}" ;;
       3) rm -f "$tmp"
@@ -2638,7 +2651,7 @@ PY
     if [[ "$out" == *shadowed* ]]; then
         substep "${C_YELLOW}A managed statusLine overrides it${C_RESET} ${C_DIM}— user settings are the lowest precedence scope${C_RESET}"
     fi
-    return 0
+    return "$wired"
 }
 
 # ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
@@ -3062,7 +3075,7 @@ CONFIG_DESC[bash]="plain bash rc      ${G_DOT}  aliases, no prompt tooling"
 CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
 CONFIG_DESC[starship]="cross-shell prompt"
 CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
-CONFIG_DESC[git]="git config  →  ~/.gitconfig"
+CONFIG_DESC[git]="git config  ${G_RIGHT}  ~/.gitconfig"
 CONFIG_DESC[micro]="terminal editor            ${G_DOT}  Catppuccin Mocha"
 CONFIG_DESC[fresh]="terminal IDE              ${G_DOT}  AUR / GitHub deb"
 CONFIG_DESC[ccstatusline]="Claude Code statusline  ${G_DOT}  bunx, always latest"
@@ -3109,11 +3122,11 @@ APP_DESC[docker]="containers  ${G_DOT}  compose, buildx, group, service"
 
 declare -A DEP_DESC
 DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
-DEP_DESC[eza]="modern ls  →  ls  ll  lt  la aliases"
-DEP_DESC[fd]="fast find replacement  →  fzf integration"
-DEP_DESC[zoxide]="smart cd  →  z command"
-DEP_DESC[pay-respects]="corrects last command  →  fuck alias"
-DEP_DESC[lazygit]="git TUI  →  lg alias"
+DEP_DESC[eza]="modern ls  ${G_RIGHT}  ls  ll  lt  la aliases"
+DEP_DESC[fd]="fast find replacement  ${G_RIGHT}  fzf integration"
+DEP_DESC[zoxide]="smart cd  ${G_RIGHT}  z command"
+DEP_DESC[pay-respects]="corrects last command  ${G_RIGHT}  fuck alias"
+DEP_DESC[lazygit]="git TUI  ${G_RIGHT}  lg alias"
 DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
 
@@ -3372,7 +3385,20 @@ show_plan() {
             if [[ "$_type" == "curl" ]]; then
                 local _bin="${APP_BIN[$_a]:-}"
                 if curl_app_installed "$_bin"; then
-                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} already installed${C_RESET}"
+                    # The package arm below already discloses "will update".
+                    # This one said only "already installed" for apps that are
+                    # about to have `claude update` (or a whole reinstall) run
+                    # on them — the plan's one job is that there are no
+                    # surprises after Proceed.
+                    local _how="already installed"
+                    if [ -n "${APP_UPDATE[$_a]+x}" ]; then
+                        if [ -n "${APP_UPDATE[$_a]}" ]; then
+                            _how="already installed — will update (${APP_UPDATE[$_a]})"
+                        else
+                            _how="already installed — installer runs again to update"
+                        fi
+                    fi
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} ${_how}${C_RESET}"
                 else
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
                 fi
@@ -3996,7 +4022,7 @@ menu_numeric() {
     local _app_i=1
     for _line in "${APPS_LIST[@]}"; do
         printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-22s ${C_DIM}${G_DOT}  %s${C_RESET}\n" \
-            "$_app_i" "${APP_LABEL[$_line]}" "$(app_type_resolved "$_line")"
+            "$_app_i" "${APP_LABEL[$_line]}" "${APP_DESC[$_line]:-$(app_type_resolved "$_line")}"
         (( _app_i++ ))
     done
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
@@ -4099,21 +4125,21 @@ fi
 # No configs is a normal answer: "install these apps, leave my dotfiles alone".
 # The run only stops if nothing at all is picked, which is checked below.
 if [ "${#SELECTED[@]}" -gt 0 ]; then
-    success "Configs: ${C_ACCENT}${SELECTED[*]}${C_RESET}"
+    substep "Configs: ${C_ACCENT}$(join_list "${SELECTED[@]}")${C_RESET}"
 else
-    success "${C_DIM}No configs selected — nothing of yours will be touched${C_RESET}"
+    substep "${C_DIM}No configs selected — nothing of yours will be touched${C_RESET}"
 fi
 
 if [ "${#DEPS[@]}" -gt 0 ]; then
-    success "Dep tools: ${C_ACCENT}${DEPS[*]}${C_RESET}"
+    substep "Dep tools: ${C_ACCENT}$(join_list "${DEPS[@]}")${C_RESET}"
 else
-    success "${C_DIM}No dep tools selected${C_RESET}"
+    substep "${C_DIM}No dep tools selected${C_RESET}"
 fi
 
 if [ "${#APPS[@]}" -gt 0 ]; then
     _app_labels=()
     for _k in "${APPS[@]}"; do _app_labels+=("${APP_LABEL[$_k]}"); done
-    success "Apps: ${C_ACCENT}${_app_labels[*]}${C_RESET}"
+    success "Apps: ${C_ACCENT}$(join_list "${_app_labels[@]}")${C_RESET}"
     unset _app_labels _k
 else
     success "${C_DIM}No apps selected${C_RESET}"
@@ -4482,7 +4508,13 @@ for cfg in "${SELECTED[@]}"; do
                 continue
             fi
         elif [ -e "$_st" ] || [ -L "$_st" ]; then
+            # Deliberately doing nothing is not installing: without the continue
+            # this fell through to the loop tail and reported "starship
+            # installed" for a file it had just decided to leave alone.
             substep "${C_DIM}Keeping your existing ~/.config/starship.toml — ours not installed${C_RESET}"
+            unset _st
+            success "${C_ACCENT}starship${C_RESET} left as-is"
+            continue
         else
             if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
                 error "Stow failed for starship — check for conflicts in ~/.config/"
@@ -4717,10 +4749,14 @@ fi
 if printf '%s\n' "${SELECTED[@]}" | grep -qx ccstatusline \
    || printf '%s\n' "${APPS[@]}" | grep -qx claude-code; then
     info "Claude Code statusline..."
-    wire_claude_statusline
     # Every step closes its own box. Without this the next header opens inside
-    # this one and the whole run reads as one unterminated block.
-    success "Statusline ready"
+    # this one and the whole run reads as one unterminated block — but "ready"
+    # is only true when ours is actually the statusLine in that file.
+    if wire_claude_statusline; then
+        success "Statusline ready"
+    else
+        success "Statusline unchanged"
+    fi
 fi
 
 # ── Step 5d: strip repo traces (private mode) ────────────────────────────────
@@ -4758,10 +4794,10 @@ fi
 echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_SUM} Summary${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed (${#INSTALLED[@]}): ${C_ACCENT}${INSTALLED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed (${#INSTALLED[@]}): ${C_ACCENT}$(join_list "${INSTALLED[@]}")${C_RESET}"
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}${FAILED[*]}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}$(join_list "${FAILED[@]}")${C_RESET}"
 fi
 _elapsed=$(( SECONDS - START_TS ))
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT} ${C_RESET}${C_DIM}took $(( _elapsed / 60 ))m $(( _elapsed % 60 ))s${C_RESET}"
@@ -4769,7 +4805,7 @@ echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT} ${C_RESET}${C_DIM}took $(
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}Restart your terminal to apply changes.\n"
 else
-    echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}No configs were installed.\n"
+    echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}Nothing was installed.\n"
 fi
 
 # Exit status reflects the summary: a partial install used to look identical to

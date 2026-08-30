@@ -239,6 +239,9 @@ STUB_PRESEED_STARSHIP=1 run ubuntu-keepstar ubuntu "$WORK/k-sel" \
     DOTFILES_CONFIGS="starship"
 check   ubuntu-keepstar 0
 want    ubuntu-keepstar 'Keeping your existing' 'existing starship.toml kept'
+want    ubuntu-keepstar 'starship left as-is'    'and does not claim it installed one'
+nowant  ubuntu-keepstar 'starship installed'     'nor say so on the way out'
+nowant  ubuntu-keepstar 'Installed \(1\): starship' 'nor count it in the summary'
 if [ -f "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
    && ! [ -L "$WORK/run/ubuntu-keepstar/home/.config/starship.toml" ] \
    && grep -q 'MINE' "$WORK/run/ubuntu-keepstar/home/.config/starship.toml"; then
@@ -377,6 +380,9 @@ check   curlapps-again 0
 want    curlapps-again 'Claude Code CLI already installed' 'found in ~/.local/bin'
 # The update commands are run, not just printed: each stub binary echoes the
 # arguments it was handed back at the transcript.
+want    curlapps-again 'already installed — will update .claude update.' \
+                                                           'the plan discloses the update first'
+want    curlapps-again 'installer runs again to update'      'and names the reinstall for opencode'
 want    curlapps-again 'claude stub update'                'claude update ran'
 want    curlapps-again 'codex stub update'                 'codex update ran'
 want    curlapps-again 'agent stub update'                 'agent update ran'
@@ -1209,6 +1215,8 @@ RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-foreign" "$WORK/run/ccsl-foreign" "$WORK/k-sel"
 check  ccsl-foreign 0
 want   ccsl-foreign 'Left your existing statusLine alone' 'says it stood back'
+want   ccsl-foreign 'Statusline unchanged'   'and closes the box without claiming ready'
+nowant ccsl-foreign 'Statusline ready'       'never says ready about somebody else s'
 if cmp -s "$WORK/seed/foreign.json" "$WORK/run/ccsl-foreign/home/.claude/settings.json"; then
     note ccsl-foreign "a hand-written statusLine is byte-identical afterwards"
 else
@@ -1225,6 +1233,7 @@ RUN_ARGS="--configs=ccstatusline" install_pass \
     "$WORK/run/ccsl-broken" "$WORK/run/ccsl-broken" "$WORK/k-sel"
 check  ccsl-broken 0
 want   ccsl-broken 'not valid JSON'  'reports the file it could not read'
+want   ccsl-broken 'Statusline unchanged' 'and does not report it ready'
 if cmp -s "$WORK/seed/broken.json" "$WORK/run/ccsl-broken/home/.claude/settings.json"; then
     note ccsl-broken "left the unparseable file exactly as it found it"
 else
@@ -1358,8 +1367,10 @@ want parity-arch 'enable autostart'    'the ulauncher plan still names autostart
 want parity-arch 'launch: rofi'        'and rofi still names its launch command'
 
 for side in arch debian; do
+    # The list is comma-joined for the reader's sake — app labels have spaces
+    # in them — so split on the separator, not on whitespace.
     sed -n 's/.*Configs: //p' "$WORK/run/parity-$side/clean.txt" | head -1 \
-        | tr ' ' '\n' | sed '/^$/d' | sort -u > "$WORK/parity-$side.lst"
+        | sed 's/, /\n/g' | sed '/^$/d' | sort -u > "$WORK/parity-$side.lst"
 done
 if [ ! -s "$WORK/parity-arch.lst" ] || [ ! -s "$WORK/parity-debian.lst" ]; then
     bad parity-configs "no config list in one of the transcripts"
