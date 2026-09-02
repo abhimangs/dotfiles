@@ -2364,7 +2364,7 @@ ensure_zsh_autoexec() {
 # already reports git metadata as "stripped (private mode)".
 PRIVATE_DELETE=(menu_temp tests .git .github .gitignore .gitattributes
                 .editorconfig .shellcheckrc
-                README.md CLAUDE.md LICENSE LICENSE.md linux.sh)
+                README.md CLAUDE.md AGENTS.md LICENSE LICENSE.md linux.sh)
 
 # file → what is taken out of it
 PRIVATE_SCRUB_FILES=(git/.gitconfig fastfetch/config.jsonc install.sh)

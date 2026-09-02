@@ -243,7 +243,7 @@ Anything already ticked is not added twice, and all of these remain selectable o
 Privacy is its own question, asked before anything else, and it prints the exact list before you choose — nothing is a surprise afterwards. Answering `private` means the machine keeps no sign of where the configs came from or whose they are.
 
 **Deleted outright** (repo scaffolding, no value once the configs are stowed):
-`.git` `.github` `.gitignore` `.gitattributes` `.editorconfig` `.shellcheckrc` `tests/` `README.md` `CLAUDE.md` `LICENSE` `linux.sh`
+`.git` `.github` `.gitignore` `.gitattributes` `.editorconfig` `.shellcheckrc` `tests/` `README.md` `CLAUDE.md` `AGENTS.md` `LICENSE` `linux.sh`
 
 `.git` is the big one — it carries the remote URL, the whole commit history, and the author name and email on every commit. `linux.sh` carries the GitHub URL. The rest go because the *shape* gives it away just as plainly: a directory holding `tests/run.sh`, an `.editorconfig` and a shellcheck config is a checkout whatever `.git` says.
 
