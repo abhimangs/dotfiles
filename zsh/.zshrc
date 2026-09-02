@@ -37,7 +37,19 @@ fi
 unset _zinit_zsh
 
 # ── Completion ────────────────────────────────────────────────
-autoload -Uz compinit && compinit
+autoload -Uz compinit
+_compdump="${ZDOTDIR:-$HOME}/.zcompdump"
+if [[ -s "$_compdump" ]]; then
+    compinit -C -d "$_compdump"
+else
+    compinit -d "$_compdump"
+fi
+# Recompile completion cache in background if stale
+if [[ ! -s "$_compdump.zwc" || "$_compdump" -nt "$_compdump.zwc" ]]; then
+    zcompile "$_compdump" &>/dev/null &!
+fi
+unset _compdump
+
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
 
@@ -47,7 +59,10 @@ HISTSIZE=50000
 SAVEHIST=50000
 setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
+setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_IGNORE_SPACE
+setopt HIST_FIND_NO_DUPS
+setopt HIST_EXPIRE_DUPS_FIRST
 
 # ── micro ─────────────────────────────────────────────────────
 # Without this micro drops to 256 colours and the Catppuccin scheme in

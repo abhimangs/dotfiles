@@ -15,6 +15,12 @@
 [pull]
     rebase = false
 
+[merge]
+    conflictStyle = diff3
+
+[rerere]
+    enabled = true
+
 [alias]
     st    = status
     co    = checkout
