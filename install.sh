@@ -32,6 +32,8 @@ PICK_APPS=""
 # Empty means "nobody said" — the two single-key prompts decide instead.
 OPT_PRIVATE=""
 OPT_BACKUP_MODE=""
+FC_CACHE_PID=""
+FONT_PIDS=()
 
 usage() {
     cat <<'USAGE'
@@ -222,6 +224,15 @@ _cleanup() {
     if [ -n "${_SUDO_KEEPALIVE:-}" ]; then
         pkill -P "$_SUDO_KEEPALIVE" 2>/dev/null
         kill "$_SUDO_KEEPALIVE" 2>/dev/null
+    fi
+    if [ -n "${FC_CACHE_PID:-}" ]; then
+        kill "$FC_CACHE_PID" 2>/dev/null || true
+    fi
+    if [ "${#FONT_PIDS[@]}" -gt 0 ]; then
+        for _fpid in "${FONT_PIDS[@]}"; do
+            kill "$_fpid" 2>/dev/null || true
+        done
+        unset _fpid
     fi
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
     echo -ne "\033[0m"
@@ -2071,6 +2082,44 @@ ensure_symbols_font_deb() {
     install_font_zip "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/NerdFontsSymbolsOnly.zip" \
                      "$SYMBOLS_FONT_DIR_DEB"
     symbols_font_installed_deb
+}
+
+# Download and unpack both fonts in parallel on Debian/Ubuntu
+install_fonts_parallel_deb() {
+    ensure_apt_deps
+    ensure_unzip
+    command -v fc-cache &>/dev/null || apt_install fontconfig
+    local tmp_jb tmp_maple
+    FONT_PIDS=()
+
+    if ! font_installed_deb; then
+        tmp_jb=$(mktemp -d -p "$RUN_TMPDIR" font_jb_XXXXXX)
+        (
+            if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" -o "$tmp_jb/font.zip" 2>/dev/null; then
+                mkdir -p "$FONT_DIR_DEB"
+                unzip -oq "$tmp_jb/font.zip" -d "$FONT_DIR_DEB" '*.ttf' &>/dev/null
+            fi
+            rm -rf "$tmp_jb"
+        ) &
+        FONT_PIDS+=("$!")
+    fi
+
+    if ! maple_font_installed_deb; then
+        tmp_maple=$(mktemp -d -p "$RUN_TMPDIR" font_maple_XXXXXX)
+        (
+            if curl -fsSL "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-TTF.zip" -o "$tmp_maple/font.zip" 2>/dev/null; then
+                mkdir -p "$MAPLE_FONT_DIR_DEB"
+                unzip -oq "$tmp_maple/font.zip" -d "$MAPLE_FONT_DIR_DEB" '*.ttf' &>/dev/null
+            fi
+            rm -rf "$tmp_maple"
+        ) &
+        FONT_PIDS+=("$!")
+    fi
+
+    for pid in "${FONT_PIDS[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+    FONT_PIDS=()
 }
 
 font_installed() {
@@ -4296,29 +4345,109 @@ elif [ "$IS_HEADLESS" -eq 1 ]; then
     success "Skipped"
 else
     info "Fonts..."
-    if font_installed; then
+    _jb_pre=0; _maple_pre=0; _fonts_changed=0
+    font_installed && _jb_pre=1
+    maple_font_installed && _maple_pre=1
+
+    if [[ "$DISTRO" == "debian" ]] && [ "$_jb_pre" -eq 0 ] && [ "$_maple_pre" -eq 0 ]; then
+        substep "Downloading fonts in parallel..."
+        install_fonts_parallel_deb
+    fi
+
+    if [ "$_jb_pre" -eq 1 ]; then
         substep "${C_DIM}JetBrainsMono Nerd Font already installed${C_RESET}"
+    elif font_installed; then
+        substep "${C_ACCENT}JetBrainsMono Nerd Font${C_RESET} ${C_GREEN}installed${C_RESET}"
+        _fonts_changed=1
     else
         substep "Installing ${C_ACCENT}JetBrainsMono Nerd Font${C_RESET}..."
-        install_font || { error "Failed to install JetBrainsMono — continuing"; FAILED+=("JetBrainsMono font"); }
+        if install_font; then
+            _fonts_changed=1
+        else
+            error "Failed to install JetBrainsMono — continuing"
+            FAILED+=("JetBrainsMono font")
+        fi
     fi
-    if maple_font_installed; then
+
+    if [ "$_maple_pre" -eq 1 ]; then
         substep "${C_DIM}Maple Mono already installed${C_RESET}"
+    elif maple_font_installed; then
+        substep "${C_ACCENT}Maple Mono${C_RESET} ${C_GREEN}installed${C_RESET}"
+        _fonts_changed=1
     else
         substep "Installing ${C_ACCENT}Maple Mono${C_RESET}..."
-        install_maple_font || { error "Failed to install Maple Mono — continuing"; FAILED+=("Maple Mono font"); }
+        if install_maple_font; then
+            _fonts_changed=1
+        else
+            error "Failed to install Maple Mono — continuing"
+            FAILED+=("Maple Mono font")
+        fi
     fi
-    substep "Rebuilding font cache..."
-    fc-cache -fv &>/dev/null 2>&1 || true
+
+    if [ "$_fonts_changed" -eq 1 ] && command -v fc-cache &>/dev/null; then
+        substep "Rebuilding font cache in background..."
+        if [ -d "$HOME/.local/share/fonts" ]; then
+            fc-cache -f "$HOME/.local/share/fonts" &>/dev/null &
+        else
+            fc-cache -f &>/dev/null &
+        fi
+        FC_CACHE_PID=$!
+    fi
     success "Fonts ready"
 fi
 
 if [ "${#DEPS[@]}" -gt 0 ]; then
     info "Installing dep tools..."
+
+    declare -A _dep_was_installed=()
+    for _dep in "${DEPS[@]}"; do
+        _dp="$(dep_pkg_name "$_dep")"
+        pkg_installed "$_dp" && _dep_was_installed["$_dep"]=1
+    done
+
+    # Pre-install uninstalled native repo packages in a single batch
+    if [[ "$DISTRO" == "debian" ]]; then
+        _batch_apt=()
+        for _dep in "${DEPS[@]}"; do
+            case "$_dep" in
+                eza|gh|delta|lazygit|pay-respects) ;;
+                *)
+                    _dp="$(dep_pkg_name "$_dep")"
+                    if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
+                        _batch_apt+=("$_dp")
+                    fi
+                    ;;
+            esac
+        done
+        if [ "${#_batch_apt[@]}" -gt 0 ]; then
+            substep "Installing native dependencies in batch..."
+            apt_install "${_batch_apt[@]}" || true
+        fi
+        unset _batch_apt _dep _dp
+    elif [[ "$DISTRO" == "arch" ]]; then
+        _batch_arch=()
+        for _dep in "${DEPS[@]}"; do
+            _dp="$(dep_pkg_name "$_dep")"
+            if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
+                case "$_dep" in
+                    pay-respects) ;; # AUR only
+                    *) _batch_arch+=("$_dp") ;;
+                esac
+            fi
+        done
+        if [ "${#_batch_arch[@]}" -gt 0 ]; then
+            substep "Installing native dependencies in batch..."
+            pacman_install "${_batch_arch[@]}" || true
+        fi
+        unset _batch_arch _dep _dp
+    fi
+
     for dep in "${DEPS[@]}"; do
         dep_pkg="$(dep_pkg_name "$dep")"
-        if pkg_installed "$dep_pkg"; then
+        if [ -n "${_dep_was_installed[$dep]:-}" ]; then
             substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+        elif pkg_installed "$dep_pkg"; then
+            substep "${C_ACCENT}${dep}${C_RESET} ${C_GREEN}installed${C_RESET}"
         else
             substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
             _dep_ok=1
@@ -4902,6 +5031,12 @@ if [ "$STRIP_REPO" -eq 1 ]; then
         ;;
     esac
     unset _strip_rc
+fi
+
+# Ensure background font cache rebuild is completed before reporting summary
+if [ -n "${FC_CACHE_PID:-}" ]; then
+    wait "$FC_CACHE_PID" 2>/dev/null || true
+    FC_CACHE_PID=""
 fi
 
 # ── Step 6: summary ───────────────────────────────────────────────────────────
