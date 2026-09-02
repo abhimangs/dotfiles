@@ -230,6 +230,7 @@ _cleanup() {
     fi
     if [ "${#FONT_PIDS[@]}" -gt 0 ]; then
         for _fpid in "${FONT_PIDS[@]}"; do
+            pkill -P "$_fpid" 2>/dev/null || true
             kill "$_fpid" 2>/dev/null || true
         done
         unset _fpid

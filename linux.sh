@@ -20,7 +20,7 @@ if ! command -v git >/dev/null 2>&1; then
     else
         $SUDO apt-get update -qq || true
         $SUDO env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 \
-            apt-get install -y git
+            apt-get -o DPkg::Lock::Timeout=600 install -y git
     fi
 fi
 
