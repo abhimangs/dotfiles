@@ -9,6 +9,11 @@ export PATH="$HOME/.kimi-code/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"
 export PATH="$HOME/.grok/bin:$PATH"
 
+# Deduplicate PATH and FPATH. Zsh re-sources .zshrc in nested shells (e.g.
+# inside tmux or a zsh subprocess), so without -U the arrays grow on every
+# source. -g makes the flag permanent for the rest of the session.
+typeset -gU path fpath
+
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"
 # Needs git — a minimal server image may not have it, and without this guard
@@ -63,6 +68,16 @@ setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_IGNORE_SPACE
 setopt HIST_FIND_NO_DUPS
 setopt HIST_EXPIRE_DUPS_FIRST
+# Expand !! before executing — lets you review/edit the substitution.
+setopt HIST_VERIFY
+
+# ── Shell options ─────────────────────────────────────────────
+# Type a directory path alone to cd into it (no `cd` needed).
+setopt AUTO_CD
+# Extended glob: ^pattern, **/*.sh, etc.
+setopt EXTENDED_GLOB
+# Notify about background jobs immediately, not at the next prompt.
+setopt NOTIFY
 
 # ── micro ─────────────────────────────────────────────────────
 # Without this micro drops to 256 colours and the Catppuccin scheme in
