@@ -3,14 +3,33 @@
     email = abhimangs23@gmail.com
 
 [core]
-    editor = code --wait
-    pager  = bat --plain
+    editor       = code --wait
+    pager        = delta
+    # Speed up git status / checkout by avoiding full directory walks.
+    # fsmonitor uses a background watchman/inotify daemon on Linux; falls back
+    # gracefully when unavailable. preloadindex parallelises index loading.
+    fsmonitor    = true
+    preloadindex = true
+
+[delta]
+    navigate    = true   # n/N to jump between diff sections
+    side-by-side = true
+    line-numbers = true
+    syntax-theme = Catppuccin-mocha
+
+[interactive]
+    diffFilter = delta --color-only
+
 
 [init]
     defaultBranch = main
 
 [push]
     autoSetupRemote = true
+
+[fetch]
+    # Auto-prune remote-tracking branches that no longer exist on the remote.
+    prune = true
 
 [pull]
     rebase = false
@@ -22,12 +41,16 @@
     enabled = true
 
 [alias]
-    st    = status
-    co    = checkout
-    br    = branch
-    lg    = log --oneline --graph --decorate --all
-    wdiff = diff --word-diff
-    undo  = reset HEAD~1 --mixed
+    st      = status
+    co      = checkout
+    sw      = switch
+    br      = branch
+    lg      = log --oneline --graph --decorate --all
+    wdiff   = diff --word-diff
+    undo    = reset HEAD~1 --mixed
+    unstage = restore --staged
+    # Safe force-push: fails if the remote has diverged since your last fetch
+    pushf   = push --force-with-lease
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
