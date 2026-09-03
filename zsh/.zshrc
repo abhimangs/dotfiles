@@ -191,6 +191,8 @@ alias ga='git add .'
 alias gc='git commit -m'
 alias gp='git push'
 alias gl='git pull'
+alias gd='git diff'
+alias gdc='git diff --cached'
 alias lg='lazygit'
 alias glog='git log --oneline --graph --decorate'
 
