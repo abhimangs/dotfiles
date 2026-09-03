@@ -2,17 +2,17 @@
 # Declared here so the CLI installers see their bin dir already on PATH and
 # skip appending their own export block to this file (it is a stow symlink
 # into ~/dotfiles — their edits would dirty the repo).
+#
+# Set the unique flag FIRST so each prepend below auto-deduplicates as it
+# lands. Without -U the arrays grow on every re-source (nested shells, tmux,
+# `alias reload`). -g makes the flag permanent for the rest of the session.
+typeset -gU path fpath
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
 export PATH="$HOME/.kimi-code/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"
 export PATH="$HOME/.grok/bin:$PATH"
-
-# Deduplicate PATH and FPATH. Zsh re-sources .zshrc in nested shells (e.g.
-# inside tmux or a zsh subprocess), so without -U the arrays grow on every
-# source. -g makes the flag permanent for the rest of the session.
-typeset -gU path fpath
 
 ### Zinit bootstrap + plugins
 _zinit_zsh="$HOME/.local/share/zinit/zinit.git/zinit.zsh"
@@ -74,8 +74,11 @@ setopt HIST_VERIFY
 # ── Shell options ─────────────────────────────────────────────
 # Type a directory path alone to cd into it (no `cd` needed).
 setopt AUTO_CD
-# Extended glob: ^pattern, **/*.sh, etc.
+# Extended glob: ^pattern, **/*.sh, etc. MUST be followed immediately by
+# interactive_comments to restore # as a comment character in interactive
+# sessions (EXTENDED_GLOB makes # a glob pattern token otherwise).
 setopt EXTENDED_GLOB
+setopt INTERACTIVE_COMMENTS
 # Notify about background jobs immediately, not at the next prompt.
 setopt NOTIFY
 
@@ -204,8 +207,6 @@ alias dex='docker exec -it'
 
 # ── Starship ──────────────────────────────────────────────────
 command -v starship &>/dev/null && eval "$(starship init zsh)"
-
-setopt interactive_comments
 
 alias ff='fastfetch'
 

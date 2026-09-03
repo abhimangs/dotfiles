@@ -15,10 +15,9 @@
     navigate     = true
     side-by-side = true
     line-numbers = true
-    # 'Monokai Extended' ships with bat and needs no extra setup. To use
-    # Catppuccin-mocha, download it from github.com/catppuccin/bat into
-    # $(bat --config-dir)/themes/ and run `bat cache --build`.
-    syntax-theme = Monokai Extended
+    # Uses the Catppuccin Mocha bat theme already in this repo (bat/themes/).
+    # The internal tmTheme name is 'Catppuccin Mocha' (space, not a hyphen).
+    syntax-theme = Catppuccin Mocha
 
 [interactive]
     diffFilter = delta --color-only
@@ -53,6 +52,7 @@
     unstage = restore --staged
     # Safe force-push: fails if the remote has diverged since your last fetch
     pushf   = push --force-with-lease
+
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
