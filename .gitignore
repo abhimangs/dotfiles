@@ -10,9 +10,8 @@ Thumbs.db
 *.env
 *.secret
 *_secret*
-.envrc
 
-# direnv compiled cache (never commit, contains machine-local paths)
+# direnv compiled cache (machine-local, never commit)
 .direnv/
 
 # Logs

@@ -5,21 +5,23 @@
 [core]
     editor       = code --wait
     pager        = delta
-    # Speed up git status / checkout by avoiding full directory walks.
-    # fsmonitor uses a background watchman/inotify daemon on Linux; falls back
-    # gracefully when unavailable. preloadindex parallelises index loading.
-    fsmonitor    = true
+    # preloadindex parallelises index loading for status/checkout.
+    # Note: core.fsmonitor is NOT used here — git's built-in fsmonitor daemon
+    # is only implemented on macOS and Windows; on Linux it is a no-op and
+    # misleads anyone reading the config into thinking it is active.
     preloadindex = true
 
 [delta]
-    navigate    = true   # n/N to jump between diff sections
+    navigate     = true
     side-by-side = true
     line-numbers = true
-    syntax-theme = Catppuccin-mocha
+    # 'Monokai Extended' ships with bat and needs no extra setup. To use
+    # Catppuccin-mocha, download it from github.com/catppuccin/bat into
+    # $(bat --config-dir)/themes/ and run `bat cache --build`.
+    syntax-theme = Monokai Extended
 
 [interactive]
     diffFilter = delta --color-only
-
 
 [init]
     defaultBranch = main
