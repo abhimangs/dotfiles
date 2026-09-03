@@ -114,6 +114,7 @@ done
 echo
 
 echo "── tools ─────────────────────────────────────────────"
+echo "git version     : $(git --version 2>/dev/null || echo '<not installed>')"
 # Mirrors install.sh's CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on
 # the PATH of a non-login shell — without this it reports as missing on a
 # machine where it is installed and working.
