@@ -1,5 +1,11 @@
 "$schema" = 'https://starship.rs/config-schema.json'
 
+# ── Performance ───────────────────────────────────────────────────────────────
+# Limit how long Starship spends scanning for info. Prevents prompt hangs on
+# large repos, network-mounted drives, or when the git index is being rebuilt.
+scan_timeout = 30
+command_timeout = 500
+
 format = """
 [](red)\
 $os\
