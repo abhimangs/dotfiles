@@ -24,6 +24,7 @@ fi
 DRY_RUN=0
 FORCE_GUI=0
 RESTORE_BASH=0
+LIST_ONLY=0
 OPT_ASCII=0
 OPT_NO_COLOR=0
 PICK_CONFIGS=""
@@ -46,6 +47,9 @@ Options:
   --gui            Offer the GUI configs and apps even with no display server.
   --restore-bash   Undo the zsh setup: the rc files, the .bashrc hand-off hook
                    and the login shell. Runs alone and skips every menu.
+  --list           Print every config, tool and app this machine can install —
+                   the names --configs/--tools/--apps take — and exit. Installs
+                   nothing and asks for nothing, not even a password.
   --ascii          Plain ASCII instead of Nerd Font glyphs.
   --no-color       No colour. NO_COLOR is honoured too.
   --configs=LIST   Skip the menu and take these configs. Comma-separated,
@@ -67,7 +71,7 @@ Reached through the hosted bootstrap there is no argv to put a flag in, so each
 one also has an environment variable:
 
   DOTFILES_DRY_RUN   DOTFILES_GUI     DOTFILES_RESTORE_BASH
-  DOTFILES_ASCII     DOTFILES_NO_COLOR
+  DOTFILES_LIST      DOTFILES_ASCII   DOTFILES_NO_COLOR
   DOTFILES_CONFIGS   DOTFILES_TOOLS   DOTFILES_APPS
   DOTFILES_PRIVATE   DOTFILES_BACKUP_MODE
 
@@ -80,6 +84,7 @@ for _arg in "$@"; do
         --dry-run)      DRY_RUN=1 ;;
         --gui)          FORCE_GUI=1 ;;
         --restore-bash) RESTORE_BASH=1 ;;
+        --list)         LIST_ONLY=1 ;;
         --ascii)        OPT_ASCII=1 ;;
         --no-color)     OPT_NO_COLOR=1 ;;
         --configs=*)    PICK_CONFIGS="${_arg#*=}" ;;
@@ -108,6 +113,7 @@ unset _arg
 [ -n "${DOTFILES_DRY_RUN:-}" ]      && DRY_RUN=1
 [ -n "${DOTFILES_GUI:-}" ]          && FORCE_GUI=1
 [ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
+[ -n "${DOTFILES_LIST:-}" ]         && LIST_ONLY=1
 [ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
 [ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
 [ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
@@ -236,7 +242,11 @@ _cleanup() {
         unset _fpid
     fi
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
-    echo -ne "\033[0m"
+    # A reset for colour that was never emitted is not a no-op: it is a stray
+    # escape glued to the end of stdout. --list is meant to be captured
+    # (`names=$(install.sh --list)`), so it must not pay for a safety net that
+    # exists for a run interrupted mid-colour.
+    [ "${LIST_ONLY:-0}" -eq 1 ] || [ "${USE_COLOR:-1}" -eq 0 ] || echo -ne "\033[0m"
 }
 
 # A trap that only cleans up does not stop anything: bash runs the handler and
@@ -264,6 +274,10 @@ if { : < /dev/tty; } 2>/dev/null; then
     TTY_IN=/dev/tty
 elif [ -t 0 ]; then
     TTY_IN=/dev/stdin
+elif [ "$LIST_ONLY" -eq 1 ]; then
+    # --list reads nothing, so it is the one mode that has no terminal to need:
+    # `bash install.sh --list | grep ori` must answer, not refuse.
+    TTY_IN=/dev/null
 else
     echo "This installer is interactive and needs a terminal." >&2
     echo "Clone the repo and run it directly:  bash install.sh" >&2
@@ -851,9 +865,15 @@ tui_loop() {
                     'OS') tui_switch_tab 3 ;;
                     '[5') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
                           TUI_CUR=$(( TUI_CUR - 10 )); (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
+                    # The floor matters as much as the ceiling: an empty view —
+                    # the selected tab before anything is ticked, or a filter
+                    # matching nothing — makes the ceiling -1, and tui_draw then
+                    # indexes TUI_VIEW[-1] and prints "bad array subscript" over
+                    # the menu. Page-Up has had the 0 floor all along.
                     '[6') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
                           TUI_CUR=$(( TUI_CUR + 10 ))
-                          (( TUI_CUR > ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 )) ;;
+                          (( TUI_CUR > ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 ))
+                          (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
                     '[1'|'[2') IFS= read -rsn3 -d '' -t 0.05 rest <"$TTY_IN" ;;
                     '')  if [ -n "$TUI_FILTER" ]; then TUI_FILTER=""; TUI_CUR=0; tui_build_view
                          else return 1; fi ;;
@@ -2888,6 +2908,19 @@ needs_wallpaper() {
     return 1
 }
 
+# ── Configs ──────────────────────────────────────────────────────────────────
+# Declared here, beside the dep tools and the apps, rather than down in step 3:
+# --list prints all three and must not have to reach past the privilege prompt
+# and the package installs to find one of them. Nothing here needs either —
+# only $DISTRO, $IS_HEADLESS and strip_items, all settled near the top.
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline)
+# Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
+# still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
+# re-declared as a second literal list: a hand-maintained Debian copy silently
+# drops every config added after it was written (micro and fresh both were).
+[[ "$DISTRO" == "debian" ]] && strip_items CONFIGS rofi
+[ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
+
 # ── Optional dep tools ───────────────────────────────────────────────────────
 declare -A DEP_PKG
 DEP_PKG[bat]="bat"
@@ -2936,7 +2969,7 @@ if [[ "$DISTRO" == "debian" ]]; then
     # apt repo — the same shape as Obsidian) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
-    # Strip + append, never a second literal list — see the CONFIGS note below.
+    # Strip + append, never a second literal list — see the CONFIGS note above.
     strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom
     APPS_LIST+=(claude-desktop)
 fi
@@ -3103,7 +3136,19 @@ APP_UPDATE[codex-cli]="codex update"
 APP_UPDATE[cursor-cli]="agent update"
 APP_UPDATE[devin]="devin update"
 APP_UPDATE[ori]="ori update"
+# Its own installer's help text is where this one is documented.
+APP_UPDATE[hermes]="hermes update"
+# The empty ones ship no update subcommand, so their installer is the updater —
+# each of these overwrites the binary it finds and fetches the current release.
+# Mistral's is the clearest case: its installer branches on an existing install
+# and runs `uv tool upgrade mistral-vibe` itself. Without a key here at all they
+# were the apps a re-run said "already installed" to and then did nothing about,
+# forever, and the only interactive CLIs with no "run it like this" line.
 APP_UPDATE[opencode]=""
+APP_UPDATE[kimi-code]=""
+APP_UPDATE[muse]=""
+APP_UPDATE[grok-cli]=""
+APP_UPDATE[mistral-cli]=""
 
 app_open_hint() {
     [ -n "${APP_UPDATE[$1]+x}" ] || return 0
@@ -3788,7 +3833,39 @@ restore_bash() {
     return 0
 }
 
+# ── The names --configs/--tools/--apps take ──────────────────────────────────
+# Printed for the machine it is printed on: the arrays are already distro- and
+# headless-filtered by now, so a Debian VPS lists exactly what a Debian VPS can
+# install — which the README's one static list cannot do. Only the plain names
+# and labels are padded, never a description: printf pads by bytes and the
+# descriptions carry Nerd Font glyphs, the same rule the menu lives by.
+list_items() {
+    local n
+    printf '%s\n' "${C_ACCENT}Configs${C_RESET} ${C_DIM}--configs=${C_RESET}"
+    for n in "${CONFIGS[@]}"; do
+        printf '  %-14s %s\n' "$n" "${CONFIG_DESC[$n]:-}"
+    done
+    printf '\n%s\n' "${C_ACCENT}Tools${C_RESET} ${C_DIM}--tools=${C_RESET}"
+    for n in "${DEPS_LIST[@]}"; do
+        printf '  %-14s %s\n' "$n" "${DEP_DESC[$n]:-}"
+    done
+    printf '\n%s\n' "${C_ACCENT}Apps${C_RESET} ${C_DIM}--apps=${C_RESET}"
+    for n in "${APPS_LIST[@]}"; do
+        printf '  %-16s %-20s %s\n' "$n" "${APP_LABEL[$n]:-}" "${APP_DESC[$n]:-}"
+    done
+    printf '\n%s\n' "${C_DIM}${#CONFIGS[@]} configs, ${#DEPS_LIST[@]} tools, ${#APPS_LIST[@]} apps on this machine. \"all\" is accepted in place of a list.${C_RESET}"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
+# --list answers a question about names, so it short-circuits above even the
+# banner: no password prompt, no writes, nothing installed, and nothing on
+# stdout but the list itself. --restore-bash needs chsh and cannot short-circuit
+# this early, which is why the two sit apart.
+if [ "$LIST_ONLY" -eq 1 ]; then
+    list_items
+    exit 0
+fi
+
 header
 
 # ── Privileges ────────────────────────────────────────────────────────────────
@@ -4107,13 +4184,6 @@ fi
 success "Tools verified"
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline)
-# Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
-# still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
-# re-declared as a second literal list: a hand-maintained Debian copy silently
-# drops every config added after it was written (micro and fresh both were).
-[[ "$DISTRO" == "debian" ]] && strip_items CONFIGS rofi
-[ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 declare -a SELECTED=() DEPS=() APPS=()
 
 # The numbered lists this script shipped with, kept for terminals that cannot

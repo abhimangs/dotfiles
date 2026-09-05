@@ -231,8 +231,27 @@ w fc-list              <<< '#!/bin/sh
 exit 0'
 w flatpak              <<< '#!/bin/sh
 exit 0'
-w unzip                <<< '#!/bin/sh
-exit 0'
+# Real unzip drops the archive's .ttf files into -d <dir>, and the check right
+# after every font install looks for exactly that. As a flat no-op this made
+# both Debian/Ubuntu font installs report failure — invisible until a scenario
+# ran --gui, because a headless run skips fonts entirely and every config
+# scenario in the suite was headless. Only the -d/'*.ttf' shape is honoured;
+# every other call stays the no-op it was (ensure_unzip/bun only probe for it).
+w unzip <<'EOF'
+#!/usr/bin/env bash
+dir=""; want_ttf=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d) dir="$2"; shift 2 ;;
+        '*.ttf') want_ttf=1; shift ;;
+        *) shift ;;
+    esac
+done
+if [ -n "$dir" ] && [ "$want_ttf" -eq 1 ]; then
+    mkdir -p "$dir" && : > "$dir/StubFont.ttf"
+fi
+exit 0
+EOF
 w gpg <<'EOF'
 #!/usr/bin/env bash
 case "$*" in

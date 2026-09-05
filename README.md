@@ -29,6 +29,7 @@ bash install.sh
 | `--dry-run` | Walks the menus and prints the full plan, then exits without touching a dotfile. It is not a no-op on the machine: the AUR helper (Arch) or apt prerequisites, plus `stow` and `fzf`, are installed before the plan can be built, since the plan describes what *those* would do |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
 | `--restore-bash` | Undoes the zsh setup (rc files, the `.bashrc` hand-off hook, and the login shell). Runs alone, skipping every menu |
+| `--list` | Prints every config, tool and app *this machine* can install (the names the three flags below take) and exits. Installs nothing, asks nothing, and needs no terminal, so it pipes: `bash install.sh --list \| grep ori` |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
 | `--configs=LIST` | Skip the menu and take these configs: comma-separated, or `all` |
@@ -50,7 +51,7 @@ DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code \
 Anything else is rejected with exit 2 rather than ignored: a mistyped `--dryrun`
 would otherwise have run a real install.
 
-Each flag has an environment equivalent (`DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS`), because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
+Each flag has an environment equivalent (`DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_LIST`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS`, `DOTFILES_PRIVATE`, `DOTFILES_BACKUP_MODE`), because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
 
 ```bash
 DOTFILES_DRY_RUN=1 curl -fsSL https://abhiman.io/linux.sh | bash
@@ -125,7 +126,7 @@ merge is deliberately conservative:
 - **Confirmation plan**: shows exactly what will be installed before proceeding
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
 - **Private mode**: its own first question, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
-- **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin or ORI is *updated in place* with its own `<tool> update` command, and Opencode, which ships no updater, reruns its installer. Each one then prints how to launch it
+- **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
 - **Repo before AUR**: on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
 - **paru or yay**: whichever is already installed is used; if neither is, paru is bootstrapped (`paru-bin` first, so there is no rust toolchain to compile)
 - **Shell change**: switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate

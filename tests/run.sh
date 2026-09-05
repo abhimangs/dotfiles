@@ -394,12 +394,20 @@ want    curlapps-again 'Opencode CLI already installed'   'found in ~/.opencode/
 want    curlapps-again 'Kimi Code CLI already installed'   'found in ~/.kimi-code/bin'
 want    curlapps-again 'ORI Harness already installed'     'ORI found in ~/.local/bin'
 want    curlapps-again 'Bun already installed'             'found in ~/.bun/bin'
-# Opencode is the one curl app with no update subcommand, so its installer
-# *is* its updater and runs again; nobody else's does.
-nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Cursor|Kimi|Muse|ORI|Bun)' \
-                                                          'no installer runs twice'
+# The split APP_UPDATE encodes, asserted from both sides: an app with an update
+# command runs it and never re-downloads, and an app with an empty value has no
+# updater but an idempotent installer, so that installer runs again. Bun is
+# neither — not an interactive CLI, so not in the map at all, and left alone.
+nowant  curlapps-again 'Downloading installer for .*(Claude Code|Codex|Cursor|ORI|Bun)' \
+                                                          'no installer runs twice where there is an updater'
 want    curlapps-again 'Downloading installer for .*Opencode CLI' \
-                                                          'except opencode, which has no updater'
+                                                          'opencode has none, so its installer reruns'
+want    curlapps-again 'Downloading installer for .*Kimi Code CLI' \
+                                                          'and so does kimi'
+want    curlapps-again 'Downloading installer for .*Muse Code' \
+                                                          'and muse'
+want    curlapps-again 'Run ori in a terminal to open it'  'an app in the map says how to launch it'
+want    curlapps-again 'Run muse in a terminal to open it' 'including one with no update command'
 
 # 15h2. A vendor updater that fails on an app already on disk is not a failed
 #       app — the working version is still there, so it is a warning and the run
@@ -599,6 +607,63 @@ want    dep-config-plan 'delete.*~/.config/btop'   'the plan warns before deleti
 want    dep-config-plan 'stow → ~/.config/btop'    'and says it stows the theme'
 
 echo
+echo "── kitty, and the wallpaper it drags in ─────────────────"
+# kitty was the one config in the fastfetch|ghostty|kitty|rofi|micro|fresh case
+# arm with no scenario at all, and that arm is the destructive one: it backs up
+# or deletes whatever sits at ~/.config/<name> first. kitty is also half of
+# NEEDS_WALLPAPER, which nothing tested either — kitty.conf names the image by a
+# ~/.config path, so a kitty install that does not bring the wallpaper along
+# renders a broken background. --gui because the sandbox is headless and both
+# are GUI configs; Ubuntu because an Arch config run also installs two AUR font
+# packages the stub has no answer for, which is a second thing to go wrong in a
+# scenario about neither.
+run     kitty-cfg ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="kitty" DOTFILES_GUI=1
+check   kitty-cfg 0
+nowant  kitty-cfg 'Failed \('   'the config installed cleanly'
+d="$WORK/run/kitty-cfg/home"
+[ -L "$d/.config/kitty/kitty.conf" ] \
+    && note kitty-cfg "kitty.conf stowed as a symlink" \
+    || bad  kitty-cfg "no ~/.config/kitty/kitty.conf symlink"
+if [ -d "$d/.config/wallpapers" ] && find "$d/.config/wallpapers" -type l | grep -q .; then
+    note kitty-cfg "the wallpaper came with it"
+else
+    bad  kitty-cfg "kitty stowed without the image its config names"
+fi
+# The fonts kitty.conf names, which this is the first scenario to reach at all:
+# they are installed on every run that installs a config, and every other
+# config scenario is headless, where the step is skipped by design.
+want    kitty-cfg 'Fonts ready'                'the font step ran instead of being skipped'
+[ -f "$d/.local/share/fonts/JetBrainsMono/StubFont.ttf" ] \
+    && note kitty-cfg "JetBrainsMono unpacked into ~/.local/share/fonts" \
+    || bad  kitty-cfg "no font on disk after the font step"
+
+echo
+echo "── --help ───────────────────────────────────────────────"
+# The one flag that answers on a machine this installer does not support: it is
+# parsed before distro detection for exactly that reason, so it must not need a
+# sandbox, a terminal, or a distro to print. Run host-side for the same reason.
+help_out="$WORK/help.txt"
+if bash "$HERE/../install.sh" --help </dev/null >"$help_out" 2>&1; then
+    note help "exits 0"
+else
+    bad  help "--help exited non-zero"
+fi
+grep -q -- '--restore-bash' "$help_out" && grep -q -- '--list' "$help_out" \
+    && note help "every flag is in the text, including the newest" \
+    || bad  help "usage() has fallen behind the flag list"
+# An unknown flag is the reason this case exists: --dryrun used to run a real
+# install. It must exit 2 and print the usage, not proceed.
+bash "$HERE/../install.sh" --dryrun </dev/null >"$help_out" 2>&1
+help_rc=$?
+[ "$help_rc" -eq 2 ] \
+    && note help "a near miss like --dryrun exits 2" \
+    || bad  help "--dryrun exited $help_rc, not 2"
+grep -q 'Unknown option' "$help_out" \
+    && note help "and names the flag it did not understand" \
+    || bad  help "refused without saying why"
+unset help_out help_rc
+
+echo
 echo "── selection flags ──────────────────────────────────────"
 # --configs/--tools/--apps skip the menu entirely, which is what makes an
 # unattended run possible — and what the rest of this suite drives.
@@ -640,6 +705,40 @@ want    flags-badmode 'Unknown backup mode'     'named the bad value'
 run     env-badmode ubuntu "$WORK/k-none" DOTFILES_CONFIGS="git" DOTFILES_BACKUP_MODE=wipe
 check   env-badmode 2
 want    env-badmode 'Unknown DOTFILES_BACKUP_MODE' 'the env twin is checked too'
+
+# --list is the only mode that answers without touching the machine at all: no
+# privilege prompt, no menu, no package installs, not even the banner — so the
+# assertions are as much about what is absent as about what it prints. It also
+# has to survive having no terminal, which the harness cannot show (it runs
+# every scenario under script(1)); that half is checked host-side further down.
+# --gui because the sandbox has no display server: without it the GUI entries
+# are stripped from the listing (correctly — that is the scenario below) and
+# rofi, the one Arch-only config, would be missing for the wrong reason.
+RUN_ARGS="--list --gui" run list-arch arch "$WORK/k-none"
+check   list-arch 0
+want    list-arch 'rofi'                     'Arch lists the Arch-only config'
+want    list-arch 'ccstatusline'             'and the newest one'
+want    list-arch 'ORI Harness'              'apps carry their label as well as their key'
+nowant  list-arch 'Installation plan'        'nothing was planned'
+nowant  list-arch 'Proceed'                  'and nothing was asked'
+nowant  list-arch 'Authenticated'            'privileges never came up'
+
+# The same command on Debian is the proof the listing is filtered per machine
+# rather than printed from one static list: rofi is Arch-only and must be gone,
+# and --gui is what makes its absence the distro filter rather than headless.
+RUN_ARGS="--list --gui" run list-debian debian "$WORK/k-none"
+check   list-debian 0
+want    list-debian 'ccstatusline'            'the shared configs are still there'
+nowant  list-debian 'rofi'                    'the Arch-only config is filtered out'
+nowant  list-debian 'Vicinae'                 'and so are the Arch-only apps'
+
+# Headless drops the GUI entries from the listing exactly as it drops them from
+# the menu — a VPS must not be told to install a terminal emulator.
+RUN_ARGS="--list" run list-headless ubuntu "$WORK/k-none" \
+        SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
+check   list-headless 0
+want    list-headless 'claude-code'           'the CLI apps survive'
+nowant  list-headless 'ghostty'               'the terminal emulators do not'
 
 # A bare --dry-run still walks the menus, so it is NOT an unattended run: it
 # must ask the two questions rather than announce that nobody is there and then
@@ -1496,6 +1595,29 @@ else
     bad  doctor-path "CURL_APP_PATH drifted: doctor ${doc_path:-<none>} vs install ${inst_path:-<none>}"
 fi
 
+# doctor.sh's ALT_BIN is the fourth hand-kept copy in that file: the names apt
+# installs a tool under when they differ from the Arch ones. install.sh keeps
+# the same fact in PKG_BIN, keyed by package rather than by tool, and the two
+# are only ever read on Debian/Ubuntu — where a drift means doctor.sh reports a
+# tool missing that is installed, which sends whoever pasted it debugging the
+# wrong thing. Checked in the direction that matters, and no tighter than the
+# truth: install.sh spreads these names across PKG_BIN and the two shim
+# helpers (batcat is only in ensure_bat_shim), so the assertion is that
+# install.sh knows the name at all — not that one particular map holds it.
+alt_bad=()
+while read -r tool alt; do
+    [ -n "$alt" ] || continue
+    grep -q "\b$alt\b" "$inst_src" \
+        || alt_bad+=("doctor.sh says $tool installs as $alt; install.sh has never heard of $alt")
+done < <(sed -n 's/^declare -A ALT_BIN=(\(.*\))$/\1/p' "$HERE/../doctor.sh" \
+         | tr ' ' '\n' | sed -n 's/^\[\([a-z-]*\)\]=\(.*\)$/\1 \2/p')
+if [ "${#alt_bad[@]}" -eq 0 ]; then
+    note doctor-altbin "every Debian binary name doctor.sh knows is one install.sh knows"
+else
+    for _m in "${alt_bad[@]}"; do bad doctor-altbin "$_m"; done
+fi
+unset alt_bad _m
+
 echo
 echo "── release asset patterns ───────────────────────────────"
 # github_latest_asset_url matches with `grep -Ei "$pattern" | head -1`, so when a
@@ -1520,6 +1642,31 @@ else
     fi
 fi
 unset delta_pat picked
+
+echo "── --list without a terminal ────────────────────────────"
+# Every scenario above runs under script(1), so all of them have a tty and none
+# of them can show this: the installer refuses to start without a terminal, and
+# --list is the one mode that has nothing to read. Run here with stdin and
+# stdout both off a terminal, which is what `install.sh --list | grep` is. It
+# installs nothing and prompts for nothing by construction, so running the real
+# script against this machine is safe.
+list_out="$WORK/list-notty.txt"
+if bash "$HERE/../install.sh" --list </dev/null >"$list_out" 2>&1; then
+    note list-notty "exits 0 with no terminal"
+else
+    bad  list-notty "refused to run: $(head -1 "$list_out")"
+fi
+grep -q 'needs a terminal' "$list_out" \
+    && bad  list-notty "hit the interactive guard" \
+    || note list-notty "never reached the interactive guard"
+# The three headings are the contract: one section per selection flag.
+if grep -q -- '--configs=' "$list_out" && grep -q -- '--tools=' "$list_out" \
+   && grep -q -- '--apps=' "$list_out"; then
+    note list-notty "names the flag each section feeds"
+else
+    bad  list-notty "a section heading is missing"
+fi
+unset list_out
 
 echo "── curl app update map ──────────────────────────────────"
 # APP_UPDATE does three jobs at once: it decides whether an installed app is
