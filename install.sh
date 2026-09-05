@@ -2927,7 +2927,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -2965,6 +2965,7 @@ APP_LABEL[hermes]="Hermes Agent"
 APP_LABEL[devin]="Devin CLI"
 APP_LABEL[grok-cli]="Grok CLI"
 APP_LABEL[mistral-cli]="Mistral CLI"
+APP_LABEL[ori]="ORI Harness"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
@@ -3008,6 +3009,7 @@ APP_TYPE[hermes]="curl"
 APP_TYPE[devin]="curl"
 APP_TYPE[grok-cli]="curl"
 APP_TYPE[mistral-cli]="curl"
+APP_TYPE[ori]="curl"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
@@ -3100,6 +3102,7 @@ APP_UPDATE[claude-code]="claude update"
 APP_UPDATE[codex-cli]="codex update"
 APP_UPDATE[cursor-cli]="agent update"
 APP_UPDATE[devin]="devin update"
+APP_UPDATE[ori]="ori update"
 APP_UPDATE[opencode]=""
 
 app_open_hint() {
@@ -3126,6 +3129,7 @@ APP_BIN[grok-cli]="grok"
 # `uv tool install mistral-vibe`, so the binary carries neither name:
 # vibe (and vibe-acp beside it) in ~/.local/bin
 APP_BIN[mistral-cli]="vibe"
+APP_BIN[ori]="ori"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 
@@ -3155,6 +3159,7 @@ APP_TYPE_DEB[hermes]="curl"
 APP_TYPE_DEB[devin]="curl"
 APP_TYPE_DEB[grok-cli]="curl"
 APP_TYPE_DEB[mistral-cli]="curl"
+APP_TYPE_DEB[ori]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
@@ -3224,6 +3229,7 @@ APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
 APP_DESC[devin]="Cognition's coding agent  ${G_DOT}  run 'devin setup' after"
 APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
 APP_DESC[mistral-cli]="Mistral's coding agent  ${G_DOT}  run 'vibe --setup' after"
+APP_DESC[ori]="OpenRouter's CLI for projects you already have"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher  ${G_DOT}  bind: vicinae toggle"
@@ -4871,6 +4877,12 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # a wrapper: it installs uv first when uv is missing, then
                     # `uv tool install mistral-vibe`
                     mistral-cli)     _curl_url="https://mistral.ai/vibe/install.sh"             ; _shell=bash ;;
+                    # No opt-out flag either, and its rc write is the codex
+                    # case: the PATH block (plus a /usr/local/bin symlink it
+                    # would ask sudo for) is skipped entirely once it sees its
+                    # install dir — ~/.local/bin, its default — already on
+                    # PATH, which is what CURL_APP_PATH puts there.
+                    ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
                     # installs into /usr/local/bin — its own sudo, already cached
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash

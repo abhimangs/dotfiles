@@ -542,6 +542,23 @@ cp "$HOME/.local/bin/vibe" "$HOME/.local/bin/vibe-acp"
 chmod +x "$HOME/.local/bin/uv" "$HOME/.local/bin/vibe" "$HOME/.local/bin/vibe-acp"
 VIBE_SH
             ;;
+        *openrouter.ai/labs/ori/*)
+            # ori has no opt-out flag: it writes its PATH block to the rc file
+            # $SHELL names — and asks sudo for a /usr/local/bin symlink — unless
+            # its install dir (~/.local/bin by default) is already on the PATH it
+            # inherited, i.e. unless CURL_APP_PATH put it there. Same shape as
+            # codex, and the only thing between it and the tracked zsh/.zshrc.
+            cat > "$out" <<'ORI_SH'
+#!/bin/sh
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) echo '# STUB PATH BLOCK (ori)' >> "$HOME/.zshrc" ;;
+esac
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho ori stub "$@"\n' > "$HOME/.local/bin/ori"
+chmod +x "$HOME/.local/bin/ori"
+ORI_SH
+            ;;
         *bun.com/install)
             # Three contracts in one installer: it unpacks a zip, so ensure_unzip
             # has to have run; its PATH block is guarded by ~/.bun/bin being on
