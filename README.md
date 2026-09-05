@@ -41,7 +41,7 @@ bash install.sh
 
 Any of the three selection flags may be left out, which means "none of those": `--apps=docker` on its own installs Docker and touches no dotfile. An unknown name exits 2 with the list of real ones rather than quietly installing nothing.
 
-**Unattended runs.** Naming a selection means nobody is at the keyboard: no menu is drawn, and the two single-key questions (privacy, and what happens to existing configs) are not asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. So this is a complete, hands-off install:
+**Unattended runs.** Naming a selection means nobody is at the keyboard: no menu is drawn, and neither the two single-key questions (privacy, and what happens to existing configs) nor the *Proceed?* confirmation is asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. Naming what to install *is* the confirmation, so the plan prints and the run proceeds. So this is a complete, hands-off install:
 
 ```bash
 DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code \
@@ -124,7 +124,8 @@ merge is deliberately conservative:
 - **Dep tools tab**: bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux (all of them come automatically with zsh, see below)
 - **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
 - **Confirmation plan**: shows exactly what will be installed before proceeding
-- **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`
+- **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
+- **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
 - **Private mode**: its own first question, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
 - **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
 - **Repo before AUR**: on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages

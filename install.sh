@@ -241,6 +241,11 @@ _cleanup() {
         done
         unset _fpid
     fi
+    if [ -n "${SPIN_PID:-}" ]; then
+        kill "$SPIN_PID" 2>/dev/null
+        SPIN_PID=""
+        printf '\r\033[K'
+    fi
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
     # A reset for colour that was never emitted is not a no-op: it is a stray
     # escape glued to the end of stdout. --list is meant to be captured
@@ -376,6 +381,53 @@ join_list() { local out="" x; for x in "$@"; do out+="${out:+, }$x"; done; print
 substep() { echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_ARROW} ${C_RESET}$1"; }
 success() { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_GREEN}${G_OK} ${C_RESET}$1\n"; }
 error()   { echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_RED}${G_FAIL} ${C_RESET}$1\n"; }
+
+# ── A sign of life for the silent steps ──────────────────────────────────────
+# Package installs run with their output discarded, so a slow mirror looks
+# exactly like a hung script — "is it stuck?" is the one question this UI could
+# not answer. This draws a single line in place and erases it when the step
+# ends, so nothing it printed survives the run.
+#
+# It never starts unless USE_COLOR is on, and USE_COLOR is already tied to
+# stdout being a terminal — so piped, redirected, under TERM=dumb or --no-color
+# there is no spinner at all and captured output is byte-for-byte what it was.
+# One writer at a time: a nested spin_start is a no-op rather than a second
+# process drawing over the first.
+SPIN_PID=""
+spin_start() {
+    [ "$USE_COLOR" -eq 1 ] || return 0
+    [ -z "$SPIN_PID" ] || return 0
+    local frames='|/-\\'
+    # Sliced with ${var:i:1}, which counts characters, not bytes — safe here
+    # only because USE_GLYPHS is already gated on a UTF-8 locale.
+    [ "$USE_GLYPHS" -eq 1 ] && frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    (
+        trap 'exit 0' TERM INT
+        local t0=$SECONDS i=0 t f
+        while :; do
+            f="${frames:$(( i % ${#frames} )):1}"
+            t=$(( SECONDS - t0 ))
+            # The elapsed count only appears once a step is slow enough to
+            # worry about, so a fast install stays a bare spinner.
+            if [ "$t" -ge 3 ]; then
+                printf '\r%b     %s  %ss%b' "$C_MAIN$C_BOLD" "$f" "$t" "$C_RESET"
+            else
+                printf '\r%b     %s%b' "$C_MAIN$C_BOLD" "$f" "$C_RESET"
+            fi
+            i=$(( i + 1 ))
+            sleep 0.2
+        done
+    ) &
+    SPIN_PID=$!
+}
+
+spin_stop() {
+    [ -n "$SPIN_PID" ] || return 0
+    kill "$SPIN_PID" 2>/dev/null
+    wait "$SPIN_PID" 2>/dev/null
+    SPIN_PID=""
+    printf '\r\033[K'
+}
 
 # ── The menu ─────────────────────────────────────────────────────────────────
 # One screen with four tabs — dotfiles, tools, apps, and what you have ticked.
@@ -1047,13 +1099,19 @@ pacman_install() {
     if [ -f /var/lib/pacman/db.lck ]; then
         sudo rm -f /var/lib/pacman/db.lck
     fi
-    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1 && return 0
+    spin_start
+    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1 && { spin_stop; return 0; }
+    spin_stop
     # A sync db older than the mirror resolves to package versions that have
     # since been replaced — "target not found" or a 404 mid-download. Refresh
     # the db once and retry before calling it a failure.
     substep "${C_YELLOW}Stale package database — refreshing and retrying${C_RESET}"
+    spin_start
     sudo pacman -Sy --noconfirm &>/dev/null 2>&1 || true
     sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1
+    local _rc=$?
+    spin_stop
+    return "$_rc"
 }
 
 # Whichever helper this machine ended up with — set by the AUR bootstrap in
@@ -1085,7 +1143,13 @@ _aur_run_robust() {
     local _flags=( "$AUR_HELPER" -S"${sync_flag}" --needed --noconfirm --removemake --cleanafter )
 
     # ── attempt 1: normal install ─────────────────────────────────────────────
-    if "${_flags[@]}" "$pkg" >"$tmplog" 2>&1; then
+    # The longest silence in the whole run: a source build with its log going
+    # to a file nobody is watching.
+    spin_start
+    "${_flags[@]}" "$pkg" >"$tmplog" 2>&1
+    local _rc=$?
+    spin_stop
+    if [ "$_rc" -eq 0 ]; then
         rm -f "$tmplog"; return 0
     fi
     local err; err=$(<"$tmplog")
@@ -1383,10 +1447,13 @@ APT_LAST_ERROR=""
 
 apt_install() {
     apt_update_once
-    local out
-    if out=$(apt_get install -y --no-install-recommends "$@" 2>&1); then
-        return 0
-    fi
+    local out _rc
+    # Started outside the substitution on purpose: a spinner forked inside it
+    # would write into the pipe being captured instead of onto the terminal.
+    spin_start
+    out=$(apt_get install -y --no-install-recommends "$@" 2>&1); _rc=$?
+    spin_stop
+    [ "$_rc" -eq 0 ] && return 0
     # apt itself waits out the lock (DPkg::Lock::Timeout above). Getting here
     # means something has held it for ten minutes — on a freshly booted image
     # that is unattended-upgrades, and it needs stopping, not more waiting.
@@ -2622,6 +2689,7 @@ stow_config() {
                 fi
                 mv "$target" "$bak"
                 substep "Backed up ${C_ACCENT}~/.config/${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+                BACKED_UP+=("~/.config/${name}.bak")
             fi
         fi
         # Only symlinks / empty dir: nothing to do — stow_to -D cleans ours
@@ -2816,6 +2884,7 @@ backup_file() {
             fi
             mv "$target" "$bak"
             substep "Backed up ${C_ACCENT}${shown}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+            BACKED_UP+=("${shown}.bak")
         fi
     fi
 }
@@ -3603,6 +3672,16 @@ show_plan() {
     if [ "$DRY_RUN" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
         exit 0
+    fi
+    # The last prompt an unattended run had left in it. The two single-key
+    # questions above already answer themselves when a selection was named, but
+    # this one still waited for Enter — and on the documented path
+    # (`DOTFILES_CONFIGS=… curl … | bash`) TTY_IN is a real terminal, so it
+    # waited for a keyboard that is not there. Naming what to install is the
+    # confirmation; asking again is asking nobody.
+    if [ "${UNATTENDED:-0}" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceeding${C_RESET} ${C_DIM}— not asked, no one at the keyboard${C_RESET}\n"
+        return 0
     fi
     echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
     read -r CONFIRM <"$TTY_IN"
@@ -4397,6 +4476,10 @@ show_plan "${SELECTED[@]}"
 STOWED_WALLPAPER=0
 INSTALLED=()
 FAILED=()
+# Every .bak this run created. Each one is announced when it happens, but that
+# scrolls past a hundred lines of install output, and "where did my old config
+# go" is the question asked afterwards — so the summary answers it in one line.
+BACKED_UP=()
 
 # ── Step 5a0: fonts ───────────────────────────────────────────────────────────
 # Both fonts are installed on every run rather than only when a terminal config
@@ -4519,14 +4602,19 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         unset _batch_arch _dep _dp
     fi
 
+    # The counter the configs and the apps loops both print. Twelve dep tools
+    # scroll past with nothing saying how many are left.
+    _dep_i=0
     for dep in "${DEPS[@]}"; do
+        _dep_i=$(( _dep_i + 1 ))
+        _dep_n="${C_DIM}[${_dep_i}/${#DEPS[@]}]${C_RESET}"
         dep_pkg="$(dep_pkg_name "$dep")"
         if [ -n "${_dep_was_installed[$dep]:-}" ]; then
-            substep "${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+            substep "${_dep_n} ${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
         elif pkg_installed "$dep_pkg"; then
-            substep "${C_ACCENT}${dep}${C_RESET} ${C_GREEN}installed${C_RESET}"
+            substep "${_dep_n} ${C_ACCENT}${dep}${C_RESET} ${C_GREEN}installed${C_RESET}"
         else
-            substep "Installing ${C_ACCENT}${dep}${C_RESET}..."
+            substep "${_dep_n} Installing ${C_ACCENT}${dep}${C_RESET}..."
             _dep_ok=1
             if [[ "$DISTRO" == "arch" ]]; then
                 arch_install "$dep_pkg" || _dep_ok=0
@@ -5127,6 +5215,9 @@ echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_SUM} Summary${C_RESET}"
 
 if [ "${#INSTALLED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_GREEN}${G_OK} ${C_RESET}Installed (${#INSTALLED[@]}): ${C_ACCENT}$(join_list "${INSTALLED[@]}")${C_RESET}"
+fi
+if [ "${#BACKED_UP[@]}" -gt 0 ]; then
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT} ${C_RESET}Backed up (${#BACKED_UP[@]}): ${C_DIM}$(join_list "${BACKED_UP[@]}")${C_RESET}"
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}$(join_list "${FAILED[@]}")${C_RESET}"

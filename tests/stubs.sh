@@ -80,6 +80,10 @@ for a in "$@"; do
 done
 
 if [ "$sub" = "install" ]; then
+    # Long enough for the spinner to draw a frame or two. Every other scenario
+    # finishes an install in milliseconds, which is exactly when a spinner
+    # prints nothing at all and its scenario proves nothing.
+    [ "${STUB_SLOW_INSTALL:-0}" = 1 ] && sleep 1
     [ "${DEBIAN_FRONTEND:-}" = "noninteractive" ] \
         || echo "STUBFAIL: apt-get install ran without DEBIAN_FRONTEND" >&2
     [ "${NEEDRESTART_SUSPEND:-}" = "1" ] \

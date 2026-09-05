@@ -43,6 +43,7 @@ echo
 printf '\n\n\n\n\n'        > "$WORK/k-sel"      # selection came from --configs/--tools/--apps
 printf ''                  > "$WORK/k-none"     # nothing at all — for runs that must not read a key
 printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numbered menus: config 2, skip, skip
+printf 'n\n'              > "$WORK/k-no"       # one "no" nobody is allowed to read — see the unattended Proceed
 # k-private is gone: a run whose selection comes from the environment is not
 # asked about privacy at all, it is told — DOTFILES_PRIVATE=1 / --private.
 # The menu is driven by a *script* rather than a file of bytes: it puts the
@@ -265,6 +266,11 @@ if [ -L "$d/.zshrc.bak" ]; then
 else
     bad  ubuntu-foreignlink "their ~/.zshrc symlink vanished with no .bak"
 fi
+# Announced when it happens, and again at the end: a hundred lines later, the
+# question is where the old file went, and scrolling back for it is the answer
+# this used to have.
+want    ubuntu-foreignlink 'Backed up \(1\): .*~/.zshrc.bak' \
+                                                  'and the summary says where it went'
 if [ -f "$d/Sync/zshrc" ] && grep -q 'MINE' "$d/Sync/zshrc"; then
     note ubuntu-foreignlink "the file behind it is untouched"
 else
@@ -621,9 +627,11 @@ run     kitty-cfg ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="kitty" DOTFILES_GUI=1
 check   kitty-cfg 0
 nowant  kitty-cfg 'Failed \('   'the config installed cleanly'
 d="$WORK/run/kitty-cfg/home"
-[ -L "$d/.config/kitty/kitty.conf" ] \
-    && note kitty-cfg "kitty.conf stowed as a symlink" \
-    || bad  kitty-cfg "no ~/.config/kitty/kitty.conf symlink"
+if [ -L "$d/.config/kitty/kitty.conf" ]; then
+    note kitty-cfg "kitty.conf stowed as a symlink"
+else
+    bad  kitty-cfg "no ~/.config/kitty/kitty.conf symlink"
+fi
 if [ -d "$d/.config/wallpapers" ] && find "$d/.config/wallpapers" -type l | grep -q .; then
     note kitty-cfg "the wallpaper came with it"
 else
@@ -633,9 +641,60 @@ fi
 # they are installed on every run that installs a config, and every other
 # config scenario is headless, where the step is skipped by design.
 want    kitty-cfg 'Fonts ready'                'the font step ran instead of being skipped'
-[ -f "$d/.local/share/fonts/JetBrainsMono/StubFont.ttf" ] \
-    && note kitty-cfg "JetBrainsMono unpacked into ~/.local/share/fonts" \
-    || bad  kitty-cfg "no font on disk after the font step"
+if [ -f "$d/.local/share/fonts/JetBrainsMono/StubFont.ttf" ]; then
+    note kitty-cfg "JetBrainsMono unpacked into ~/.local/share/fonts"
+else
+    bad  kitty-cfg "no font on disk after the font step"
+fi
+
+echo "── unattended runs, and the prompt that still asked ─────"
+# The two single-key questions answer themselves when a selection is named,
+# but "Proceed? [Y/n]" still read a key — and on the documented unattended path
+# (`DOTFILES_CONFIGS=… curl … | bash`) TTY_IN is a real terminal, so it waited
+# for a keyboard that is not there. The suite could not see it: script(1)
+# delivers EOF, and an EOF read proceeds exactly like the fix does.
+#
+# So the input is a sentinel rather than nothing — a single "n". If anything
+# still reads it, the run declines its own plan and stows nothing, and the
+# assertion below fails on the filesystem rather than on the transcript.
+run     unattended-proceed ubuntu "$WORK/k-no" DOTFILES_CONFIGS="git"
+check   unattended-proceed 0
+want    unattended-proceed 'Proceeding'   'the plan proceeds without asking'
+nowant  unattended-proceed 'Proceed\? \[Y/n\]' 'the question is not put at all'
+if [ -L "$WORK/run/unattended-proceed/home/.gitconfig" ]; then
+    note unattended-proceed "the sentinel key was never read"
+else
+    bad  unattended-proceed "something read the n and declined the plan"
+fi
+
+# ...and an attended run must still ask, or the confirmation is gone for good.
+run     attended-proceed ubuntu "$WORK/k-num"
+check   attended-proceed 0
+want    attended-proceed 'Proceed\? \[Y/n\]' 'a menu-driven run is still asked'
+nowant  attended-proceed 'Proceeding'  'and is not told it was not asked'
+
+echo
+echo "── the spinner on the silent steps ──────────────────────"
+# The spinner only exists where there is a terminal and colour, which is also
+# the only place it can do damage — so it is asserted there, with an install
+# slow enough to draw. What matters is that it draws *and* that it erases: it
+# writes to the same line every scenario reads its assertions off.
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 STUB_SLOW_INSTALL=1 \
+    run spinner ubuntu "$WORK/k-sel" DOTFILES_TOOLS="bat,tree" STUB_SLOW_INSTALL=1
+check   spinner 0
+want    spinner '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]'  'it drew while apt was silent'
+want    spinner '\[1/2\]'          'and the dep tools carry a counter now'
+want    spinner '\[2/2\]'          'through to the last one'
+# Erased, not left behind: the summary is the last thing on screen, and no
+# assertion anywhere may end up sharing a line with a spinner frame.
+tail -3 "$WORK/run/spinner/clean.txt" | grep -q '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]' \
+    && bad  spinner "a frame survived to the end of the run" \
+    || note spinner "every frame was erased"
+want    spinner 'Installed'        'and the summary printed cleanly'
+
+# With no terminal there is no spinner and no elapsed line — the same run
+# captured is byte-identical to what it was before any of this existed.
+nowant  flags-argv '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]'  'nothing drew where colour is off'
 
 echo
 echo "── --help ───────────────────────────────────────────────"
@@ -648,19 +707,25 @@ if bash "$HERE/../install.sh" --help </dev/null >"$help_out" 2>&1; then
 else
     bad  help "--help exited non-zero"
 fi
-grep -q -- '--restore-bash' "$help_out" && grep -q -- '--list' "$help_out" \
-    && note help "every flag is in the text, including the newest" \
-    || bad  help "usage() has fallen behind the flag list"
+if grep -q -- '--restore-bash' "$help_out" && grep -q -- '--list' "$help_out"; then
+    note help "every flag is in the text, including the newest"
+else
+    bad  help "usage() has fallen behind the flag list"
+fi
 # An unknown flag is the reason this case exists: --dryrun used to run a real
 # install. It must exit 2 and print the usage, not proceed.
 bash "$HERE/../install.sh" --dryrun </dev/null >"$help_out" 2>&1
 help_rc=$?
-[ "$help_rc" -eq 2 ] \
-    && note help "a near miss like --dryrun exits 2" \
-    || bad  help "--dryrun exited $help_rc, not 2"
-grep -q 'Unknown option' "$help_out" \
-    && note help "and names the flag it did not understand" \
-    || bad  help "refused without saying why"
+if [ "$help_rc" -eq 2 ]; then
+    note help "a near miss like --dryrun exits 2"
+else
+    bad  help "--dryrun exited $help_rc, not 2"
+fi
+if grep -q 'Unknown option' "$help_out"; then
+    note help "and names the flag it did not understand"
+else
+    bad  help "refused without saying why"
+fi
 unset help_out help_rc
 
 echo
