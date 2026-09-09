@@ -784,6 +784,7 @@ check   list-arch 0
 want    list-arch 'rofi'                     'Arch lists the Arch-only config'
 want    list-arch 'ccstatusline'             'and the newest one'
 want    list-arch 'ORI Harness'              'apps carry their label as well as their key'
+want    list-arch "dsh web"                  'and the run command rides along in the description'
 nowant  list-arch 'Installation plan'        'nothing was planned'
 nowant  list-arch 'Proceed'                  'and nothing was asked'
 nowant  list-arch 'Authenticated'            'privileges never came up'
@@ -796,6 +797,7 @@ check   list-debian 0
 want    list-debian 'ccstatusline'            'the shared configs are still there'
 nowant  list-debian 'rofi'                    'the Arch-only config is filtered out'
 nowant  list-debian 'Vicinae'                 'and so are the Arch-only apps'
+nowant  list-debian 'Deepseek Harness'        'including the newest AUR-only one'
 
 # Headless drops the GUI entries from the listing exactly as it drops them from
 # the menu — a VPS must not be told to install a terminal emulator.
@@ -1003,6 +1005,27 @@ want    debian-vicinae 'available:'         'and listed the real ones'
 run headless-vicinae arch "$WORK/k-sel" DOTFILES_APPS="vicinae"
 check   headless-vicinae 2
 want    headless-vicinae 'Unknown app'      'hidden with no display server'
+
+echo
+echo "── deepseek-harness (Arch only) ─────────────────────────"
+# 21b. A second AUR-only app, but a plain CLI: not a GUI entry, so unlike
+#      vicinae it must survive a headless run, and there is no service to wire.
+#      Covers the AUR fallback and the Arch-only strip for it.
+run     arch-dsh arch "$WORK/k-sel" DOTFILES_APPS="deepseek-harness"
+check   arch-dsh 0
+want    arch-dsh 'Deepseek Harness.*done'   'app reported installed'
+d="$WORK/run/arch-dsh"
+grep -qxF deepseek-harness-bin "$d/state/installed" \
+    && note arch-dsh "deepseek-harness-bin installed" || bad arch-dsh "deepseek-harness-bin missing"
+grep -qxF deepseek-harness-bin "$d/state/aur-installed" 2>/dev/null \
+    && note arch-dsh "installed through the AUR helper" \
+    || bad  arch-dsh "never reached the AUR fallback"
+
+# No apt package, so an unattended Debian run rejects the name rather than
+# quietly installing nothing.
+RUN_ARGS="--apps=deepseek-harness" run debian-dsh debian "$WORK/k-sel"
+check   debian-dsh 2
+want    debian-dsh 'Unknown app'            'rejected on Debian/Ubuntu'
 
 echo
 echo "── obs-studio + zoom ────────────────────────────────────"
