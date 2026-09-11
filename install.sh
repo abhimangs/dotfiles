@@ -3029,7 +3029,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -3081,6 +3081,7 @@ APP_LABEL[obs-studio]="OBS Studio"
 APP_LABEL[zoom]="Zoom"
 APP_LABEL[flatpak]="Flatpak"
 APP_LABEL[docker]="Docker + Compose"
+APP_LABEL[tailscale]="Tailscale"
 
 # paru-y forces a db refresh first (Brave bumps versions faster than a stale
 # db notices); paru and pacman both resolve through arch_install — repo first,
@@ -3114,6 +3115,7 @@ APP_TYPE[devin]="curl"
 APP_TYPE[grok-cli]="curl"
 APP_TYPE[mistral-cli]="curl"
 APP_TYPE[ori]="curl"
+APP_TYPE[tailscale]="curl"
 # AUR-only, like vicinae/zoom — arch_install misses it in the repos and falls
 # through to the helper
 APP_TYPE[deepseek-harness]="paru"
@@ -3226,6 +3228,14 @@ APP_UPDATE[grok-cli]=""
 APP_UPDATE[mistral-cli]=""
 
 app_open_hint() {
+    # The one app here that is a daemon rather than something you "open": its
+    # installer enables tailscaled, and the login after it is a separate step
+    # nothing else would tell you about.
+    if [[ "$1" == "tailscale" ]]; then
+        substep "${C_DIM}Service: ${C_ACCENT}sudo systemctl enable --now tailscaled${C_RESET}${C_DIM} — the installer does this${C_RESET}"
+        substep "${C_DIM}Log in:  ${C_ACCENT}sudo tailscale up${C_RESET}${C_DIM}, then ${C_ACCENT}tailscale status${C_RESET}"
+        return 0
+    fi
     [ -n "${APP_UPDATE[$1]+x}" ] || return 0
     substep "${C_DIM}Run ${C_ACCENT}${APP_BIN[$1]}${C_RESET}${C_DIM} in a terminal to open it${C_RESET}"
 }
@@ -3252,6 +3262,7 @@ APP_BIN[mistral-cli]="vibe"
 APP_BIN[ori]="ori"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
+APP_BIN[tailscale]="tailscale"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -3286,6 +3297,7 @@ APP_TYPE_DEB[alacritty]="alacritty"
 APP_TYPE_DEB[wezterm]="wezterm"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[docker]="docker"
+APP_TYPE_DEB[tailscale]="curl"
 # vlc/flatpak fall through to the "apt" default below
 
 app_pkg_name() {
@@ -3362,6 +3374,7 @@ APP_DESC[obs-studio]="screen recording and streaming  ${G_DOT}  virtual camera, 
 APP_DESC[zoom]="video calls"
 APP_DESC[flatpak]="sandboxed app runtime  ${G_DOT}  adds flathub"
 APP_DESC[docker]="containers  ${G_DOT}  compose, buildx, group, service"
+APP_DESC[tailscale]="mesh VPN  ${G_DOT}  sudo tailscale up to log in"
 
 declare -A DEP_DESC
 DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
@@ -5006,6 +5019,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             _have=0; curl_app_installed "$_bin" && _have=1
             if [ "$_have" -eq 1 ] && [ -z "${APP_UPDATE[$app]+x}" ]; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
+                # No-op for every app but tailscale — the rest have no
+                # APP_UPDATE key, which is exactly what this branch means.
+                app_open_hint "$app"
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
             elif [ "$_have" -eq 1 ] && [ -n "${APP_UPDATE[$app]}" ]; then
@@ -5052,6 +5068,11 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
                     bun)             _curl_url="https://bun.com/install"                   ; _shell=bash
                                      ensure_unzip ;;
+                    # Not a self-contained binary drop like the rest: it picks
+                    # the distro's own package manager (pacman here, the vendor
+                    # apt repo there), so it needs sudo — already cached — and
+                    # it enables tailscaled itself. Its own `| sh`, so sh.
+                    tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell=sh   ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
