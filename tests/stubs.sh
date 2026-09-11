@@ -582,6 +582,28 @@ printf '#!/bin/sh\necho ori stub "$@"\n' > "$HOME/.local/bin/ori"
 chmod +x "$HOME/.local/bin/ori"
 ORI_SH
             ;;
+        *tailscale.com/install.sh)
+            # The odd one out among the curl apps: it installs nothing itself,
+            # it drives the distro package manager as root and then enables
+            # tailscaled — so the binary lands in a system bin, not under
+            # $HOME, and there is no rc file in the story at all. Modelled with
+            # both halves of the real script's `set -eu`: the pacman arm does
+            # not guard `systemctl enable --now`, so a host with no systemd
+            # exits non-zero *after* a perfect install. That is the Devin shape
+            # again, and the reason the binary is the verdict.
+            cat > "$out" <<'TS_SH'
+#!/bin/sh
+[ "$(readlink /proc/self/fd/0 2>/dev/null)" = /dev/null ] \
+    || echo "STUBFAIL: tailscale installer was handed the run's own stdin" >&2
+sudo true || { echo "STUBFAIL: tailscale installer could not reach sudo" >&2; exit 1; }
+printf '#!/bin/sh\necho tailscale stub "$@"\n' > "${STUB_BIN:?}/tailscale"
+chmod +x "${STUB_BIN}/tailscale"
+sudo systemctl enable --now tailscaled
+[ "${STUB_TS_NO_SYSTEMD:-0}" = 1 ] && { echo "systemctl: no systemd" >&2; exit 1; }
+echo "Installation complete! Log in to start using Tailscale by running:"
+echo "sudo tailscale up"
+TS_SH
+            ;;
         *bun.com/install)
             # Three contracts in one installer: it unpacks a zip, so ensure_unzip
             # has to have run; its PATH block is guarded by ~/.bun/bin being on
@@ -735,14 +757,18 @@ wt git <<'EOF'
 exec /usr/bin/git "$@"
 EOF
 
-# ── a system bin mirror without fzf, the AUR helpers or unzip ────────────────
+# ── a system bin mirror without fzf, the AUR helpers, unzip or tailscale ─────
 # so "fzf is not installed yet" is actually true inside a scenario — and so a
 # host that happens to have paru, yay or unzip cannot leak one into a sandbox
 # that is meant to be without it (the stub PATH provides its own).
+# tailscale is here for the same reason and one more: it is the only curl app
+# whose installer puts the binary in a *system* bin, so an author who has it on
+# the machine would see "already installed" and never run the install path at
+# all — passing here and testing something else on CI.
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|paru|yay|unzip) continue ;; esac
+    case "$b" in fzf|paru|yay|unzip|tailscale) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done

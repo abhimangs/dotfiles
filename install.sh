@@ -5072,7 +5072,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # the distro's own package manager (pacman here, the vendor
                     # apt repo there), so it needs sudo — already cached — and
                     # it enables tailscaled itself. Its own `| sh`, so sh.
-                    tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell=sh   ;;
+                    tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell="sh" ;;
                 esac
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."

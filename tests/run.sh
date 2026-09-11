@@ -363,7 +363,7 @@ grep -qxF fresh-editor "$WORK/run/debian-deb-badsha/state/installed" \
 #      dotfile; the stub installers do it whenever the opt-out is missing, which
 #      is what makes "no rc file was touched" an assertion rather than a hope.
 run     curlapps ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" \
-        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,ori,bun"
+        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,ori,bun,tailscale"
 check   curlapps 0
 d="$WORK/run/curlapps/home"
 for b in .local/bin/claude .local/bin/codex .local/bin/agent .opencode/bin/opencode \
@@ -373,6 +373,19 @@ for b in .local/bin/claude .local/bin/codex .local/bin/agent .opencode/bin/openc
 done
 nowant  curlapps 'is not on PATH'    'every installer produced its binary'
 nowant  curlapps 'Failed \('         'nothing failed'
+# Tailscale is the exception to the line above it: no bin dir under $HOME, a
+# system one, because its installer drives the package manager as root instead
+# of dropping a binary. Both halves are asserted — the binary the verdict is
+# read from, and the daemon, which is the thing you actually wanted installed.
+[ -x "$WORK/run/curlapps/bin/tailscale" ] \
+    && note curlapps "tailscale installed in the system bin, not under \$HOME" \
+    || bad  curlapps "no tailscale on PATH after its installer ran"
+grep -q 'systemctl enable --now tailscaled' "$WORK/run/curlapps/state/sudo.log" \
+    && note curlapps "tailscaled was enabled" \
+    || bad  curlapps "the installer never enabled tailscaled"
+# The login is a separate step from the install and nothing else would say so.
+want    curlapps 'sudo tailscale up'  'and the run says how to log in'
+want    curlapps 'systemctl enable --now tailscaled' 'and names the service'
 # Both rc files and the checkout behind the symlink, in one sweep — an append
 # to ~/.zshrc follows it into the repo copy, which is the damage that matters.
 if grep -rqs 'STUB PATH BLOCK\|STUB COMPLETIONS' "$d"; then
@@ -383,7 +396,7 @@ fi
 
 # Second pass over the same sandbox: found where they were left, not reinstalled.
 rerun   curlapps-again curlapps "$WORK/k-sel" \
-        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,ori,bun"
+        DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,ori,bun,tailscale"
 check   curlapps-again 0
 want    curlapps-again 'Claude Code CLI already installed' 'found in ~/.local/bin'
 # The update commands are run, not just printed: each stub binary echoes the
@@ -414,6 +427,14 @@ want    curlapps-again 'Downloading installer for .*Muse Code' \
                                                           'and muse'
 want    curlapps-again 'Run ori in a terminal to open it'  'an app in the map says how to launch it'
 want    curlapps-again 'Run muse in a terminal to open it' 'including one with no update command'
+# tailscale is in neither half of APP_UPDATE: the package manager updates it, so
+# a second run must not re-drive sudo and the package manager — and must still
+# print the login, which is the one step an "already installed" app can still be
+# missing. That line comes from the branch no other app reaches.
+want    curlapps-again 'Tailscale already installed'  'the package manager owns its updates, so it is left alone'
+nowant  curlapps-again 'Downloading installer for .*Tailscale' \
+                                                          'and its installer does not run again'
+want    curlapps-again 'sudo tailscale up'            'but the login is still spelled out'
 
 # 15h2. A vendor updater that fails on an app already on disk is not a failed
 #       app — the working version is still there, so it is a warning and the run
@@ -425,6 +446,18 @@ want    curlapps-badupd 'Update failed — keeping the installed version' 'the f
 want    curlapps-badupd 'Codex CLI done'   'and the app still counts as installed'
 nowant  curlapps-badupd 'Failed \('        'nothing reached the failure list'
 nowant  curlapps-badupd 'Downloading installer' 'a failed update is not a reinstall'
+
+# 15h2b. Tailscale's own version of the Devin shape. The real installer runs
+#        under `set -eu` and its pacman arm does not guard `systemctl enable
+#        --now`, so on a host with no systemd it exits non-zero *after* the
+#        package is installed and the binary is on PATH. The binary is the
+#        verdict: that is an installed app with a warning, not a failed one.
+run     ts-nosystemd arch "$WORK/k-sel" \
+        DOTFILES_APPS="tailscale" STUB_TS_NO_SYSTEMD=1
+check   ts-nosystemd 0
+want    ts-nosystemd 'Tailscale installed'  'the binary on PATH is what decides'
+want    ts-nosystemd 'sudo tailscale up'    'and the login still gets said'
+nowant  ts-nosystemd 'Failed \('            'a non-zero installer did not fail the app'
 
 # 15h3. gh and git-delta are in Ubuntu universe and Debian trixie but NOT in
 #       bookworm, which is the release this repo still supports — so the apt
