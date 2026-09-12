@@ -468,7 +468,13 @@ tui_size() {
         TUI_COLS=$(tput cols  2>/dev/null) || return 1
     fi
     [[ "$TUI_ROWS" =~ ^[0-9]+$ ]] && [[ "$TUI_COLS" =~ ^[0-9]+$ ]] || return 1
-    (( TUI_ROWS >= 14 )) && (( TUI_COLS >= 60 ))
+    # tui_draw's row needs liw >= 2+3+1+NAMEW+1+STATEW+1+6 (the description
+    # column's own floor) before its width math holds up; below that, descw
+    # gets clamped to 6 while liw stays too small to hold it and the box
+    # overflows instead of falling back to the numbered list. 60 was a round
+    # number, not this number — it let 60..72 through and broke the frame.
+    local _floor_cols=$(( 43 + TUI_NAMEW + TUI_STATEW ))
+    (( TUI_ROWS >= 14 )) && (( TUI_COLS >= _floor_cols ))
 }
 
 # Deliberately hard to fail into the fallback: colour and glyphs are adapted

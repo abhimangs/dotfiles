@@ -658,6 +658,15 @@ STUB_TTY_ROWS=24 STUB_TTY_COLS=80 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8
 check   tui-narrow 0
 want    tui-narrow 'Configs: .*fastfetch'      'usable on a small terminal'
 
+# 68 columns is inside the old >= 60 floor but below what the row math
+# actually needs (73, from NAMEW+STATEW+the description column's own floor) —
+# it used to draw and overflow its own box instead of falling back.
+STUB_TTY_ROWS=24 STUB_TTY_COLS=68 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
+    run tui-toonarrow ubuntu "$WORK/k-num"
+check   tui-toonarrow 0
+want    tui-toonarrow 'cannot draw the menu'   'declined to draw at 68 columns'
+want    tui-toonarrow 'Choice \(e.g. 1 4'      'numbered list instead'
+
 # A pty with no size at all must fall back rather than draw a broken frame.
 STUB_NO_SIZE=1 STUB_TERM=xterm-256color run tui-nosize ubuntu "$WORK/k-num" STUB_NO_SIZE=1
 check   tui-nosize 0
