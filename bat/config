@@ -1,5 +1,5 @@
 --theme="Catppuccin Mocha"
---style=numbers,changes,header,grid,rule,snip
+--style=numbers,changes,header,grid,snip
 --map-syntax '*.conf:ini'
 --map-syntax '*.rasi:css'
 --map-syntax '*.zsh:bash'

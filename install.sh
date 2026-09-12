@@ -938,6 +938,11 @@ tui_loop() {
                           TUI_CUR=$(( TUI_CUR + 10 ))
                           (( TUI_CUR > ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 ))
                           (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
+                    # Delete and End send ESC[3~ / ESC[4~ — neither means
+                    # anything here, but the trailing ~ has to be read or it
+                    # falls through to the default case below and types a
+                    # literal '~' into the search filter.
+                    '[3'|'[4') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN" ;;
                     '[1'|'[2') IFS= read -rsn3 -d '' -t 0.05 rest <"$TTY_IN" ;;
                     '')  if [ -n "$TUI_FILTER" ]; then TUI_FILTER=""; TUI_CUR=0; tui_build_view
                          else return 1; fi ;;
@@ -1672,7 +1677,10 @@ install_release_deb() {
 ensure_ghostty_deb() {
     command -v ghostty &>/dev/null && return 0
     ensure_apt_deps
-    bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" &>/dev/null 2>&1
+    # </dev/null: without it this reads the rest of the curl|bash download
+    # stream as its own stdin, the same bug every other vendor installer here
+    # is run with the redirect to avoid.
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" &>/dev/null 2>&1 </dev/null
     command -v ghostty &>/dev/null
 }
 

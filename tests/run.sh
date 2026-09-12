@@ -609,6 +609,26 @@ STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-search ubuntu "$WORK/k-tu
 check   tui-search 0
 want    tui-search 'Configs: git$'             'search narrowed it to git and ticked that'
 
+# The Delete key sends ESC[3~. Unhandled, the trailing ~ falls through to the
+# next loop iteration and types itself into the filter as a normal character —
+# so typing "gi", pressing Delete, then "t" used to filter for "gi~t" instead
+# of "git", matching nothing.
+cat > "$WORK/k-tui-delete.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf 'gi'; sleep 0.3
+printf '\033[3~'; sleep 0.3           # Delete
+printf 't'; sleep 0.5
+printf ' '; sleep 0.4                 # tick whatever the filter left
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-delete ubuntu "$WORK/k-tui-delete.sh"
+check   tui-delete 0
+want    tui-delete 'Configs: git$'             'Delete key did not leak a ~ into the filter'
+
 # ctrl-a takes the whole menu you are looking at, and nothing from the others.
 cat > "$WORK/k-tui-all.sh" <<'FEED'
 . "$WORK/k-lib.sh"
