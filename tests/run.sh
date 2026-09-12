@@ -192,19 +192,27 @@ check   ubuntu-deadppa 0
 want    ubuntu-deadppa 'Removed a dead source from an earlier run' 'stale PPA cleaned up'
 want    ubuntu-deadppa '\[ok\] apt ready$'                      'index healthy afterwards'
 
-# 10. unattended-upgrades sitting on the dpkg lock, and the user says yes.
-STUB_LOCKED=1 run ubuntu-locked-yes ubuntu "$WORK/k-lock-yes" \
+# 10. A selection on the command line means nobody is at the keyboard, same as
+# the Proceed? prompt — so the updater is stopped without asking rather than
+# hanging forever on `DOTFILES_CONFIGS=… curl … | bash` with no one there to
+# answer. No keystrokes needed: with UNATTENDED=1 there is no prompt to feed.
+STUB_LOCKED=1 run ubuntu-locked-yes ubuntu "$WORK/k-sel" \
     DOTFILES_CONFIGS="git" STUB_LOCKED=1
 check   ubuntu-locked-yes 0
 want    ubuntu-locked-yes 'Still locked by unattended-upgr'  'names the holder'
-want    ubuntu-locked-yes 'the lock is the process, not the file' 'corrects the usual advice'
+want    ubuntu-locked-yes 'not asked, no one at the keyboard' 'stopped without asking'
 want    ubuntu-locked-yes 'Lock released'                    'holder stopped'
 want    ubuntu-locked-yes 'Tools verified'                   'install proceeds'
 
-# 11. Same, but the user declines — must fail cleanly, not thrash.
+# 11. Genuinely attended (no DOTFILES_CONFIGS/TOOLS/APPS, so UNATTENDED stays
+# 0) and the user declines — must fail cleanly, not thrash. The privacy and
+# backup-mode prompts are answered by their own flags so the only interactive
+# question left is the lock one; the decline exits at the stow/fzf install in
+# step 2, before the menu in step 3 is ever reached, so no menu keys needed.
 STUB_LOCKED=1 run ubuntu-locked-no ubuntu "$WORK/k-lock-no" \
-    DOTFILES_CONFIGS="git" STUB_LOCKED=1
+    STUB_LOCKED=1 DOTFILES_PRIVATE=1 DOTFILES_BACKUP_MODE=backup
 check   ubuntu-locked-no 1
+want    ubuntu-locked-no 'Still locked by unattended-upgr'   'names the holder'
 want    ubuntu-locked-no 'Left running'                      'choice respected'
 nowant  ubuntu-locked-no 'Stale package index'               'no pointless retry noise'
 

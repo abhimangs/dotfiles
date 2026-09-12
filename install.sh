@@ -128,6 +128,18 @@ if [ -n "${DOTFILES_BACKUP_MODE:-}" ]; then
     esac
 fi
 
+# ── Nobody at the keyboard ────────────────────────────────────────────────────
+# A selection given on the command line means this is an unattended run, and
+# every prompt in the script has to know that. Settled here, the first point
+# where PICK_* are final (flags above, their DOTFILES_* twins just above), and
+# not down beside the privacy prompt where it used to live: the apt bootstrap
+# runs long before that, and apt_clear_lock's "Stop it and continue?" was
+# therefore still asked on a path where UNATTENDED was not yet set — on Ubuntu,
+# where unattended-upgrades holds the lock on a fresh image, the documented
+# `DOTFILES_CONFIGS=… curl … | bash` waited there forever.
+UNATTENDED=0
+[ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] && UNATTENDED=1
+
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
 IS_UBUNTU=0
@@ -1290,9 +1302,18 @@ apt_clear_lock() {
     esac
     substep "${C_DIM}This is the automatic updater. Deleting the lock file will not help:${C_RESET}"
     substep "${C_DIM}the lock is the process, not the file.${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Stop it and continue? [Y/n]: ${C_RESET}"
-    read -r ans <"$TTY_IN"
-    [[ "$ans" =~ ^[Nn]$ ]] && { substep "${C_DIM}Left running${C_RESET}"; return 1; }
+    # The same reason the Proceed prompt skips itself: on the documented
+    # `DOTFILES_CONFIGS=… curl … | bash` path TTY_IN is a real terminal with no
+    # one in front of it, so this waited for a keypress that never came — and it
+    # sits in the apt bootstrap, which every Debian/Ubuntu run reaches. Naming
+    # what to install is the consent; the updater is what is in the way of it.
+    if [ "${UNATTENDED:-0}" -eq 1 ]; then
+        substep "${C_DIM}Stopping it — not asked, no one at the keyboard${C_RESET}"
+    else
+        echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Stop it and continue? [Y/n]: ${C_RESET}"
+        read -r ans <"$TTY_IN"
+        [[ "$ans" =~ ^[Nn]$ ]] && { substep "${C_DIM}Left running${C_RESET}"; return 1; }
+    fi
 
     sudo systemctl stop unattended-upgrades.service apt-daily.service \
         apt-daily-upgrade.service packagekit.service &>/dev/null
@@ -4054,9 +4075,9 @@ STRIP_REPO=0
 # without either they take the answers Enter would have given.
 # Not --dry-run: that still walks the menu, and a run that is about to ask for
 # arrow keys has no business claiming nobody is at the keyboard. A dry run with
-# a selection is covered by the line below like any other.
-UNATTENDED=0
-[ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] && UNATTENDED=1
+# a selection is covered like any other.
+# UNATTENDED itself is set near the top, beside the DOTFILES_* twins — the apt
+# bootstrap prompts long before this point and needs the answer already.
 
 if [ -n "$OPT_PRIVATE" ] || [ "$UNATTENDED" -eq 1 ]; then
     STRIP_REPO="${OPT_PRIVATE:-0}"
