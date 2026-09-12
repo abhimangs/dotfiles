@@ -25,6 +25,9 @@ Thumbs.db
 # Claude & AI Agents
 CLAUDE.md
 AGENTS.md
+.claude/
+.codex/
+.cursor/
 
 # Ulauncher generated files
 ulauncher/user-themes/*/generated.css
