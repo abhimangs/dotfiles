@@ -3520,12 +3520,29 @@ show_plan() {
             fi
             # needs_wallpaper is what the install loop branches on too, so the
             # plan cannot drift from it the way a second hardcoded list would.
+            # The loop calls stow_config "wallpapers" — the same function used
+            # for every other config, backup/delete conflict and all — so the
+            # plan has to run the same conflict check, not just look for the
+            # one filename this repo happens to ship: a user's own real
+            # ~/.config/wallpapers (their own photos, none named the same)
+            # used to be reported as "already in place" and then deleted or
+            # backed up without a word of warning.
             if needs_wallpaper "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
-                local wp="$HOME/.config/wallpapers/Serene Japanese Landscape with Red Sun.jpg"
-                if [ ! -f "$wp" ]; then
-                    steps+=("${C_GREEN}stow wallpapers${C_RESET}")
-                else
+                target="$HOME/.config/wallpapers"; bak="${target}.bak"
+                if { [ -L "$target" ] && ! is_repo_link "$target"; } \
+                   || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
+                        ! -type l ! -type d 2>/dev/null | grep -q .; }; then
+                    if [[ "$BACKUP_MODE" == "delete" ]]; then
+                        steps+=("${C_RED}delete${C_RESET} ${C_DIM}wallpapers${C_RESET}")
+                    else
+                        [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers.bak → wallpapers.old.bak${C_RESET}")
+                        steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers → wallpapers.bak${C_RESET}")
+                    fi
+                    steps+=("${C_GREEN}stow → ~/.config/wallpapers/${C_RESET}")
+                elif [ -e "$target" ]; then
                     steps+=("${C_DIM}wallpaper already in place${C_RESET}")
+                else
+                    steps+=("${C_GREEN}stow wallpapers${C_RESET} ${C_DIM}(fresh)${C_RESET}")
                 fi
                 wallpaper_stowed=1
             fi

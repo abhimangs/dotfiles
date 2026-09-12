@@ -688,6 +688,26 @@ else
     bad  kitty-cfg "no font on disk after the font step"
 fi
 
+echo
+echo "── the wallpaper plan, against a foreign ~/.config/wallpapers ──"
+# The plan used to decide by looking for this repo's own filename, not by
+# running the same conflict check stow_config itself uses — so a user's own
+# wallpapers directory (their own photos, none named the same) was reported as
+# "already in place" and then deleted with --backup-mode=delete and no
+# warning at all, same shape as the dep-tool-config bug above.
+build_root "$WORK/run/wallpaper-plan" ubuntu
+mkdir -p "$WORK/run/wallpaper-plan/home/.config/wallpapers"
+echo 'not this repo'\''s image' > "$WORK/run/wallpaper-plan/home/.config/wallpapers/vacation.jpg"
+RUN_ARGS="--dry-run --configs=kitty --gui --backup-mode=delete" \
+    install_pass "$WORK/run/wallpaper-plan" "$WORK/run/wallpaper-plan" "$WORK/k-sel"
+check   wallpaper-plan 0
+want    wallpaper-plan 'delete.*wallpapers'   'the plan warns before deleting a foreign wallpapers dir'
+if [ -f "$WORK/run/wallpaper-plan/home/.config/wallpapers/vacation.jpg" ]; then
+    note wallpaper-plan "dry run — the foreign file is untouched"
+else
+    bad  wallpaper-plan "a dry run deleted something"
+fi
+
 echo "── unattended runs, and the prompt that still asked ─────"
 # The two single-key questions answer themselves when a selection is named,
 # but "Proceed? [Y/n]" still read a key — and on the documented unattended path
