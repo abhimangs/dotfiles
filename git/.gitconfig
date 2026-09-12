@@ -10,6 +10,9 @@
     # is only implemented on macOS and Windows; on Linux it is a no-op and
     # misleads anyone reading the config into thinking it is active.
     preloadindex = true
+    # Global hook dispatcher, stowed from this repo (git/.config/git/hooks).
+    # Strips Claude attribution trailers, then chains to any repo-local hook.
+    hooksPath = ~/.config/git/hooks
 
 [delta]
     navigate     = true
