@@ -3656,12 +3656,18 @@ show_plan() {
             # Two of these carry a config as well as a binary, and in delete
             # mode that means an rm -rf of ~/.config/<tool> with no .bak. The
             # plan used to say only "already installed" and then delete it.
+            # The loop stows through stow_config, same as any other config —
+            # so the check has to catch a foreign symlink too, not just a real
+            # directory: [ -d ] follows a symlink, and find -P (the default)
+            # will not descend into one, so a user's own ~/.config/<tool>
+            # pointed elsewhere used to look empty here and get removed anyway.
             for _dc in "${DEP_HAS_CONFIG[@]}"; do
                 [ "$_d" = "$_dc" ] || continue
                 [ -d "$DOTFILES_DIR/$_d" ] || continue
                 _dtarget="$HOME/.config/$_d"
-                if [ -d "$_dtarget" ] && find "$_dtarget" -mindepth 1 -maxdepth 3 \
-                        ! -type l ! -type d 2>/dev/null | grep -q .; then
+                if { [ -L "$_dtarget" ] && ! is_repo_link "$_dtarget"; } \
+                   || { [ -d "$_dtarget" ] && find "$_dtarget" -mindepth 1 -maxdepth 3 \
+                        ! -type l ! -type d 2>/dev/null | grep -q .; }; then
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
                         echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}~/.config/${_d}${C_RESET}"
                     else

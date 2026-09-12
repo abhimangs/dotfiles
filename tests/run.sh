@@ -653,6 +653,26 @@ check   dep-config-plan 0
 want    dep-config-plan 'delete.*~/.config/btop'   'the plan warns before deleting a dep config'
 want    dep-config-plan 'stow → ~/.config/btop'    'and says it stows the theme'
 
+# Same check, but the foreign config is a symlink the user made themselves
+# (into a sync folder, say) rather than a real directory. [ -d ] follows the
+# link and find -P (the default) will not descend into one, so this used to
+# look empty and get past the plan with no warning before stow_config removed
+# the user's own symlink at install time.
+build_root "$WORK/run/dep-config-plan-symlink" ubuntu
+mkdir -p "$WORK/run/dep-config-plan-symlink/home/Sync/btop" \
+         "$WORK/run/dep-config-plan-symlink/home/.config"
+echo 'color_theme = "mine"' > "$WORK/run/dep-config-plan-symlink/home/Sync/btop/btop.conf"
+ln -s "../Sync/btop" "$WORK/run/dep-config-plan-symlink/home/.config/btop"
+RUN_ARGS="--dry-run --tools=btop --backup-mode=delete" \
+    install_pass "$WORK/run/dep-config-plan-symlink" "$WORK/run/dep-config-plan-symlink" "$WORK/k-sel"
+check   dep-config-plan-symlink 0
+want    dep-config-plan-symlink 'delete.*~/.config/btop' 'the plan warns before deleting a foreign symlink too'
+if [ -L "$WORK/run/dep-config-plan-symlink/home/.config/btop" ]; then
+    note dep-config-plan-symlink "dry run — the foreign symlink is untouched"
+else
+    bad  dep-config-plan-symlink "a dry run removed the user's symlink"
+fi
+
 echo
 echo "── kitty, and the wallpaper it drags in ─────────────────"
 # kitty was the one config in the fastfetch|ghostty|kitty|rofi|micro|fresh case
