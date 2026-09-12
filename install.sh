@@ -842,18 +842,15 @@ tui_switch_tab() {              # tui_switch_tab <+1|-1|index>
     tui_build_view
 }
 
-# Ticking zsh ticks what zsh cannot work without, in the menu, where it can be
-# seen and undone — rather than silently after it closes. starship draws the
-# whole prompt and the tools are what its aliases call.
-tui_tick_index() {              # tui_tick_index <index> <0|1>
-    T_TICK[$1]=$2
-}
 tui_tick_key() {                # tui_tick_key <key> <0|1>
     local i
     for i in "${!T_KEY[@]}"; do
         [ "${T_KEY[$i]}" = "$1" ] && { T_TICK[$i]=$2; return; }
     done
 }
+# Ticking zsh ticks what zsh cannot work without, in the menu, where it can be
+# seen and undone — rather than silently after it closes. starship draws the
+# whole prompt and the tools are what its aliases call.
 tui_implied_pull() {            # tui_implied_pull <index just ticked>
     local i
     case "${T_KEY[$1]}" in

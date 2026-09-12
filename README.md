@@ -156,7 +156,7 @@ One screen, four tabs (**dotfiles · tools · apps · selected**), and only one 
 
 Every row says what will happen to it: `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
 
-It is drawn by the installer rather than by fzf. fzf is still installed (the zsh config uses it for `Ctrl-T`/`Alt-C`) but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
+It is drawn by the installer rather than by fzf. fzf is still installed (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is remapped to autosuggest-accept) but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
 
 On a terminal that genuinely cannot draw it (no tty, no window size, `TERM=dumb`), the installer falls back to numbered lists. `--ascii` and `--no-color` do *not* trigger the fallback; the menu adapts.
 
@@ -236,7 +236,7 @@ installed but my shell is still bash", which is the question it was written for.
 Everything in `.zshrc` is guarded by `command -v`, so a missing tool means a silently absent feature rather than an error. Selecting `zsh` therefore also installs:
 
 - **starship**: the entire prompt is `eval "$(starship init zsh)"`
-- **bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux**: the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-T`/`Alt-C` integration
+- **bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux**: the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-F`/`Alt-C` integration
 
 Anything already ticked is not added twice, and all of these remain selectable on their own if you are not using zsh.
 
