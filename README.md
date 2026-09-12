@@ -44,9 +44,13 @@ Any of the three selection flags may be left out, which means "none of those": `
 **Unattended runs.** Naming a selection means nobody is at the keyboard: no menu is drawn, and neither the two single-key questions (privacy, and what happens to existing configs) nor the *Proceed?* confirmation is asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. Naming what to install *is* the confirmation, so the plan prints and the run proceeds. So this is a complete, hands-off install:
 
 ```bash
-DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code \
-  curl -fsSL https://abhiman.io/linux.sh | bash
+curl -fsSL https://abhiman.io/linux.sh \
+  | DOTFILES_CONFIGS=zsh,git DOTFILES_TOOLS=all DOTFILES_APPS=claude-code bash
 ```
+
+The assignments have to sit on the `bash` side of the pipe: `VAR=x curl … | bash`
+binds `VAR` to `curl`, not to the `bash` that actually reads it, and the
+variable is silently unset for the whole run.
 
 Anything else is rejected with exit 2 rather than ignored: a mistyped `--dryrun`
 would otherwise have run a real install.
@@ -54,7 +58,7 @@ would otherwise have run a real install.
 Each flag has an environment equivalent (`DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_LIST`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS`, `DOTFILES_PRIVATE`, `DOTFILES_BACKUP_MODE`), because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
 
 ```bash
-DOTFILES_DRY_RUN=1 curl -fsSL https://abhiman.io/linux.sh | bash
+curl -fsSL https://abhiman.io/linux.sh | DOTFILES_DRY_RUN=1 bash
 ```
 
 Colour and glyphs are also dropped automatically where they cannot render: `TERM=dumb`/`linux`/`vt*`, a non-UTF-8 locale, or output that is not a terminal. That is what makes the installer readable over a plain SSH session or on a VT console.
@@ -174,7 +178,7 @@ taken before the first run, un-stows `~/.zshrc` and `starship.toml` restoring an
 Through the curl bootstrap, where flags cannot be passed:
 
 ```bash
-DOTFILES_RESTORE_BASH=1 curl -fsSL https://abhiman.io/linux.sh | bash
+curl -fsSL https://abhiman.io/linux.sh | DOTFILES_RESTORE_BASH=1 bash
 ```
 
 **The pristine copy.** The first run that touches `~/.bashrc` copies it to

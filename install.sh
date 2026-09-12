@@ -75,7 +75,7 @@ one also has an environment variable:
   DOTFILES_CONFIGS   DOTFILES_TOOLS   DOTFILES_APPS
   DOTFILES_PRIVATE   DOTFILES_BACKUP_MODE
 
-  DOTFILES_GUI=1 curl -fsSL https://abhiman.io/linux.sh | bash
+  curl -fsSL https://abhiman.io/linux.sh | DOTFILES_GUI=1 bash
 USAGE
 }
 
