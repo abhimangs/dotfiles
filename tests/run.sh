@@ -802,10 +802,6 @@ tail -3 "$WORK/run/spinner/clean.txt" | grep -q '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
     || note spinner "every frame was erased"
 want    spinner 'Installed'        'and the summary printed cleanly'
 
-# With no terminal there is no spinner and no elapsed line — the same run
-# captured is byte-identical to what it was before any of this existed.
-nowant  flags-argv '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]'  'nothing drew where colour is off'
-
 echo
 echo "── --help ───────────────────────────────────────────────"
 # The one flag that answers on a machine this installer does not support: it is
@@ -848,6 +844,10 @@ want    flags-argv 'Selection given on the command line' 'flags path taken'
 want    flags-argv 'Configs: .*git'            'config from --configs'
 want    flags-argv 'Dep tools: .*bat'          'tool from --tools'
 nowant  flags-argv 'Choice \(e.g.'             'no menu drawn'
+
+# With no terminal there is no spinner and no elapsed line — the same run
+# captured is byte-identical to what it was before any of this existed.
+nowant  flags-argv '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]'  'nothing drew where colour is off'
 
 # A typo in an unattended run must stop, not quietly install nothing.
 RUN_ARGS="--configs=zshh" run flags-typo ubuntu "$WORK/k-sel"
