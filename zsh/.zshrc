@@ -169,11 +169,15 @@ alias grep='grep --color=auto'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
 
 # ── Aliases: System ───────────────────────────────────────────
-# Built from what is actually installed — a server with no paru or flatpak
+# Built from what is actually installed — a server with no AUR helper or flatpak
 # would otherwise fail the whole chain on the first missing command.
 if command -v pacman &>/dev/null; then
+    # paru and yay both wrap pacman, so a single -Syu through either one
+    # covers the repos and the AUR in one pass — no separate pacman step.
     _upd='sudo pacman -Syu'
-    command -v paru    &>/dev/null && _upd="$_upd && paru -Sua"
+    for _aur in paru yay; do
+        command -v "$_aur" &>/dev/null && { _upd="$_aur -Syu"; break; }
+    done
 elif command -v apt &>/dev/null; then
     _upd='sudo apt update && sudo apt full-upgrade -y'
 fi
@@ -181,7 +185,7 @@ if [[ -n "$_upd" ]]; then
     command -v flatpak &>/dev/null && _upd="$_upd && flatpak update"
     alias update="$_upd"
 fi
-unset _upd
+unset _upd _aur
 alias reload='source ~/.zshrc'
 alias zshrc='${EDITOR:-nano} ~/.zshrc'
 alias myip='curl ifconfig.me'
