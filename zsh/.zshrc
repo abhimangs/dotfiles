@@ -10,7 +10,6 @@ typeset -gU path fpath
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
-export PATH="$HOME/.kimi-code/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"
 export PATH="$HOME/.grok/bin:$PATH"
 
@@ -221,6 +220,3 @@ alias ccr='claude --dangerously-skip-permissions --resume'
 alias ccc='claude --dangerously-skip-permissions --continue'
 
 alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=4080x3072 --video-codec=h265 --video-bit-rate=25M --max-fps=30 --v4l2-sink=/dev/video2 --no-playback'
-
-# ── Fastfetch ─────────────────────────────────────────────────
-command -v fastfetch &>/dev/null && fastfetch
