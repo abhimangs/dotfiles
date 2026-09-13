@@ -169,6 +169,7 @@ obsidian
 unzip
 vicinae-bin
 deepseek-harness-bin
+stably-orca-bin
 obs-studio
 v4l2loopback-dkms
 qt6-wayland
@@ -182,7 +183,7 @@ PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
     # AUR fallback for them, which is how they install on a real Arch box.
-    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\n' > "$root/state/aur-only"
+    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 

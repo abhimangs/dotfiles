@@ -1138,6 +1138,25 @@ check   debian-dsh 2
 want    debian-dsh 'Unknown app'            'rejected on Debian/Ubuntu'
 
 echo
+echo "── orca (Arch only, headless too) ───────────────────────"
+# 21c. Same shape as deepseek-harness, and the headless run is the point: Orca
+#      is a desktop-ish tool but was asked for on headless Arch boxes too, so
+#      it must not be in GUI_APPS. Only this run would notice if it were.
+run     headless-orca arch "$WORK/k-sel" DOTFILES_APPS="orca"
+check   headless-orca 0
+want    headless-orca 'Orca.*done'          'installed on a headless Arch box'
+d="$WORK/run/headless-orca"
+grep -qxF stably-orca-bin "$d/state/installed" \
+    && note headless-orca "stably-orca-bin installed" || bad headless-orca "stably-orca-bin missing"
+grep -qxF stably-orca-bin "$d/state/aur-installed" 2>/dev/null \
+    && note headless-orca "installed through the AUR helper" \
+    || bad  headless-orca "never reached the AUR fallback"
+
+RUN_ARGS="--apps=orca" run debian-orca debian "$WORK/k-sel"
+check   debian-orca 2
+want    debian-orca 'Unknown app'           'rejected on Debian/Ubuntu'
+
+echo
 echo "── obs-studio + zoom ────────────────────────────────────"
 # 22. OBS is the only app whose extras are not optional: without
 #     v4l2loopback-dkms the virtual camera fails at runtime and without

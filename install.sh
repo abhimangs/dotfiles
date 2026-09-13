@@ -3061,18 +3061,19 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
     # moving target on apt), Vicinae (AUR only — upstream ships a tarball and a
     # Nix flake, no apt repo), Zoom (a vendor .deb behind a download page, no
-    # apt repo — the same shape as Obsidian) and DeepSeek Harness (AUR only —
-    # upstream ships source, no apt repo) are Arch-only for now.
+    # apt repo — the same shape as Obsidian), DeepSeek Harness (AUR only —
+    # upstream ships source, no apt repo) and Orca (AUR only, stably-orca-bin —
+    # no apt repo either) are Arch-only for now.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -3102,6 +3103,7 @@ APP_LABEL[grok-cli]="Grok CLI"
 APP_LABEL[mistral-cli]="Mistral CLI"
 APP_LABEL[ori]="ORI Harness"
 APP_LABEL[deepseek-harness]="Deepseek Harness"
+APP_LABEL[orca]="Orca"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
@@ -3151,6 +3153,7 @@ APP_TYPE[tailscale]="curl"
 # AUR-only, like vicinae/zoom — arch_install misses it in the repos and falls
 # through to the helper
 APP_TYPE[deepseek-harness]="paru"
+APP_TYPE[orca]="paru"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
@@ -3173,6 +3176,7 @@ APP_PKG[wezterm]="wezterm-git"
 APP_PKG[antigravity-ide]="antigravity-ide"
 APP_PKG[antigravity]="antigravity"
 APP_PKG[deepseek-harness]="deepseek-harness-bin"
+APP_PKG[orca]="stably-orca-bin"
 APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
@@ -3395,6 +3399,7 @@ APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
 APP_DESC[mistral-cli]="Mistral's coding agent  ${G_DOT}  run 'vibe --setup' after"
 APP_DESC[ori]="OpenRouter's CLI for projects you already have"
 APP_DESC[deepseek-harness]="DeepSeek's agent harness  ${G_DOT}  run 'dsh web' to open"
+APP_DESC[orca]="Stably's agent worktree manager  ${G_DOT}  run 'orca' to open"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher  ${G_DOT}  bind: vicinae toggle"
