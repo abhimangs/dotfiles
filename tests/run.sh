@@ -855,6 +855,15 @@ check   flags-typo 2
 want    flags-typo 'Unknown config'            'named the bad value'
 want    flags-typo 'available:'                'listed the real ones'
 
+# An explicitly empty value still means a flag was passed — must skip the
+# menu and land on "nothing to install," not fall through to the
+# interactive menu and block waiting on a keyboard scripted callers don't have.
+RUN_ARGS="--configs=" run flags-empty ubuntu "$WORK/k-sel"
+check   flags-empty 0
+want    flags-empty 'Selection given on the command line' 'an explicitly empty flag still skips the menu'
+want    flags-empty 'Nothing selected. Exiting.'  'and is treated as "install nothing," not "ask the menu"'
+nowant  flags-empty 'Choice \(e.g.'               'no menu drawn'
+
 # The two single-key prompts are the thing that made a truly unattended run
 # impossible: `read -n 1` under `curl … | bash` reads the download stream, and
 # under cloud-init it waits for a keyboard that is not there. A named selection

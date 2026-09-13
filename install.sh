@@ -30,6 +30,7 @@ OPT_NO_COLOR=0
 PICK_CONFIGS=""
 PICK_TOOLS=""
 PICK_APPS=""
+SELECTION_FLAG_GIVEN=0
 # Empty means "nobody said" — the two single-key prompts decide instead.
 OPT_PRIVATE=""
 OPT_BACKUP_MODE=""
@@ -87,9 +88,9 @@ for _arg in "$@"; do
         --list)         LIST_ONLY=1 ;;
         --ascii)        OPT_ASCII=1 ;;
         --no-color)     OPT_NO_COLOR=1 ;;
-        --configs=*)    PICK_CONFIGS="${_arg#*=}" ;;
-        --tools=*)      PICK_TOOLS="${_arg#*=}" ;;
-        --apps=*)       PICK_APPS="${_arg#*=}" ;;
+        --configs=*)    PICK_CONFIGS="${_arg#*=}"; SELECTION_FLAG_GIVEN=1 ;;
+        --tools=*)      PICK_TOOLS="${_arg#*=}"; SELECTION_FLAG_GIVEN=1 ;;
+        --apps=*)       PICK_APPS="${_arg#*=}"; SELECTION_FLAG_GIVEN=1 ;;
         --private)      OPT_PRIVATE=1 ;;
         --backup-mode=*)
             OPT_BACKUP_MODE="${_arg#*=}"
@@ -138,7 +139,7 @@ fi
 # where unattended-upgrades holds the lock on a fresh image, the documented
 # `DOTFILES_CONFIGS=… curl … | bash` waited there forever.
 UNATTENDED=0
-[ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] && UNATTENDED=1
+{ [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; } && UNATTENDED=1
 
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
@@ -4459,7 +4460,7 @@ menu_from_flags() {
     done
 }
 
-if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ]; then
+if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; then
     info "Selection given on the command line..."
     menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config"
     menu_from_flags DEPS     DEPS_LIST "${PICK_TOOLS:--}"   "tool"
