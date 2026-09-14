@@ -146,6 +146,25 @@ for c in stow fzf git zsh starship fastfetch bat eza fd zoxide pay-respects lazy
 done
 echo
 
+echo "── curl-installed CLIs ───────────────────────────────"
+# Same problem the tools loop above exists to catch, for a different set of
+# binaries: install.sh's interactive curl apps (the APP_UPDATE keys — the ones
+# with a "run it like this" line) each land in their own per-app bin dir, not
+# a package manager's, so "on PATH right now" and "actually installed" can
+# disagree here too. bun is already in the tools loop above (it is a runtime,
+# not one of these); tailscale is left to the package manager.
+declare -A CURL_APP_BIN=(
+    [antigravity-cli]=agy [claude-code]=claude [codex-cli]=codex
+    [cursor-cli]=agent [devin]=devin [ori]=ori [hermes]=hermes
+    [opencode]=opencode [kimi-code]=kimi [muse]=muse [grok-cli]=grok
+    [mistral-cli]=vibe
+)
+for app in antigravity-cli claude-code codex-cli cursor-cli devin ori hermes opencode kimi-code muse grok-cli mistral-cli; do
+    p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${CURL_APP_BIN[$app]}")"
+    printf "  %-16s %s\n" "$app" "${p:--}"
+done
+echo
+
 echo "── ccstatusline (Claude Code statusLine) ─────────────"
 # The config only stows a settings file; what actually renders the line is
 # `bunx ccstatusline` run by Claude Code out of ~/.claude/settings.json. So the

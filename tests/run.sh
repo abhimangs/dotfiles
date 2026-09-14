@@ -454,6 +454,8 @@ want    curlapps-badupd 'Update failed — keeping the installed version' 'the f
 want    curlapps-badupd 'Codex CLI done'   'and the app still counts as installed'
 nowant  curlapps-badupd 'Failed \('        'nothing reached the failure list'
 nowant  curlapps-badupd 'Downloading installer' 'a failed update is not a reinstall'
+want    curlapps-badupd 'Update failed, kept the installed version \(1\): .*Codex CLI' \
+                                            'and the final summary carries it too, not just the inline note'
 
 # 15h2b. Tailscale's own version of the Devin shape. The real installer runs
 #        under `set -eu` and its pacman arm does not guard `systemctl enable
@@ -644,6 +646,34 @@ STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-all ubuntu "$WORK/k-tui-a
 check   tui-all 0
 want    tui-all 'Dep tools: .*bat.*eza.*fd.*zoxide.*pay-respects.*lazygit.*btop.*tree' 'every tool ticked'
 want    tui-all 'No configs selected'          'and nothing from the other menus'
+
+# ctrl-u ticks only rows already installed or updatable — the "update pass"
+# bulk key, as opposed to ctrl-a which would also grab every never-installed
+# row in the tab. grok-cli is genuinely installed for real first, then the
+# filter narrows the apps tab to that one row before ctrl-u, so the assertion
+# does not depend on anything else on the machine running this suite being
+# absent (curl_app_installed does a real $PATH search, and a dev box this
+# repo is normally run from can easily have half these binaries already).
+run tui-grok-base ubuntu "$WORK/k-sel" DOTFILES_APPS="grok-cli"
+check tui-grok-base 0
+cat > "$WORK/k-tui-installed.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf '\033[C'; sleep 0.3            # right → tools
+printf '\033[C'; sleep 0.3            # right → apps
+printf 'grok'; sleep 0.4              # filter down to Grok CLI alone
+printf '\025'; sleep 0.4              # ctrl-u → tick it, it is installed
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
+    rerun tui-installed tui-grok-base "$WORK/k-tui-installed.sh"
+check   tui-installed 0
+want    tui-installed 'Apps: .*Grok CLI$'      'ctrl-u ticked the already-installed row on its own'
+want    tui-installed 'No configs selected'    'and nothing from the other menus'
+want    tui-installed 'No dep tools selected'  'and nothing from the other menus'
 
 # --ascii: no box-drawing characters, no Nerd Font glyphs, same menu.
 RUN_ARGS=--ascii STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
@@ -1788,10 +1818,11 @@ echo "── doctor.sh mirrors install.sh ────────────�
 # Nothing enforced it; adding a config is now the thing that fails here.
 doc_src="$HERE/../doctor.sh"
 inst_src="$HERE/../install.sh"
-mapfile -t doc_cfgs  < <(sed -n 's/^for cfg in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
-mapfile -t doc_tools < <(sed -n 's/^for c in \(.*\); do$/\1/p'   "$doc_src" | tr ' ' '\n' | sed '/^$/d')
-if [ "${#doc_cfgs[@]}" -ge 8 ] && [ "${#doc_tools[@]}" -ge 8 ]; then
-    note doctor-lists "both loops extracted from doctor.sh"
+mapfile -t doc_cfgs     < <(sed -n 's/^for cfg in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
+mapfile -t doc_tools    < <(sed -n 's/^for c in \(.*\); do$/\1/p'   "$doc_src" | tr ' ' '\n' | sed '/^$/d')
+mapfile -t doc_curlapps < <(sed -n 's/^for app in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
+if [ "${#doc_cfgs[@]}" -ge 8 ] && [ "${#doc_tools[@]}" -ge 8 ] && [ "${#doc_curlapps[@]}" -ge 8 ]; then
+    note doctor-lists "all three loops extracted from doctor.sh"
 else
     bad  doctor-lists "extraction matched almost nothing — not looking at doctor.sh"
 fi
@@ -1819,6 +1850,22 @@ if [ "${#doc_missing[@]}" -eq 0 ]; then
     note doctor-tools "every dep tool is in doctor.sh's tools loop"
 else
     bad  doctor-tools "doctor.sh never looks for: ${doc_missing[*]}"
+fi
+
+# install.sh's curl-app list, for this purpose, is APP_UPDATE's keys — the
+# interactive CLIs among the curl apps, the same set that earns a "run it like
+# this" line there. bun and tailscale are curl apps too but neither is a key
+# (bun is a runtime already in doctor.sh's tools loop; tailscale's updates are
+# the package manager's job), so they are rightly absent from both sides here.
+mapfile -t inst_curlapps < <(sed -n 's/^APP_UPDATE\[\([a-zA-Z0-9_-]*\)\]=.*/\1/p' "$inst_src")
+doc_missing=()
+for c in "${inst_curlapps[@]}"; do
+    printf '%s\n' "${doc_curlapps[@]}" | grep -qx "$c" || doc_missing+=("$c")
+done
+if [ "${#inst_curlapps[@]}" -ge 8 ] && [ "${#doc_missing[@]}" -eq 0 ]; then
+    note doctor-curlapps "every interactive curl CLI is in doctor.sh's curl-app loop"
+else
+    bad  doctor-curlapps "doctor.sh never reports: ${doc_missing[*]:-<APP_UPDATE extraction found nothing>}"
 fi
 
 # Duplicated verbatim, on purpose — doctor.sh installs nothing and sources

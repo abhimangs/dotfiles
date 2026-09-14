@@ -853,7 +853,7 @@ tui_draw() {
     for (( i = 0; i < ${#LFT[@]}; i++ )); do
         frame+="${LFT[$i]} ${RGT[$i]:-}"$'\033[K\n'
     done
-    frame+="  ${C_DIM}${G_LEFT} ${G_RIGHT} menu   ${G_UP} ${G_DOWN} move   space tick   ctrl-a all   ctrl-d review, then install   esc cancel${C_RESET}"
+    frame+="  ${C_DIM}${G_LEFT} ${G_RIGHT} menu   ${G_UP} ${G_DOWN} move   space tick   ctrl-a all   ctrl-u installed   ctrl-d review, then install   esc cancel${C_RESET}"
     frame+=$'\033[K\033[J'
     printf '%s' "$frame"
 }
@@ -921,6 +921,25 @@ tui_toggle_all() {
     return 0
 }
 
+# Bulk-select's other half: an update pass wants everything already on this
+# machine, not everything in the tab — ctrl-a pulls in "new" rows too, which
+# is exactly the point of a second key. Only ticks, never unticks, since
+# there is nothing to toggle off: rows this leaves alone were never touched.
+tui_tick_installed() {
+    local idx
+    for idx in "${TUI_VIEW[@]}"; do
+        case "${T_STATE[$idx]}" in
+            installed|update)
+                [ "${T_TICK[$idx]}" = 1 ] && continue
+                T_TICK[$idx]=1
+                tui_implied_pull "$idx"
+                ;;
+        esac
+    done
+    [ "${TUI_TABS[$TUI_TAB]}" = selected ] && tui_build_view
+    return 0
+}
+
 TUI_CONFIRMED=0
 tui_loop() {
     local key rest rc pending=1
@@ -982,6 +1001,7 @@ tui_loop() {
                     tui_switch_tab 3
                 fi ;;
             $'\001')   tui_toggle_all ;;
+            $'\025')   tui_tick_installed ;;
             $'\011')   tui_switch_tab +1 ;;
             $'\177'|$'\010') TUI_FILTER="${TUI_FILTER%?}"; TUI_CUR=0; tui_build_view ;;
             $'\003')   return 1 ;;
@@ -1150,12 +1170,17 @@ pkg_installed_snapshot() {
     [ -n "$bin" ] && command -v "$bin" &>/dev/null
 }
 
+# Last pacman error, so a failure can be shown instead of just "failed" —
+# the same treatment apt_install already gets from APT_LAST_ERROR.
+PACMAN_LAST_ERROR=""
+
 pacman_install() {
     if [ -f /var/lib/pacman/db.lck ]; then
         sudo rm -f /var/lib/pacman/db.lck
     fi
+    local out
     spin_start
-    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1 && { spin_stop; return 0; }
+    out=$(sudo pacman -S --needed --noconfirm "$@" 2>&1) && { spin_stop; return 0; }
     spin_stop
     # A sync db older than the mirror resolves to package versions that have
     # since been replaced — "target not found" or a 404 mid-download. Refresh
@@ -1163,9 +1188,11 @@ pacman_install() {
     substep "${C_YELLOW}Stale package database — refreshing and retrying${C_RESET}"
     spin_start
     sudo pacman -Sy --noconfirm &>/dev/null 2>&1 || true
-    sudo pacman -S --needed --noconfirm "$@" &>/dev/null 2>&1
+    out=$(sudo pacman -S --needed --noconfirm "$@" 2>&1)
     local _rc=$?
     spin_stop
+    [ "$_rc" -eq 0 ] && return 0
+    PACMAN_LAST_ERROR="$out"
     return "$_rc"
 }
 
@@ -3088,6 +3115,25 @@ DEB_INSTALLER[protonvpn]="ensure_protonvpn_cli_deb"
 DEB_INSTALLER[starship]="ensure_starship_deb"
 DEB_INSTALLER[ulauncher]="ensure_ulauncher_deb"
 
+# Prints the last few lines of whichever package-manager error is populated —
+# apt's or pacman's, whichever this run actually hit — so a failed install
+# says more than its own name. Silent when neither is set, which covers every
+# failure that never reached apt/pacman at all (a curl download, a stow
+# conflict, ...).
+install_error_tail() {
+    local err="" label=""
+    if [ -n "${APT_LAST_ERROR:-}" ]; then
+        err="$APT_LAST_ERROR"; label="apt"
+    elif [ -n "${PACMAN_LAST_ERROR:-}" ]; then
+        err="$PACMAN_LAST_ERROR"; label="pacman"
+    fi
+    [ -n "$err" ] || return 0
+    substep "${C_DIM}${label} said:${C_RESET}"
+    printf '%s\n' "$err" | tail -5 | while IFS= read -r _el; do
+        substep "${C_DIM}${_el}${C_RESET}"
+    done
+}
+
 # The install-or-fail preamble every config arm opened with — six near-identical
 # copies of it, which is how the wording drifted apart between them. Returns
 # non-zero on failure; the `continue` stays at the call site because it has to
@@ -3112,6 +3158,7 @@ ensure_cfg_pkg() {
         "${DEB_INSTALLER[$cfg]:-apt_install}" "$pkg" && return 0
     fi
     error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
+    install_error_tail
     return 1
 }
 
@@ -3574,6 +3621,22 @@ dir_target_conflicts() {
              ! -type l ! -type d 2>/dev/null | grep -q .; }
 }
 
+# A terse diff for the highest-stakes line in the plan: a real, non-repo
+# config about to be backed up (or deleted) and overwritten. "It will be
+# replaced" never says what is actually different — this does. diff -rq's own
+# output is already one line per differing/added/removed file; capped anyway,
+# since a config with dozens of files should not spill the rest of the plan.
+plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
+    local -n _pdd_steps="$1"
+    local _pdd_t="$2" _pdd_s="$3" _pdd_line _pdd_n=0
+    { [ -e "$_pdd_t" ] || [ -L "$_pdd_t" ]; } && [ -d "$_pdd_s" ] || return 0
+    while IFS= read -r _pdd_line; do
+        _pdd_n=$(( _pdd_n + 1 ))
+        if [ "$_pdd_n" -gt 4 ]; then _pdd_steps+=("${C_DIM}…${C_RESET}"); return 0; fi
+        _pdd_steps+=("${C_DIM}${_pdd_line}${C_RESET}")
+    done < <(diff -rq "$_pdd_t" "$_pdd_s" 2>/dev/null)
+}
+
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 # The four outcomes for one dotfile in $HOME — our symlink, present, present
 # with a .bak to rotate, absent — read identically for .bashrc, .zshrc and
@@ -3594,6 +3657,24 @@ plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
         # file, so say that — and name it, or the backup row reads like it is
         # about a file the user does not think they have.
         [ -L "$_file" ] && _steps+=("${C_DIM}${_name} is your own symlink, not ours${C_RESET}")
+        # A short excerpt of what is actually different, for the same reason
+        # plan_dir_diff exists — "it will be replaced" alone does not say what
+        # changes. Only the three configs that route through this function
+        # have a fixed repo source to diff against.
+        local _src=""
+        case "$_name" in
+            .bashrc)    _src="$DOTFILES_DIR/bash/.bashrc" ;;
+            .zshrc)     _src="$DOTFILES_DIR/zsh/.zshrc" ;;
+            .gitconfig) _src="$DOTFILES_DIR/git/.gitconfig" ;;
+        esac
+        if [ -n "$_src" ] && [ -f "$_src" ]; then
+            local _dl _dn=0
+            while IFS= read -r _dl; do
+                _dn=$(( _dn + 1 ))
+                if [ "$_dn" -gt 6 ]; then _steps+=("${C_DIM}…${C_RESET}"); break; fi
+                _steps+=("${C_DIM}${_dl}${C_RESET}")
+            done < <(diff -u "$_file" "$_src" 2>/dev/null | tail -n +3)
+        fi
         if [[ "$BACKUP_MODE" == "delete" ]]; then
             _steps+=("${C_RED}delete${C_RESET} ${C_DIM}${_name}${C_RESET}${_note}")
         else
@@ -3667,6 +3748,7 @@ show_plan() {
             # stow_config: -d follows the link, and what gets moved aside is
             # the link, not whatever it happens to point at.
             if dir_target_conflicts "$target"; then
+                plan_dir_diff steps "$target" "$DOTFILES_DIR/$cfg"
                 if [[ "$BACKUP_MODE" == "delete" ]]; then
                     steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
                 else
@@ -4491,17 +4573,13 @@ else
 if [[ "$DISTRO" == "arch" ]]; then
     if ! pacman_install stow fzf; then
         error "Failed to install/update stow and fzf."
+        install_error_tail
         exit 1
     fi
 else
     if ! apt_install stow fzf; then
         error "Failed to install/update stow and fzf."
-        if [ -n "$APT_LAST_ERROR" ]; then
-            substep "${C_DIM}apt said:${C_RESET}"
-            printf '%s\n' "$APT_LAST_ERROR" | tail -5 | while IFS= read -r _l; do
-                substep "${C_DIM}${_l}${C_RESET}"
-            done
-        fi
+        install_error_tail
         exit 1
     fi
 fi
@@ -4774,6 +4852,11 @@ FAILED=()
 # scrolls past a hundred lines of install output, and "where did my old config
 # go" is the question asked afterwards — so the summary answers it in one line.
 BACKED_UP=()
+# A curl CLI whose self-update failed. Not a FAILED app — the working version
+# is still there — but a dim inline note during a scrolling install is easy to
+# miss, and without this a run that updated five CLIs and silently failed one
+# still ends on a clean-looking summary.
+UPDATE_FAILED=()
 
 # ── Step 5a0: fonts ───────────────────────────────────────────────────────────
 # Both fonts are installed on every run rather than only when a terminal config
@@ -4923,6 +5006,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             fi
             if [ "$_dep_ok" -eq 0 ]; then
                 error "Failed to install ${dep} — skipping"
+                install_error_tail
                 FAILED+=("$dep")
                 continue
             fi
@@ -5345,10 +5429,13 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             elif [ "$_have" -eq 1 ] && [ -n "${APP_UPDATE[$app]}" ]; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed — updating..."
                 # A failed update still leaves the working version behind, so it
-                # is a warning here, not a failed app.
+                # is a warning here, not a failed app — but it still goes in the
+                # summary, or a run that silently failed one update looks clean.
                 read -ra _ucmd <<< "${APP_UPDATE[$app]}"
-                PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null \
-                    || substep "${C_DIM}Update failed — keeping the installed version${C_RESET}"
+                if ! PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null; then
+                    substep "${C_DIM}Update failed — keeping the installed version${C_RESET}"
+                    UPDATE_FAILED+=("$_lbl")
+                fi
                 app_open_hint "$app"
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")
@@ -5499,6 +5586,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 INSTALLED+=("$_lbl")
             else
                 error "Failed to install ${C_ACCENT}${_lbl}${C_RESET}"
+                install_error_tail
                 FAILED+=("$_lbl")
             fi
         fi
@@ -5571,6 +5659,9 @@ if [ "${#BACKED_UP[@]}" -gt 0 ]; then
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}$(join_list "${FAILED[@]}")${C_RESET}"
+fi
+if [ "${#UPDATE_FAILED[@]}" -gt 0 ]; then
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT} ${C_RESET}Update failed, kept the installed version (${#UPDATE_FAILED[@]}): ${C_YELLOW}$(join_list "${UPDATE_FAILED[@]}")${C_RESET}"
 fi
 if [ "${#AUR_SIG_SKIPPED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${C_BOLD}${G_FAIL} ${C_RESET}${C_RED}${C_BOLD}Installed WITHOUT signature verification (${#AUR_SIG_SKIPPED[@]}): ${C_RESET}${C_RED}$(join_list "${AUR_SIG_SKIPPED[@]}")${C_RESET}"
