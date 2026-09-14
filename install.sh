@@ -1146,6 +1146,11 @@ pacman_install() {
 AUR_HELPER=""
 aur_ready() { [ -n "$AUR_HELPER" ] && command -v "$AUR_HELPER" &>/dev/null; }
 
+# Packages this run installed with PGP verification turned off (attempt 2
+# below). A transient warning during a long, scrolling install is easy to
+# miss — this is what lets the final summary say so too.
+AUR_SIG_SKIPPED=()
+
 _aur_run_robust() {
     local sync_flag="${1:-}"   # "" | "y" | "yy"
     local pkg="$2"
@@ -1185,10 +1190,28 @@ _aur_run_robust() {
         substep "${C_YELLOW}PGP key issue — refreshing keyring and retrying${C_RESET}"
         sudo pacman -S --needed --noconfirm archlinux-keyring &>/dev/null 2>&1 || true
         sudo pacman-key --populate archlinux &>/dev/null 2>&1 || true
-        if "${_flags[@]}" --mflags "--skippgpcheck" "$pkg" >"$tmplog" 2>&1; then
-            rm -f "$tmplog"; return 0
+        # A refreshed keyring still failing means the retry left is installing
+        # with verification off entirely — a real security tradeoff, so (like
+        # apt_clear_lock above) it is never assumed on an unattended run with
+        # no one to ask, and asked explicitly otherwise, default-no.
+        local _sig_go=0
+        if [ "${UNATTENDED:-0}" -eq 1 ]; then
+            substep "${C_RED}${C_BOLD}Unattended — leaving signature verification on; ${pkg} will fail${C_RESET}"
+        else
+            echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}Install ${pkg} WITHOUT verifying its PGP signature? [y/N]: ${C_RESET}"
+            local _sigans; read -r _sigans <"$TTY_IN"
+            [[ "$_sigans" =~ ^[Yy]$ ]] && _sig_go=1
         fi
-        err=$(<"$tmplog")
+        if [ "$_sig_go" -eq 1 ]; then
+            # Loud on purpose: a one-line warning during a scrolling install
+            # is easy to miss, and this is a real, ongoing security tradeoff.
+            substep "${C_RED}${C_BOLD}${G_FAIL} SIGNATURE VERIFICATION SKIPPED — installing ${pkg} unverified${C_RESET}"
+            if "${_flags[@]}" --mflags "--skippgpcheck" "$pkg" >"$tmplog" 2>&1; then
+                AUR_SIG_SKIPPED+=("$pkg")
+                rm -f "$tmplog"; return 0
+            fi
+            err=$(<"$tmplog")
+        fi
     fi
 
     # ── attempt 3: file conflict ─────────────────────────────────────────────
@@ -1824,7 +1847,7 @@ ensure_lazygit_deb() {
     # hirsute in 2021 — on any supported release it adds a source with no
     # Release file, which then breaks every apt-get update on the machine.
     # The upstream release binary is the only working path.
-    local apat url tmp
+    local apat url tmp want got
     case "$(deb_arch)" in
         amd64)        apat='x86_64' ;;
         arm64)        apat='arm64' ;;
@@ -1835,8 +1858,20 @@ ensure_lazygit_deb() {
     url=$(github_latest_asset_url "jesseduffield/lazygit" "Linux_${apat}\.tar\.gz$")
     if [ -n "$url" ]; then
         tmp=$(mktemp -d -p "$RUN_TMPDIR" lazygit_XXXXXX)
-        if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null && tar -xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null; then
-            sudo install -m755 "$tmp/lazygit" /usr/local/bin/lazygit
+        if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
+            # lazygit publishes one checksums.txt per release rather than the
+            # per-asset .deb.sha256 install_release_deb looks for, so the same
+            # verify-before-a-root-install rule is repeated here by hand.
+            want=$(curl -fsSL "${url%/*}/checksums.txt" 2>/dev/null \
+                | grep -F "${url##*/}" | grep -oiE '^[0-9a-f]{64}' | head -1)
+            got=$(sha256sum "$tmp/lazygit.tar.gz" 2>/dev/null | cut -d' ' -f1)
+            if [ -n "$want" ] && [ "$got" != "$want" ]; then
+                substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
+                substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
+                error "Refusing to install it — that binary would go in as root"
+            elif tar -xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null; then
+                sudo install -m755 "$tmp/lazygit" /usr/local/bin/lazygit
+            fi
         fi
         rm -rf "$tmp"
     fi
@@ -1964,8 +1999,21 @@ ensure_brave_deb() {
     fi
 
     apt_install_keyring "$key_url" "$key_file" --armored || return 1
-    sudo curl -fsSLo "$sources_file" "https://${host}/brave-browser.sources" &>/dev/null 2>&1 \
-        || { substep "${C_YELLOW}Could not download Brave's sources file${C_RESET}"; return 1; }
+    # Same failure apt_install_keyring guards against two lines up: a bare
+    # `sudo curl -o` trusts whatever came back — a captive portal page, an S3
+    # XML error — straight into sources.list.d as root. Fetch unprivileged
+    # first and check it actually looks like a DEB822 sources stanza.
+    local tmp; tmp="$(mktemp -p "$RUN_TMPDIR" brave_sources_XXXXXX)" || return 1
+    curl -fsSL "https://${host}/brave-browser.sources" -o "$tmp" 2>/dev/null || {
+        substep "${C_YELLOW}Could not download Brave's sources file${C_RESET}"
+        rm -f "$tmp"; return 1
+    }
+    if [ ! -s "$tmp" ] || ! grep -q '^Types:' "$tmp"; then
+        substep "${C_YELLOW}What came back from ${host} is not a sources file${C_RESET}"
+        rm -f "$tmp"; return 1
+    fi
+    sudo install -m644 "$tmp" "$sources_file" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
     APT_UPDATED=0
     apt_update_once
     apt_install "$pkg"
@@ -2077,7 +2125,7 @@ docker_postinstall() {
     # exactly the boxes the rest of this script already defends against.
     local _u; _u="$(id -un)"
     if sudo usermod -aG docker "$_u" &>/dev/null; then
-        substep "${C_DIM}${_u} added to the docker group — takes effect on your next login${C_RESET}"
+        substep "${C_DIM}${_u} added to the docker group — root-equivalent access on this machine, takes effect on your next login${C_RESET}"
     else
         substep "${C_YELLOW}Could not add ${_u} to the docker group${C_RESET} ${C_DIM}— docker will need sudo until you do${C_RESET}"
     fi
@@ -2539,7 +2587,8 @@ ensure_zsh_autoexec() {
 # already reports git metadata as "stripped (private mode)".
 PRIVATE_DELETE=(menu_temp tests .git .github .gitignore .gitattributes
                 .editorconfig .shellcheckrc
-                README.md CLAUDE.md AGENTS.md LICENSE linux.sh)
+                README.md CLAUDE.md AGENTS.md LICENSE linux.sh
+                .claude .codex .cursor)
 
 # file → what is taken out of it
 PRIVATE_SCRUB_FILES=(git/.gitconfig fastfetch/config.jsonc install.sh)
@@ -5409,6 +5458,9 @@ if [ "${#BACKED_UP[@]}" -gt 0 ]; then
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${G_FAIL} ${C_RESET}Failed (${#FAILED[@]}):    ${C_RED}$(join_list "${FAILED[@]}")${C_RESET}"
+fi
+if [ "${#AUR_SIG_SKIPPED[@]}" -gt 0 ]; then
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${C_BOLD}${G_FAIL} ${C_RESET}${C_RED}${C_BOLD}Installed WITHOUT signature verification (${#AUR_SIG_SKIPPED[@]}): ${C_RESET}${C_RED}$(join_list "${AUR_SIG_SKIPPED[@]}")${C_RESET}"
 fi
 _elapsed=$(( SECONDS - START_TS ))
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT} ${C_RESET}${C_DIM}took $(( _elapsed / 60 ))m $(( _elapsed % 60 ))s${C_RESET}"
