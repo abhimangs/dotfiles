@@ -933,15 +933,26 @@ RUN_ARGS="--dry-run" run dry-bare ubuntu "$WORK/k-num"
 check   dry-bare 0
 nowant  dry-bare 'no one at the keyboard'  'a run that draws a menu does not claim otherwise'
 want    dry-bare 'dry run'                 'and still stops at the plan'
+# Steps 1-2 run real apt/pacman calls before show_plan's own DRY_RUN exit is
+# ever reached — these prove they were skipped rather than just the word "dry"
+# showing up somewhere in the transcript.
+want    dry-bare 'would refresh the package index'  'step 1 (apt bootstrap) did not run for real'
+want    dry-bare 'would install/update: stow fzf'   'step 2 (stow+fzf) did not run for real'
+[ -s "$WORK/run/dry-bare/state/installed" ] && bad  dry-bare "a dry run installed a package for real" \
+                                             || note dry-bare "nothing was installed"
 
 # --dry-run with a named selection: the whole plan, nothing written.
 RUN_ARGS="--dry-run --configs=zsh --apps=docker" run flags-dry ubuntu "$WORK/k-sel"
 check   flags-dry 0
 want    flags-dry 'Installation plan'          'the plan was printed'
 want    flags-dry 'dry run'                    'and stopped there'
+want    flags-dry 'would refresh the package index'  'step 1 (apt bootstrap) did not run for real'
+want    flags-dry 'would install/update: stow fzf'   'step 2 (stow+fzf) did not run for real'
 d="$WORK/run/flags-dry/home"
 [ -e "$d/.zshrc" ] && bad flags-dry "a dry run stowed something" \
                    || note flags-dry "nothing written"
+[ -s "$WORK/run/flags-dry/state/installed" ] && bad  flags-dry "a dry run installed a package for real" \
+                                              || note flags-dry "nothing was installed"
 
 # "all" is the shorthand the numbered list has always had.
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"

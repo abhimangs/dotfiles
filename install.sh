@@ -260,6 +260,11 @@ _cleanup() {
         printf '\r\033[K'
     fi
     [ "${RUN_TMPDIR:-/tmp}" != "/tmp" ] && rm -rf "$RUN_TMPDIR"
+    # wire_claude_statusline's atomic-rename tmp file lives in ~/.claude/ itself
+    # (not RUN_TMPDIR above — see its own comment on why), so an interrupt
+    # between mktemp and the mv/rm that consumes it — Ctrl-C while the embedded
+    # python3 step runs, say — would otherwise orphan it there permanently.
+    [ -n "${_CC_STATUSLINE_TMP:-}" ] && rm -f "$_CC_STATUSLINE_TMP" 2>/dev/null
     # A reset for colour that was never emitted is not a no-op: it is a stray
     # escape glued to the end of stdout. --list is meant to be captured
     # (`names=$(install.sh --list)`), so it must not pay for a safety net that
@@ -2775,6 +2780,10 @@ wire_claude_statusline() {
     # whole function exists to avoid. Same directory as the target makes the mv
     # a rename, which is atomic.
     local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 1
+    # Not `local` — _cleanup reads this global to remove the file if we are
+    # interrupted before it is consumed below. Cleared once it no longer needs
+    # rescuing, further down.
+    _CC_STATUSLINE_TMP="$tmp"
 
     # stdout carries advisory notes, the exit status carries the outcome.
     local out rc
@@ -2880,6 +2889,9 @@ PY
     if [[ "$out" == *shadowed* ]]; then
         substep "${C_YELLOW}A managed statusLine overrides it${C_RESET} ${C_DIM}— user settings are the lowest precedence scope${C_RESET}"
     fi
+    # $tmp is gone (moved or rm'd) by every case arm above — nothing left for
+    # _cleanup to rescue.
+    _CC_STATUSLINE_TMP=""
     return "$wired"
 }
 
@@ -4094,6 +4106,9 @@ fi
 # --restore-bash short-circuits everything below: no privacy prompt, no backup
 # mode, no menus, no install loop. Privileges above it are already sorted out.
 if [ "$RESTORE_BASH" -eq 1 ]; then
+    if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; then
+        substep "${C_DIM}--restore-bash runs alone — ignoring --configs/--tools/--apps${C_RESET}"
+    fi
     restore_bash
     exit $?
 fi
@@ -4236,6 +4251,14 @@ if [[ "$DISTRO" == "arch" ]]; then
             success "Continuing without an AUR helper"
         else
         substep "No AUR helper found — installing paru..."
+        if [ "$DRY_RUN" -eq 1 ]; then
+            # show_plan is still ahead of us and has its own DRY_RUN exit, but
+            # that runs after this step — without this guard a "dry run"
+            # already built and installed paru for real by the time it got
+            # there.
+            substep "${C_DIM}[dry run] would install base-devel/git and bootstrap paru${C_RESET}"
+            success "Dry run — nothing installed"
+        else
         substep "Checking internet connection..."
         if ! net_reachable archlinux.org; then
             error "No internet connection — paru requires internet to install."
@@ -4284,6 +4307,7 @@ if [[ "$DISTRO" == "arch" ]]; then
         AUR_HELPER="paru"
         success "paru installed"
         fi
+        fi
     fi
 else
     info "Preparing apt..."
@@ -4292,6 +4316,13 @@ else
         error "No internet connection — apt requires internet to install packages."
         exit 1
     fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        # Same reasoning as the paru branch above: show_plan's own DRY_RUN exit
+        # is still several steps away, and apt_update_once/ensure_apt_deps
+        # write to the system for real.
+        substep "${C_DIM}[dry run] would refresh the package index and install apt prerequisites${C_RESET}"
+        success "Dry run — nothing installed"
+    else
     substep "Updating package index..."
     if apt_update_once; then
         ensure_apt_deps
@@ -4306,6 +4337,7 @@ else
         substep "${C_DIM}Continuing — installs usually still work when one source is broken${C_RESET}"
         ensure_apt_deps
         success "apt ready (index refreshed with errors)"
+    fi
     fi
 fi
 
@@ -4324,6 +4356,10 @@ done
 [ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:         ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
 [ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
 
+if [ "$DRY_RUN" -eq 1 ]; then
+    substep "${C_DIM}[dry run] would install/update: stow fzf${C_RESET}"
+    success "Dry run — nothing installed"
+else
 if [[ "$DISTRO" == "arch" ]]; then
     if ! pacman_install stow fzf; then
         error "Failed to install/update stow and fzf."
@@ -4342,6 +4378,7 @@ else
     fi
 fi
 success "Tools verified"
+fi
 
 # ── Step 3: the menu ─────────────────────────────────────────────────────────
 declare -a SELECTED=() DEPS=() APPS=()
@@ -4397,45 +4434,92 @@ menu_numeric() {
 
     info "Optional dep tools..."
     echo ""
-    for _i in "${!DEPS_LIST[@]}"; do
-        _dd="${DEPS_LIST[$_i]}"
-        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
-    done
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
-    read -r DEP_RAW <"$TTY_IN"
-    echo ""
-    if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
-        DEPS=("${DEPS_LIST[@]}")
-    elif [[ -n "$DEP_RAW" ]]; then
-        for token in $DEP_RAW; do
-            [[ "$token" =~ ^[0-9]+$ ]] && \
-            (( token >= 1 && token <= ${#DEPS_LIST[@]} )) && \
-            DEPS+=("${DEPS_LIST[$((token-1))]}")
+    attempts=0
+    while true; do
+        for _i in "${!DEPS_LIST[@]}"; do
+            _dd="${DEPS_LIST[$_i]}"
+            printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-9s ${C_DIM}${G_DOT}  %s${C_RESET}\n" "$((_i+1))" "$_dd" "${DEP_DESC[$_dd]}"
         done
-    fi
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 2 or a, Enter=skip): ${C_RESET}"
+        read -r DEP_RAW <"$TTY_IN"
+        echo ""
+
+        if [[ "$DEP_RAW" == "a" || "$DEP_RAW" == "A" ]]; then
+            DEPS=("${DEPS_LIST[@]}")
+            break
+        fi
+        [ -z "$DEP_RAW" ] && break
+
+        valid=true
+        tmp=()
+        for token in $DEP_RAW; do
+            if [[ "$token" =~ ^[0-9]+$ ]] && (( token >= 1 && token <= ${#DEPS_LIST[@]} )); then
+                tmp+=("${DEPS_LIST[$((token-1))]}")
+            else
+                valid=false; break
+            fi
+        done
+
+        if $valid && [ "${#tmp[@]}" -gt 0 ]; then
+            DEPS=("${tmp[@]}")
+            break
+        fi
+
+        (( attempts++ ))
+        if [ "$attempts" -ge 3 ]; then
+            error "Too many invalid attempts. Exiting."
+            exit 1
+        fi
+        error "Invalid input — enter numbers 1–${#DEPS_LIST[@]} separated by spaces, or 'a' for all"
+        echo ""
+    done
 
     info "Optional applications..."
     echo ""
-    local _app_i=1
-    for _line in "${APPS_LIST[@]}"; do
-        printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-22s ${C_DIM}${G_DOT}  %s${C_RESET}\n" \
-            "$_app_i" "${APP_LABEL[$_line]}" "${APP_DESC[$_line]:-$(app_type_resolved "$_line")}"
-        (( _app_i++ ))
-    done
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
-    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
-    read -r APP_RAW <"$TTY_IN"
-    echo ""
-    if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
-        APPS=("${APPS_LIST[@]}")
-    elif [[ -n "$APP_RAW" ]]; then
-        for token in $APP_RAW; do
-            [[ "$token" =~ ^[0-9]+$ ]] && \
-            (( token >= 1 && token <= ${#APPS_LIST[@]} )) && \
-            APPS+=("${APPS_LIST[$((token-1))]}")
+    local _app_i
+    attempts=0
+    while true; do
+        _app_i=1
+        for _line in "${APPS_LIST[@]}"; do
+            printf "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}%2d ${C_DIM}${G_ARROW} ${C_RESET}%-22s ${C_DIM}${G_DOT}  %s${C_RESET}\n" \
+                "$_app_i" "${APP_LABEL[$_line]}" "${APP_DESC[$_line]:-$(app_type_resolved "$_line")}"
+            (( _app_i++ ))
         done
-    fi
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT} a ${C_DIM}${G_ARROW} ${C_RESET}All  ${C_DIM}${G_DOT}  Enter to skip${C_RESET}"
+        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Choice (e.g. 1 3 or a, Enter=skip): ${C_RESET}"
+        read -r APP_RAW <"$TTY_IN"
+        echo ""
+
+        if [[ "$APP_RAW" == "a" || "$APP_RAW" == "A" ]]; then
+            APPS=("${APPS_LIST[@]}")
+            break
+        fi
+        [ -z "$APP_RAW" ] && break
+
+        valid=true
+        tmp=()
+        for token in $APP_RAW; do
+            if [[ "$token" =~ ^[0-9]+$ ]] && (( token >= 1 && token <= ${#APPS_LIST[@]} )); then
+                tmp+=("${APPS_LIST[$((token-1))]}")
+            else
+                valid=false; break
+            fi
+        done
+
+        if $valid && [ "${#tmp[@]}" -gt 0 ]; then
+            APPS=("${tmp[@]}")
+            break
+        fi
+
+        (( attempts++ ))
+        if [ "$attempts" -ge 3 ]; then
+            error "Too many invalid attempts. Exiting."
+            exit 1
+        fi
+        error "Invalid input — enter numbers 1–${#APPS_LIST[@]} separated by spaces, or 'a' for all"
+        echo ""
+    done
 }
 
 # --configs / --tools / --apps: name what you want and no menu is drawn at all.
@@ -4869,6 +4953,21 @@ for cfg in "${SELECTED[@]}"; do
             error "zsh binary not found on PATH — leaving the default shell alone"
         elif same_shell "$current_shell" "$zsh_path"; then
             substep "${C_DIM}Login shell for ${target_user} is already zsh${C_RESET}"
+            # The hook is otherwise only (re-)written the run the shell actually
+            # changes. On an ordinary re-run it is already there and this is a
+            # silent no-op ($_HOOK_STATE=present) — but if it went missing since
+            # (hand-edited away, an old backup restored), this is what puts it
+            # back, the same idempotent call the branch below makes.
+            if ! zsh_hook_wanted; then
+                :
+            elif ensure_zsh_autoexec; then
+                [ "$_HOOK_STATE" = "present" ] \
+                    || substep "${C_DIM}Restored the .bashrc fallback — it had gone missing${C_RESET}"
+            elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
+                substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+            elif [ "$_HOOK_STATE" = "malformed" ]; then
+                substep "${C_YELLOW}A hand-edited hook block is in ~/.bashrc — left alone${C_RESET}"
+            fi
         else
             substep "Changing login shell for ${C_ACCENT}${target_user}${C_RESET} to zsh..."
 
