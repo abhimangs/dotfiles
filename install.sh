@@ -527,18 +527,33 @@ tui_build_items() {
 TUI_UPD_READY=""
 TUI_UPD_PID=""
 
-tui_scan_installed() {
-    local -A have=()
-    local name i p
+# One pacman -Q / dpkg-query dump of every installed package, done once and
+# shared: the TUI needs "is this installed" for every row on screen, and
+# show_plan plus the install loops' pre-action checks need the same thing for
+# every selected item — a full package-manager query per item, at each of
+# those call sites, is what this replaces. Guarded so the second caller (the
+# TUI already ran it, or didn't run at all this invocation) does not re-fork
+# the same query.
+declare -A PKG_HAVE=()
+PKG_HAVE_SCANNED=0
+scan_installed_pkgs() {
+    [ "$PKG_HAVE_SCANNED" -eq 1 ] && return 0
+    PKG_HAVE_SCANNED=1
+    local name
     if [[ "$DISTRO" == "arch" ]]; then
-        while read -r name _; do have[$name]=1; done < <(pacman -Q 2>/dev/null)
+        while read -r name _; do PKG_HAVE[$name]=1; done < <(pacman -Q 2>/dev/null)
     else
-        while read -r name _; do have[$name]=1; done \
+        while read -r name _; do PKG_HAVE[$name]=1; done \
             < <(dpkg-query -W -f '${Package} ${Status}\n' 2>/dev/null | grep ' installed$')
     fi
+}
+
+tui_scan_installed() {
+    scan_installed_pkgs
+    local i p
     for i in "${!T_KEY[@]}"; do
         p="${T_PKG[$i]}"
-        if [ -n "${have[$p]:-}" ] || curl_app_installed "$p" \
+        if [ -n "${PKG_HAVE[$p]:-}" ] || curl_app_installed "$p" \
            || { [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null; }; then
             T_STATE[$i]=installed
         else
@@ -1117,6 +1132,20 @@ pkg_installed() {
     else
         apt_pkg_installed "$pkg" && return 0
     fi
+    local bin="${PKG_BIN[$pkg]:-}"
+    [ -n "$bin" ] && command -v "$bin" &>/dev/null
+}
+
+# Same shape as pkg_installed(), against the one-time snapshot scan_installed_pkgs
+# takes instead of a fresh pacman -Q/dpkg-query — for the pre-action "is this
+# already installed" checks in show_plan and the install loops, which only need
+# to know the state from before this run touched anything. A check made after
+# something was actually installed this run must call pkg_installed() itself,
+# which still queries live.
+pkg_installed_snapshot() {
+    local pkg="$1"
+    [ -n "$pkg" ] || return 1
+    [ -n "${PKG_HAVE[$pkg]:-}" ] && return 0
     local bin="${PKG_BIN[$pkg]:-}"
     [ -n "$bin" ] && command -v "$bin" &>/dev/null
 }
@@ -2044,10 +2073,15 @@ ensure_vscode_deb() {
         apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
             /etc/apt/keyrings/packages.microsoft.gpg || return 1
     fi
-    apt_write_source_line \
-        "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
-        /etc/apt/sources.list.d/vscode.list
-    apt_update_once
+    # Same guard as the keyring fetch above: code and code-insiders share this
+    # one source file, so picking both re-wrote the identical line and forced
+    # a second full `apt update` for a repo already configured by the first.
+    if [ ! -s /etc/apt/sources.list.d/vscode.list ]; then
+        apt_write_source_line \
+            "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+            /etc/apt/sources.list.d/vscode.list
+        apt_update_once
+    fi
     apt_install "$pkg"
     apt_pkg_installed "$pkg"
 }
@@ -3061,7 +3095,9 @@ DEB_INSTALLER[ulauncher]="ensure_ulauncher_deb"
 #   ensure_cfg_pkg <cfg> <pkg>   # pkg already resolved by PKG_MAP, per distro
 ensure_cfg_pkg() {
     local cfg="$1" pkg="$2"
-    if pkg_installed "$pkg"; then
+    # Pre-action check: was this installed before this run, per the snapshot
+    # prepare_install_snapshot took — not a fresh pacman -Q/dpkg-query per config.
+    if pkg_installed_snapshot "$pkg"; then
         substep "${C_ACCENT}${pkg}${C_RESET} already installed"
         return 0
     fi
@@ -3435,6 +3471,21 @@ app_type_resolved() {
     fi
 }
 
+# dep_pkg_name/app_pkg_name/app_type_resolved were each re-invoked via command
+# substitution once per item at every one of show_plan, the dep-tools prescan
+# and the apps loop — called once here instead, right after the selection is
+# final, and read out of these from then on.
+declare -A RESOLVED_DEP_PKG=() RESOLVED_APP_PKG=() RESOLVED_APP_TYPE=()
+prepare_install_snapshot() {
+    scan_installed_pkgs
+    local _d _a
+    for _d in "${DEPS[@]}"; do RESOLVED_DEP_PKG[$_d]="$(dep_pkg_name "$_d")"; done
+    for _a in "${APPS[@]}"; do
+        RESOLVED_APP_PKG[$_a]="$(app_pkg_name "$_a")"
+        RESOLVED_APP_TYPE[$_a]="$(app_type_resolved "$_a")"
+    done
+}
+
 # ── Menu descriptions ─────────────────────────────────────────────────────────
 declare -A CONFIG_DESC
 CONFIG_DESC[fastfetch]="system info display at login"
@@ -3601,7 +3652,7 @@ show_plan() {
             else
                 steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}— it will not render without it${C_RESET}")
             fi
-        elif pkg_installed "$pkg"; then
+        elif pkg_installed_snapshot "$pkg"; then
             steps+=("${C_DIM}$pkg already installed${C_RESET}")
         else
             steps+=("${C_YELLOW}install $pkg${C_RESET}")
@@ -3756,7 +3807,7 @@ show_plan() {
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
         local _dc _dtarget
         for _d in "${DEPS[@]}"; do
-            if pkg_installed "$(dep_pkg_name "$_d")"; then
+            if pkg_installed_snapshot "${RESOLVED_DEP_PKG[$_d]}"; then
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
@@ -3791,7 +3842,7 @@ show_plan() {
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
         for _a in "${APPS[@]}"; do
             local _lbl="${APP_LABEL[$_a]}"
-            local _type; _type="$(app_type_resolved "$_a")"
+            local _type="${RESOLVED_APP_TYPE[$_a]}"
             if [[ "$_type" == "curl" ]]; then
                 local _bin="${APP_BIN[$_a]:-}"
                 if curl_app_installed "$_bin"; then
@@ -3813,8 +3864,8 @@ show_plan() {
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
                 fi
             else
-                local _pkg; _pkg="$(app_pkg_name "$_a")"
-                if pkg_installed "$_pkg"; then
+                local _pkg="${RESOLVED_APP_PKG[$_a]}"
+                if pkg_installed_snapshot "$_pkg"; then
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} already installed — will update${C_RESET}"
                 else
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
@@ -4712,6 +4763,7 @@ if [ "${#SELECTED[@]}" -eq 0 ] && [ "${#DEPS[@]}" -eq 0 ] && [ "${#APPS[@]}" -eq
 fi
 
 # ── Step 4: plan + confirm ────────────────────────────────────────────────────
+prepare_install_snapshot
 show_plan "${SELECTED[@]}"
 
 # ── Step 5a: install dep tools ───────────────────────────────────────────────
@@ -4801,10 +4853,11 @@ fi
 if [ "${#DEPS[@]}" -gt 0 ]; then
     info "Installing dep tools..."
 
+    # Pre-action check: was this installed before this run, per the snapshot
+    # prepare_install_snapshot took — not a fresh pacman -Q/dpkg-query per dep.
     declare -A _dep_was_installed=()
     for _dep in "${DEPS[@]}"; do
-        _dp="$(dep_pkg_name "$_dep")"
-        pkg_installed "$_dp" && _dep_was_installed["$_dep"]=1
+        pkg_installed_snapshot "${RESOLVED_DEP_PKG[$_dep]}" && _dep_was_installed["$_dep"]=1
     done
 
     # Pre-install uninstalled native repo packages in a single batch
@@ -4814,9 +4867,8 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             case "$_dep" in
                 eza|gh|delta|lazygit|pay-respects) ;;
                 *)
-                    _dp="$(dep_pkg_name "$_dep")"
                     if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
-                        _batch_apt+=("$_dp")
+                        _batch_apt+=("${RESOLVED_DEP_PKG[$_dep]}")
                     fi
                     ;;
             esac
@@ -4825,15 +4877,14 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             substep "Installing native dependencies in batch..."
             apt_install "${_batch_apt[@]}" || true
         fi
-        unset _batch_apt _dep _dp
+        unset _batch_apt _dep
     elif [[ "$DISTRO" == "arch" ]]; then
         _batch_arch=()
         for _dep in "${DEPS[@]}"; do
-            _dp="$(dep_pkg_name "$_dep")"
             if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
                 case "$_dep" in
                     pay-respects) ;; # AUR only
-                    *) _batch_arch+=("$_dp") ;;
+                    *) _batch_arch+=("${RESOLVED_DEP_PKG[$_dep]}") ;;
                 esac
             fi
         done
@@ -4841,7 +4892,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             substep "Installing native dependencies in batch..."
             pacman_install "${_batch_arch[@]}" || true
         fi
-        unset _batch_arch _dep _dp
+        unset _batch_arch _dep
     fi
 
     # The counter the configs and the apps loops both print. Twelve dep tools
@@ -4850,7 +4901,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
     for dep in "${DEPS[@]}"; do
         _dep_i=$(( _dep_i + 1 ))
         _dep_n="${C_DIM}[${_dep_i}/${#DEPS[@]}]${C_RESET}"
-        dep_pkg="$(dep_pkg_name "$dep")"
+        dep_pkg="${RESOLVED_DEP_PKG[$dep]}"
         if [ -n "${_dep_was_installed[$dep]:-}" ]; then
             substep "${_dep_n} ${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
         elif pkg_installed "$dep_pkg"; then
@@ -5243,11 +5294,41 @@ done
 # ── Step 5c: install applications ────────────────────────────────────────────
 if [ "${#APPS[@]}" -gt 0 ]; then
     info "Installing applications..."
+
+    # Pre-action check: was this installed before this run, per the snapshot
+    # prepare_install_snapshot took — not a fresh pacman -Q/dpkg-query per app.
+    declare -A _app_was_installed=()
+    for app in "${APPS[@]}"; do
+        pkg_installed_snapshot "${RESOLVED_APP_PKG[$app]}" && _app_was_installed["$app"]=1
+    done
+
+    # Batch every not-yet-installed plain pacman/apt app into one transaction
+    # first, the same pre-install pass the dep tools loop above already does.
+    # A curl app, an AUR one, or one needing its own repo/keyring dance
+    # (brave, vscode, alacritty, wezterm, claude-desktop, docker) still
+    # installs individually below — this only covers the plain case.
+    _batch_apps=()
+    for app in "${APPS[@]}"; do
+        [ -n "${_app_was_installed[$app]:-}" ] && continue
+        case "${RESOLVED_APP_TYPE[$app]}" in
+            pacman|apt) _batch_apps+=("${RESOLVED_APP_PKG[$app]}") ;;
+        esac
+    done
+    if [ "${#_batch_apps[@]}" -gt 0 ]; then
+        substep "Installing native applications in batch..."
+        if [[ "$DISTRO" == "arch" ]]; then
+            pacman_install "${_batch_apps[@]}" || true
+        else
+            apt_install "${_batch_apps[@]}" || true
+        fi
+    fi
+    unset _batch_apps
+
     _app_n=0
     for app in "${APPS[@]}"; do
         _app_n=$(( _app_n + 1 ))
         _lbl="${APP_LABEL[$app]}"
-        _type="$(app_type_resolved "$app")"
+        _type="${RESOLVED_APP_TYPE[$app]}"
         # counter only in the running output — $_lbl also feeds the summary
         substep "${C_DIM}[${_app_n}/${#APPS[@]}]${C_RESET} ${C_ACCENT}${_lbl}${C_RESET}"
 
@@ -5351,9 +5432,13 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok
             fi
         else
-            _pkg="$(app_pkg_name "$app")"
-            if pkg_installed "$_pkg"; then
+            _pkg="${RESOLVED_APP_PKG[$app]}"
+            if [ -n "${_app_was_installed[$app]:-}" ]; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed — updating..."
+            elif pkg_installed "$_pkg"; then
+                # Live check: the batch pass above may have just installed
+                # this one, which the pre-run snapshot above knows nothing of.
+                substep "${C_ACCENT}${_lbl}${C_RESET} installed"
             else
                 substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
             fi
@@ -5418,7 +5503,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             fi
         fi
     done
-    unset app _lbl _type _pkg _bin
+    unset app _lbl _type _pkg _bin _app_was_installed
 fi
 
 # ── Step 5c½: point Claude Code at the statusline ────────────────────────────

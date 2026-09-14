@@ -160,9 +160,31 @@ EOF
 
 w dpkg-query <<'EOF'
 #!/usr/bin/env bash
-p="${!#}"
-grep -qxF "$p" "${STUB_STATE:?}/installed" 2>/dev/null || exit 1
-echo -n installed
+st="${STUB_STATE:?}"
+# Two shapes are in real use: `-f='<fmt>' <pkg>` (one combined token, then a
+# package name — apt_pkg_installed's single-package check) and `-f '<fmt>'`
+# (format as its own token, no package after — scan_installed_pkgs' bulk
+# dump). Telling them apart is exactly what real dpkg-query does: a plain
+# non-option argument left over after -f/-W is the package to query; none
+# means "every installed package".
+pkg=""; fmt_next=0
+for a in "$@"; do
+    if [ "$fmt_next" = 1 ]; then fmt_next=0; continue; fi
+    case "$a" in
+        -f) fmt_next=1 ;;
+        -f=*|--showformat=*|-W|--show) ;;
+        -*) ;;
+        *) pkg="$a" ;;
+    esac
+done
+if [ -n "$pkg" ]; then
+    grep -qxF "$pkg" "$st/installed" 2>/dev/null || exit 1
+    echo -n installed
+else
+    while read -r p; do
+        [ -n "$p" ] && printf '%s install ok installed\n' "$p"
+    done < "$st/installed" 2>/dev/null
+fi
 EOF
 
 w dpkg <<'EOF'
@@ -330,7 +352,17 @@ have() {
     return 0
 }
 case "${1:-}" in
-  -Q)  grep -qxF "${2:-}" "$st/installed" 2>/dev/null ;;
+  -Q)
+      if [ -n "${2:-}" ]; then
+          grep -qxF "$2" "$st/installed" 2>/dev/null
+      else
+          # Bulk dump, no package named — scan_installed_pkgs' one-time
+          # snapshot reads this the way real `pacman -Q` output looks:
+          # "name version" per installed package.
+          while read -r p; do
+              [ -n "$p" ] && echo "$p 1.0-1"
+          done < "$st/installed" 2>/dev/null
+      fi ;;
   -Si) have "${2:-}" ;;
   -S|-Sy|-Syu)
       rc=0

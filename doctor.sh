@@ -176,8 +176,9 @@ echo
 echo "── fonts ─────────────────────────────────────────────"
 echo "fc-cache        : $(command -v fc-cache || echo '<not installed>')"
 if command -v fc-list >/dev/null 2>&1; then
-    echo "JetBrainsMono   : $(fc-list 2>/dev/null | grep -ci jetbrainsmono) faces"
-    echo "Maple Mono      : $(fc-list 2>/dev/null | grep -ci 'maple') faces"
+    _fc="$(fc-list 2>/dev/null)"
+    echo "JetBrainsMono   : $(grep -ci jetbrainsmono <<< "$_fc") faces"
+    echo "Maple Mono      : $(grep -ci 'maple' <<< "$_fc") faces"
 else
     echo "  fontconfig not installed (expected on a headless server)"
 fi
