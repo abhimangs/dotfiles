@@ -1745,10 +1745,9 @@ ensure_wezterm_deb() {
         /usr/share/keyrings/wezterm-fury.gpg || return 1
     # The two literal asterisks are not a glob left in by mistake — Fury serves
     # one flat pool and wants them as the distribution and component fields.
-    echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' \
-        | sudo tee /etc/apt/sources.list.d/wezterm.list >/dev/null
-    sudo chmod 644 /etc/apt/sources.list.d/wezterm.list
-    APT_UPDATED=0
+    apt_write_source_line \
+        'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' \
+        /etc/apt/sources.list.d/wezterm.list
     apt_update_once
     apt_install wezterm-nightly
     apt_pkg_installed wezterm-nightly
@@ -1933,6 +1932,19 @@ apt_install_keyring() {
     return 0
 }
 
+# ── One-line apt source file ─────────────────────────────────────────────────
+# Every ensure_<tool>_deb below that adds a plain one-line `deb [...] ...`
+# source (as opposed to Brave's DEB822 .sources file, fetched whole) wrote this
+# same tee + chmod + "needs update" reset by hand — chmod inconsistently, some
+# had it and some didn't, and apt reads sources.list.d as _apt, not root, so a
+# source list left 600 is silently never read. Always 644.
+apt_write_source_line() {
+    local line="$1" dest="$2"
+    echo "$line" | sudo tee "$dest" >/dev/null
+    sudo chmod 644 "$dest"
+    APT_UPDATED=0
+}
+
 # ── eza (Debian/Ubuntu) ───────────────────────────────────────────────────────
 ensure_eza_deb() {
     apt_pkg_installed eza && return 0
@@ -1942,10 +1954,9 @@ ensure_eza_deb() {
     ensure_apt_deps
     apt_install_keyring https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
         /etc/apt/keyrings/gierens.gpg || return 1
-    echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
-        | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
-    sudo chmod 644 /etc/apt/sources.list.d/gierens.list
-    APT_UPDATED=0
+    apt_write_source_line \
+        "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
+        /etc/apt/sources.list.d/gierens.list
     apt_update_once
     apt_install eza
     apt_pkg_installed eza
@@ -2033,9 +2044,9 @@ ensure_vscode_deb() {
         apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
             /etc/apt/keyrings/packages.microsoft.gpg || return 1
     fi
-    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
-        | sudo tee /etc/apt/sources.list.d/vscode.list >/dev/null
-    APT_UPDATED=0
+    apt_write_source_line \
+        "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+        /etc/apt/sources.list.d/vscode.list
     apt_update_once
     apt_install "$pkg"
     apt_pkg_installed "$pkg"
@@ -2057,9 +2068,9 @@ ensure_claude_desktop_deb() {
     ensure_apt_deps
     apt_install_keyring https://downloads.claude.ai/claude-desktop/key.asc \
         /usr/share/keyrings/claude-desktop-archive-keyring.asc --armored || return 1
-    echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" \
-        | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
-    APT_UPDATED=0
+    apt_write_source_line \
+        "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" \
+        /etc/apt/sources.list.d/claude-desktop.list
     apt_update_once
     apt_install claude-desktop
     apt_pkg_installed claude-desktop
@@ -2087,9 +2098,9 @@ ensure_docker_deb() {
     apt_install_keyring "https://download.docker.com/linux/${host}/gpg" \
         /etc/apt/keyrings/docker.asc --armored || return 1
     local codename; codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
-    echo "deb [arch=$(deb_arch) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${host} ${codename} stable" \
-        | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-    APT_UPDATED=0
+    apt_write_source_line \
+        "deb [arch=$(deb_arch) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${host} ${codename} stable" \
+        /etc/apt/sources.list.d/docker.list
     apt_update_once
     apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     apt_pkg_installed docker-ce
@@ -2220,6 +2231,25 @@ font_installed_deb()       { font_dir_has_ttf "$FONT_DIR_DEB"; }
 maple_font_installed_deb() { font_dir_has_ttf "$MAPLE_FONT_DIR_DEB"; }
 symbols_font_installed_deb() { font_dir_has_ttf "$SYMBOLS_FONT_DIR_DEB"; }
 
+# Fetch a font zip from a GitHub release and unpack its .ttf files into <dir>.
+# Just the download+unzip step — callers own ensure_apt_deps/ensure_unzip/
+# fc-cache, since install_fonts_parallel_deb needs those done once up front,
+# not once per backgrounded call. Return status mirrors whether the fetch (and
+# therefore the unzip) ran at all, so install_font_zip only fc-caches on a real
+# change.
+font_fetch_unzip() {
+    local url="$1" dir="$2"
+    local tmp; tmp=$(mktemp -d -p "$RUN_TMPDIR" font_XXXXXX)
+    local rc=1
+    if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
+        mkdir -p "$dir"
+        unzip -oq "$tmp/font.zip" -d "$dir" '*.ttf' &>/dev/null 2>&1
+        rc=0
+    fi
+    rm -rf "$tmp"
+    return "$rc"
+}
+
 # Fetch a font zip from a GitHub release into ~/.local/share/fonts/<dir>.
 # fontconfig is not guaranteed on a minimal/server image — without fc-cache the
 # fonts land on disk but nothing can see them, so make sure it is there first.
@@ -2228,13 +2258,7 @@ install_font_zip() {
     ensure_apt_deps
     ensure_unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
-    local tmp; tmp=$(mktemp -d -p "$RUN_TMPDIR" font_XXXXXX)
-    if curl -fsSL "$url" -o "$tmp/font.zip" 2>/dev/null; then
-        mkdir -p "$dir"
-        unzip -oq "$tmp/font.zip" -d "$dir" '*.ttf' &>/dev/null 2>&1
-        fc-cache -f "$dir" &>/dev/null 2>&1
-    fi
-    rm -rf "$tmp"
+    font_fetch_unzip "$url" "$dir" && fc-cache -f "$dir" &>/dev/null 2>&1
 }
 
 ensure_nerd_font_deb() {
@@ -2263,29 +2287,20 @@ install_fonts_parallel_deb() {
     ensure_apt_deps
     ensure_unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
-    local tmp_jb tmp_maple
     FONT_PIDS=()
 
     if ! font_installed_deb; then
-        tmp_jb=$(mktemp -d -p "$RUN_TMPDIR" font_jb_XXXXXX)
         (
-            if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" -o "$tmp_jb/font.zip" 2>/dev/null; then
-                mkdir -p "$FONT_DIR_DEB"
-                unzip -oq "$tmp_jb/font.zip" -d "$FONT_DIR_DEB" '*.ttf' &>/dev/null
-            fi
-            rm -rf "$tmp_jb"
+            font_fetch_unzip "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" \
+                             "$FONT_DIR_DEB"
         ) &
         FONT_PIDS+=("$!")
     fi
 
     if ! maple_font_installed_deb; then
-        tmp_maple=$(mktemp -d -p "$RUN_TMPDIR" font_maple_XXXXXX)
         (
-            if curl -fsSL "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-TTF.zip" -o "$tmp_maple/font.zip" 2>/dev/null; then
-                mkdir -p "$MAPLE_FONT_DIR_DEB"
-                unzip -oq "$tmp_maple/font.zip" -d "$MAPLE_FONT_DIR_DEB" '*.ttf' &>/dev/null
-            fi
-            rm -rf "$tmp_maple"
+            font_fetch_unzip "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-TTF.zip" \
+                             "$MAPLE_FONT_DIR_DEB"
         ) &
         FONT_PIDS+=("$!")
     fi
@@ -2345,19 +2360,17 @@ install_maple_font() {
 }
 
 # ── bat/fd binary-name shims (Debian/Ubuntu ship batcat/fdfind) ──────────────
-ensure_bat_shim() {
-    command -v bat &>/dev/null && return 0
-    command -v batcat &>/dev/null || return 1
+#   ensure_bin_shim <wanted-name> <debian-binary-name>
+ensure_bin_shim() {
+    local wanted="$1" actual="$2"
+    command -v "$wanted" &>/dev/null && return 0
+    command -v "$actual" &>/dev/null || return 1
     mkdir -p "$HOME/.local/bin"
-    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+    ln -sf "$(command -v "$actual")" "$HOME/.local/bin/$wanted"
 }
 
-ensure_fd_shim() {
-    command -v fd &>/dev/null && return 0
-    command -v fdfind &>/dev/null || return 1
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
-}
+ensure_bat_shim() { ensure_bin_shim bat batcat; }
+ensure_fd_shim()  { ensure_bin_shim fd fdfind; }
 
 # ── Fallback: hand an interactive bash session over to zsh ───────────────────
 # Some machines keep starting bash after login even though /etc/passwd has been
@@ -2767,13 +2780,7 @@ stow_config() {
                 # the dep-tool installs reads like the tool was removed.
                 substep "Deleted ${C_ACCENT}~/.config/${name}${C_RESET}"
             else
-                # -L as well as -e, the same as backup_file: a .bak that is
-                # itself a backed-up broken symlink is invisible to -e, and the
-                # mv below then fails against it instead of rotating it.
-                if [ -e "$bak" ] || [ -L "$bak" ]; then
-                    { [ -e "$oldbak" ] || [ -L "$oldbak" ]; } && rm -rf "$oldbak"
-                    mv "$bak" "$oldbak"
-                fi
+                rotate_bak "$bak" "$oldbak" "$name"
                 mv "$target" "$bak"
                 substep "Backed up ${C_ACCENT}~/.config/${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
                 BACKED_UP+=("~/.config/${name}.bak")
@@ -2944,6 +2951,24 @@ PY
     return "$wired"
 }
 
+# ── Rotate an existing .bak to .old.bak, announced ───────────────────────────
+# Shared by backup_file and stow_config: before either overwrites a .bak with a
+# fresh one, whatever is already there has to move to .old.bak first (dropping
+# any .old.bak already there) — and stow_config used to do this silently while
+# backup_file announced it, so the same rotation read as unannounced or not in
+# the plan depending only on which caller happened to run it.
+#   rotate_bak <bak> <oldbak> <name>
+rotate_bak() {
+    local bak="$1" oldbak="$2" name="$3"
+    # -L as well as -e, or a .bak that is itself a backed-up broken symlink is
+    # invisible here and mv overwrites it without rotating.
+    if [ -e "$bak" ] || [ -L "$bak" ]; then
+        { [ -e "$oldbak" ] || [ -L "$oldbak" ]; } && rm -rf "$oldbak"
+        mv "$bak" "$oldbak"
+        substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
+    fi
+}
+
 # ── Backup a single file or dir (for home/ and scripts/ → ~) ─────────────────
 backup_file() {
     local target="$1"
@@ -2969,13 +2994,7 @@ backup_file() {
             rm -rf "$target"
             substep "Deleted ${C_ACCENT}${shown}${C_RESET}"
         else
-            # -L as well as -e, or a .bak that is itself a backed-up broken
-            # symlink is invisible here and mv overwrites it without rotating.
-            if [ -e "$bak" ] || [ -L "$bak" ]; then
-                { [ -e "$oldbak" ] || [ -L "$oldbak" ]; } && rm -rf "$oldbak"
-                mv "$bak" "$oldbak"
-                substep "Rotated ${C_DIM}${name}.bak → ${name}.old.bak${C_RESET}"
-            fi
+            rotate_bak "$bak" "$oldbak" "$name"
             mv "$target" "$bak"
             substep "Backed up ${C_ACCENT}${shown}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
             BACKED_UP+=("${shown}.bak")
@@ -3489,6 +3508,21 @@ DEP_DESC[ripgrep]="fast recursive grep  ${G_RIGHT}  rg command"
 DEP_DESC[delta]="side-by-side git diffs  ${G_DOT}  pairs with lazygit"
 DEP_DESC[tmux]="terminal multiplexer"
 
+# ── Does a directory-shaped config target conflict? ──────────────────────────
+# True when a ~/.config/<name> target is a foreign symlink, or holds a real
+# (non-symlink, non-dir) file within 3 levels — the same shape stow_config
+# itself checks before it backs up or deletes. show_plan needs the same
+# yes/no three times over (the main config loop, the wallpapers sub-block, the
+# dep-tool config loop) purely to decide what to print, and it was written out
+# three times verbatim — one more place for the plan to drift from what the
+# install loop actually does.
+dir_target_conflicts() {
+    local target="$1"
+    { [ -L "$target" ] && ! is_repo_link "$target"; } \
+        || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
+             ! -type l ! -type d 2>/dev/null | grep -q .; }
+}
+
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 # The four outcomes for one dotfile in $HOME — our symlink, present, present
 # with a .bak to rotate, absent — read identically for .bashrc, .zshrc and
@@ -3581,9 +3615,7 @@ show_plan() {
             # The symlink test comes first for the same reason it does in
             # stow_config: -d follows the link, and what gets moved aside is
             # the link, not whatever it happens to point at.
-            if { [ -L "$target" ] && ! is_repo_link "$target"; } \
-               || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
-                    ! -type l ! -type d 2>/dev/null | grep -q .; }; then
+            if dir_target_conflicts "$target"; then
                 if [[ "$BACKUP_MODE" == "delete" ]]; then
                     steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
                 else
@@ -3607,9 +3639,7 @@ show_plan() {
             # backed up without a word of warning.
             if needs_wallpaper "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
                 target="$HOME/.config/wallpapers"; bak="${target}.bak"
-                if { [ -L "$target" ] && ! is_repo_link "$target"; } \
-                   || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
-                        ! -type l ! -type d 2>/dev/null | grep -q .; }; then
+                if dir_target_conflicts "$target"; then
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
                         steps+=("${C_RED}delete${C_RESET} ${C_DIM}wallpapers${C_RESET}")
                     else
@@ -3743,9 +3773,7 @@ show_plan() {
                 [ "$_d" = "$_dc" ] || continue
                 [ -d "$DOTFILES_DIR/$_d" ] || continue
                 _dtarget="$HOME/.config/$_d"
-                if { [ -L "$_dtarget" ] && ! is_repo_link "$_dtarget"; } \
-                   || { [ -d "$_dtarget" ] && find "$_dtarget" -mindepth 1 -maxdepth 3 \
-                        ! -type l ! -type d 2>/dev/null | grep -q .; }; then
+                if dir_target_conflicts "$_dtarget"; then
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
                         echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}~/.config/${_d}${C_RESET}"
                     else
