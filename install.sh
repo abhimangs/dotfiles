@@ -221,7 +221,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop alacritty wezterm vicinae vlc obs-studio zoom)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop chatgpt alacritty wezterm vicinae vlc obs-studio zoom)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -1324,6 +1324,24 @@ arch_install() {
     fi
     aur_ready || return 1
     aur_install "$pkg"
+}
+
+# ── ChatGPT desktop (Arch only) ───────────────────────────────────────────────
+# Not AUR: OpenAI ships its own installer that bootstraps a signed pacman repo
+# (openai-chatgpt) and then runs 'pacman -Syu --needed chatgpt-bin' itself, so
+# re-running it is also how the app updates later — same shape as the curl CLIs
+# being their own updater. It insists on real root ('sudo bash', not a cached
+# sudo -v) — it checks $EUID itself and refuses otherwise.
+ensure_chatgpt_arch() {
+    pkg_installed chatgpt-bin && return 0
+    local tmp; tmp="$(mktemp -p "$RUN_TMPDIR" chatgpt_install_XXXXXX.sh)" || return 1
+    curl --proto '=https' --tlsv1.2 -fL -o "$tmp" \
+        https://persistent.oaistatic.com/codex-app-prod/linux/install-arch.sh 2>/dev/null || {
+        rm -f "$tmp"; return 1
+    }
+    sudo bash "$tmp" </dev/null
+    rm -f "$tmp"
+    pkg_installed chatgpt-bin
 }
 
 # ── Debian/Ubuntu (apt) package helpers ──────────────────────────────────────
@@ -3225,7 +3243,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian chatgpt vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -3233,11 +3251,13 @@ if [[ "$DISTRO" == "debian" ]]; then
     # Nix flake, no apt repo), Zoom (a vendor .deb behind a download page, no
     # apt repo — the same shape as Obsidian), DeepSeek Harness (AUR only —
     # upstream ships source, no apt repo) and Orca (AUR only, stably-orca-bin —
-    # no apt repo either) are Arch-only for now.
+    # no apt repo either) are Arch-only for now. ChatGPT is the same shape:
+    # OpenAI's own installer bootstraps a signed pacman repo directly — it
+    # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca chatgpt
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -3273,6 +3293,7 @@ APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
 APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
+APP_LABEL[chatgpt]="ChatGPT"
 APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[obs-studio]="OBS Studio"
@@ -3323,6 +3344,10 @@ APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
 APP_TYPE[notion]="paru"
 APP_TYPE[obsidian]="pacman"
+# Its own signed pacman repo, bootstrapped by OpenAI's installer script — not
+# AUR, not a plain repo package, so it gets a dedicated dispatch value like
+# brave/vscode/claude-desktop do on the Debian side (see ensure_chatgpt_arch).
+APP_TYPE[chatgpt]="chatgpt"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[obs-studio]="pacman"
 # AUR-only, like vicinae — no zoom in the official repos
@@ -3344,6 +3369,7 @@ APP_PKG[orca]="stably-orca-bin"
 APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
+APP_PKG[chatgpt]="chatgpt-bin"
 APP_PKG[vlc]="vlc"
 # v4l2loopback-dkms (virtual camera) and qt6-wayland (Wayland rendering) are
 # pulled in as a post-install step, same shape as docker's compose/buildx:
@@ -3584,6 +3610,7 @@ APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher  ${G_DOT}  bind: vicinae toggle"
 APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
+APP_DESC[chatgpt]="OpenAI's ChatGPT, as a desktop app"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
 APP_DESC[vlc]="plays anything"
 APP_DESC[obs-studio]="screen recording and streaming  ${G_DOT}  virtual camera, Wayland"
@@ -5543,6 +5570,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 alacritty) ensure_alacritty_deb ;;
                 wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
+                chatgpt) ensure_chatgpt_arch ;;
                 docker) ensure_docker_deb ;;
             esac
             if pkg_installed "$_pkg"; then
