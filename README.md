@@ -147,7 +147,7 @@ One screen, four tabs (**dotfiles · tools · apps · selected**), and only one 
 |---|---|
 | `←` `→` | previous / next tab (wraps; `tab` too) |
 | `↑` `↓` `PgUp` `PgDn` | move |
-| `f1`–`f4` | jump straight to a tab (`ctrl-s` opens **selected**) |
+| `f1`–`f4` | jump straight to a tab (`f4` is **selected**) |
 | `space` or `enter` | tick the row, and move to the next |
 | `ctrl-a` | tick everything in this tab, again to untick |
 | type | search this tab only; `esc` clears the search |
