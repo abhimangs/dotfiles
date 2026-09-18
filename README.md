@@ -150,6 +150,7 @@ One screen, four tabs (**dotfiles · tools · apps · selected**), and only one 
 | `f1`–`f4` | jump straight to a tab (`f4` is **selected**) |
 | `space` or `enter` | tick the row, and move to the next |
 | `ctrl-a` | tick everything in this tab, again to untick |
+| `ctrl-u` | tick every row already installed or updatable, for an update-only pass (only ticks, never unticks) |
 | type | search this tab only; `esc` clears the search |
 | `ctrl-d` | review everything ticked; `ctrl-d` again starts the install |
 | `esc` | cancel the run |
