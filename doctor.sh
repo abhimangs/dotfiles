@@ -121,16 +121,25 @@ for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \
     fi
 done
 # Every entry that stows into a directory under $XDG_CONFIG — configs whose
-# target ends in "/", plus the dep tools flagged "hasconfig" (bat, btop).
+# target ends in "/", plus the dep tools and apps flagged "hasconfig"
+# (bat, btop, tmux, lazygit; alacritty, wezterm).
 # wallpapers is the one name that is in no array: the installer stows it as a
 # side effect of ghostty/kitty, so it is named here and nowhere else. Not "d"
 # as the loop variable: that is the checkout dir set above, and reusing it
 # destroyed it for everything below.
 for cfg in $(pcl '$1=="config" && $4 ~ /\/$/ {print $2}') \
-           $(pcl '$1=="tool" && $5=="hasconfig" {print $2}') \
+           $(pcl '$1=="tool" && $5 ~ /hasconfig/ {print $2}') \
+           $(pcl '$1=="app"  && $5 ~ /hasconfig/ {print $2}') \
            wallpapers; do
     t="$XDG_CONFIG/$cfg"
-    [ -e "$t" ] || continue
+    # Absent, not skipped. The single-file loop above says "(absent)" and this
+    # one silently printed nothing, so a config that never got stowed looked
+    # identical to one that is not in the list at all — and "why is my kitty
+    # config not loading" is the exact question this section answers.
+    if [ ! -e "$t" ]; then
+        printf "  %-26s %s\n" "${XDG_SHOWN#\~/}/$cfg" "(absent)"
+        continue
+    fi
     n=$(find "$t" -maxdepth 1 -type l 2>/dev/null | wc -l)
     broken=$(find "$t" -maxdepth 1 -xtype l 2>/dev/null | wc -l)
     printf "  %-26s %s\n" "${XDG_SHOWN#\~/}/$cfg" "$n symlink(s) inside$( [ "$broken" -gt 0 ] && echo ", $broken BROKEN")"

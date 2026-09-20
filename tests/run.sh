@@ -768,6 +768,45 @@ else
 fi
 
 echo
+echo "── .bak → .old.bak rotation, asserted on disk ───────────"
+# rotate_bak is only ever exercised today through --dry-run scenarios
+# (dep-config-plan, wallpaper-plan above), which prove the PLAN mentions a
+# rotation — never that the files actually moved. Seed a real ~/.config/kitty
+# (as if this were a second run) AND a real ~/.config/kitty.bak (as if a first
+# run had already backed one up), run a genuine install — no --dry-run — and
+# check the three directories on disk hold what they are supposed to: this is
+# the difference between "rotate_bak was called" and "rotate_bak did what it
+# says". kitty because kitty-cfg above already proves it installs cleanly in
+# this sandbox; --gui the same way that scenario passes it.
+build_root "$WORK/run/bak-rotate" ubuntu
+mkdir -p "$WORK/run/bak-rotate/home/.config/kitty" \
+         "$WORK/run/bak-rotate/home/.config/kitty.bak"
+printf '# MARKER_CURRENT — this was ~/.config/kitty before the run\n' \
+    > "$WORK/run/bak-rotate/home/.config/kitty/kitty.conf"
+printf '# MARKER_OLDBAK — this was ~/.config/kitty.bak before the run\n' \
+    > "$WORK/run/bak-rotate/home/.config/kitty.bak/kitty.conf"
+RUN_ARGS="--configs=kitty --gui" install_pass \
+    "$WORK/run/bak-rotate" "$WORK/run/bak-rotate" "$WORK/k-sel"
+check   bak-rotate 0
+want    bak-rotate 'Rotated.*kitty\.bak.*kitty\.old\.bak' 'the rotation itself was announced'
+d="$WORK/run/bak-rotate/home"
+if grep -qF MARKER_OLDBAK "$d/.config/kitty.old.bak/kitty.conf" 2>/dev/null; then
+    note bak-rotate "kitty.old.bak now holds what kitty.bak held"
+else
+    bad  bak-rotate "kitty.old.bak missing, or does not hold the old .bak's content"
+fi
+if grep -qF MARKER_CURRENT "$d/.config/kitty.bak/kitty.conf" 2>/dev/null; then
+    note bak-rotate "kitty.bak now holds what kitty held"
+else
+    bad  bak-rotate "kitty.bak missing, or does not hold the pre-run config's content"
+fi
+if [ -L "$d/.config/kitty/kitty.conf" ]; then
+    note bak-rotate "~/.config/kitty was restowed after the rotation"
+else
+    bad  bak-rotate "~/.config/kitty was not restowed after the rotation"
+fi
+
+echo
 echo "── the wallpaper plan, against a foreign ~/.config/wallpapers ──"
 # The plan used to decide by looking for this repo's own filename, not by
 # running the same conflict check stow_config itself uses — so a user's own
@@ -1817,6 +1856,64 @@ fi
 want pvpn-dir 'is your own symlink, not ours' 'the plan warned before touching it'
 
 echo
+echo "── delete mode's two documented exceptions ───────────────"
+# BACKUP_MODE=delete means "wipe an existing CONFIG with no .bak" — but two
+# files predate this repo touching the machine at all, and CLAUDE.md carves
+# both out by name ("the one documented exception to delete mode", said twice,
+# once for each). Neither has ever had a test. If either guard is ever folded
+# into the general delete-mode branch instead of kept as its own unconditional
+# step, this is what would still catch it.
+
+# 1. ~/.bashrc.orig (or ~/.bashrc.none) is the only copy --restore-bash has to
+#    work from. snapshot_bashrc is explicitly "not gated on $BACKUP_MODE", and
+#    the bash case arm calls it before backup_file for exactly this reason —
+#    in delete mode backup_file rm -rf's ~/.bashrc outright, so a snapshot
+#    taken afterwards, or not at all, would make the edit irreversible. Select
+#    the bash config in delete mode and prove the snapshot is on disk
+#    afterwards, not just that the run exits 0.
+RUN_ARGS="--configs=bash --backup-mode=delete" run bashrc-delete-snapshot ubuntu "$WORK/k-none"
+check   bashrc-delete-snapshot 0
+want    bashrc-delete-snapshot 'Deleted.*~/.bashrc' 'delete mode really ran, not a silent fallback to backup'
+d="$WORK/run/bashrc-delete-snapshot/home"
+if [ -f "$d/.bashrc.orig" ] || [ -f "$d/.bashrc.none" ]; then
+    note bashrc-delete-snapshot "the pristine bashrc snapshot survives a delete-mode run"
+else
+    bad  bashrc-delete-snapshot "no ~/.bashrc.orig or ~/.bashrc.none after a delete-mode bash install"
+fi
+[ -e "$d/.bashrc.bak" ] \
+    && bad  bashrc-delete-snapshot "a .bashrc.bak exists too — this did not exercise delete mode" \
+    || note bashrc-delete-snapshot "no .bashrc.bak, confirming the delete path (not backup) is what ran"
+
+# 2. ~/.claude/settings.json is Claude Code's own file, not this repo's, and
+#    wire_claude_statusline never calls backup_file or stow_config on it at
+#    all — it does its own atomic merge-and-mv regardless of $BACKUP_MODE, the
+#    same way the bashrc snapshot sidesteps it. Seed it with a key this repo
+#    has never heard of, select ccstatusline in delete mode, and the file has
+#    to still be there with that key intact — mirrors the ccsl-keep scenario
+#    above, with delete mode added.
+build_root "$WORK/run/ccsl-delete" ubuntu
+mkdir -p "$WORK/run/ccsl-delete/home/.claude"
+cat > "$WORK/run/ccsl-delete/home/.claude/settings.json" <<'JSON'
+{ "someUnrelatedKey": "keep me", "model": "opus" }
+JSON
+RUN_ARGS="--configs=ccstatusline --backup-mode=delete" install_pass \
+    "$WORK/run/ccsl-delete" "$WORK/run/ccsl-delete" "$WORK/k-none"
+check   ccsl-delete 0
+cc="$WORK/run/ccsl-delete/home/.claude/settings.json"
+if [ -f "$cc" ]; then
+    note ccsl-delete "~/.claude/settings.json still exists after a delete-mode run"
+else
+    bad  ccsl-delete "delete mode removed ~/.claude/settings.json"
+fi
+if python3 -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d.get("someUnrelatedKey") == "keep me" else 1)' "$cc" 2>/dev/null; then
+    note ccsl-delete "its unrelated key survived, and the file is still valid JSON"
+else
+    bad  ccsl-delete "the unrelated key was lost, or the file is no longer valid JSON"
+fi
+
+echo
 echo "── distro list parity ───────────────────────────────────"
 # The Debian branch may only *remove* from CONFIGS. It used to re-declare the
 # array as a second hand-written literal, which silently dropped every config
@@ -1858,97 +1955,115 @@ else
 fi
 
 echo
-echo "── doctor.sh mirrors install.sh ─────────────────────────"
-# doctor.sh's two loops are hand-kept copies of install.sh's arrays, and they
-# have fallen behind before — micro, fresh, ccstatusline and pay-respects were
-# all missing at once. Its whole job is to be pasted into a bug report, so a
-# config it does not report sends whoever reads that after the wrong thing.
-# Nothing enforced it; adding a config is now the thing that fails here.
-doc_src="$HERE/../doctor.sh"
+echo "── doctor.sh mirrors install.sh (--list --porcelain) ────"
+# doctor.sh no longer keeps hand-written copies of install.sh's arrays — the
+# four comparisons that used to live here (doctor-configs/-tools/-curlapps/
+# -altbin, diffing two hand-maintained lists) are gone along with the lists.
+# There is one source now: doctor.sh runs `bash install.sh --list --porcelain`
+# and parses whatever comes back. So what is worth asserting moved with it —
+# not "do two copies agree" but "does the porcelain format hold together, and
+# does doctor.sh actually read every record it is handed". Both scripts are
+# read-only and need no terminal, so this runs them for real rather than
+# through the sandbox.
 inst_src="$HERE/../install.sh"
-mapfile -t doc_cfgs     < <(sed -n 's/^for cfg in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
-mapfile -t doc_tools    < <(sed -n 's/^for c in \(.*\); do$/\1/p'   "$doc_src" | tr ' ' '\n' | sed '/^$/d')
-mapfile -t doc_curlapps < <(sed -n 's/^for app in \(.*\); do$/\1/p' "$doc_src" | tr ' ' '\n' | sed '/^$/d')
-if [ "${#doc_cfgs[@]}" -ge 8 ] && [ "${#doc_tools[@]}" -ge 8 ] && [ "${#doc_curlapps[@]}" -ge 8 ]; then
-    note doctor-lists "all three loops extracted from doctor.sh"
+doc_src="$HERE/../doctor.sh"
+
+porcelain_out="$WORK/list-porcelain.txt"
+if bash "$inst_src" --list --porcelain </dev/null >"$porcelain_out" 2>&1; then
+    note list-porcelain "install.sh --list --porcelain exits 0"
 else
-    bad  doctor-lists "extraction matched almost nothing — not looking at doctor.sh"
+    bad  list-porcelain "--list --porcelain exited non-zero"
 fi
 
-# The ~/.config/<name> half of CONFIGS. Derived from the array rather than
-# hand-listed here as well, minus the five that stow to ~ or ~/scripts and so
-# are reported by the symlink block above that loop instead. A config added to
-# either group trips this until doctor.sh is told about it.
-doc_missing=()
-for c in $(sed -n 's/^CONFIGS=(\(.*\))$/\1/p' "$inst_src" | tr ' ' '\n' \
-           | grep -vxE 'bash|zsh|git|starship|protonvpn'); do
-    printf '%s\n' "${doc_cfgs[@]}" | grep -qx "$c" || doc_missing+=("$c")
+# doctor.sh's pcl() is a bare `awk -F'\t'` over this output — a row missing a
+# field is silently misread, not rejected, so the field count is the contract.
+bad_lines=$(awk -F'\t' 'NF != 5' "$porcelain_out" | wc -l)
+[ "$bad_lines" -eq 0 ] \
+    && note list-porcelain "every line has exactly 5 tab-separated fields" \
+    || bad  list-porcelain "$bad_lines line(s) do not have 5 fields"
+
+# One of each record type, or a whole section went missing silently — an empty
+# CONFIGS/DEPS_LIST/APPS_LIST loop and a typo'd section literal both exit 0
+# and print nothing, indistinguishable from "this machine genuinely has none".
+for kind in config tool app; do
+    if awk -F'\t' -v k="$kind" '$1==k{f=1} END{exit !f}' "$porcelain_out"; then
+        note list-porcelain "at least one '$kind' record"
+    else
+        bad  list-porcelain "no '$kind' record at all"
+    fi
 done
-if [ "${#doc_missing[@]}" -eq 0 ]; then
-    note doctor-configs "every ~/.config config is in doctor.sh's loop"
+if awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{f=1} END{exit !f}' "$porcelain_out"; then
+    note list-porcelain "the var CURL_APP_PATH record is present"
 else
-    bad  doctor-configs "doctor.sh never reports: ${doc_missing[*]}"
+    bad  list-porcelain "no 'var CURL_APP_PATH' record"
 fi
 
+# --list (for a person) and --list --porcelain (for a script) are two printf
+# loops over the very same CONFIGS/DEPS_LIST/APPS_LIST — they must name
+# exactly the same items, or one of the two loops has drifted from the arrays.
+human_out="$WORK/list-human.txt"
+bash "$inst_src" --list </dev/null >"$human_out" 2>&1
+# Redirected to a file, not a tty, so install.sh's own [ -t 1 ] check already
+# turned USE_COLOR off — every item line is plain "  <name><padding><desc>".
+mapfile -t human_names < <(sed -nE 's/^  ([^[:space:]]+)[[:space:]].*/\1/p' "$human_out" | sort -u)
+mapfile -t porc_names  < <(awk -F'\t' '$1=="config"||$1=="tool"||$1=="app"{print $2}' "$porcelain_out" | sort -u)
+only_human=$(comm -23 <(printf '%s\n' "${human_names[@]}") <(printf '%s\n' "${porc_names[@]}"))
+only_porc=$( comm -13 <(printf '%s\n' "${human_names[@]}") <(printf '%s\n' "${porc_names[@]}"))
+if [ -z "$only_human" ] && [ -z "$only_porc" ]; then
+    note list-porcelain "--list and --list --porcelain name exactly the same items"
+else
+    bad  list-porcelain "drift — human only: ${only_human:-none}; porcelain only: ${only_porc:-none}"
+fi
+
+# doctor.sh, for real: three of its sections are built entirely from the
+# porcelain records above, and each has to actually name what the records say
+# — not just successfully call install.sh and print something.
+doctor_out="$WORK/doctor.txt"
+if bash "$doc_src" </dev/null >"$doctor_out" 2>&1; then
+    note doctor-run "doctor.sh exits 0"
+else
+    bad  doctor-run "doctor.sh exited non-zero"
+fi
+
+# The tools section: DEPS_LIST, read straight off the porcelain 'tool' records
+# rather than re-grepped from install.sh, since that output is exactly what
+# doctor.sh itself consumes to build this section.
+tools_section=$(sed -n '/── tools ───/,/── curl-installed CLIs/p' "$doctor_out")
 doc_missing=()
-for c in $(sed -n 's/^DEPS_LIST=(\(.*\))$/\1/p' "$inst_src" | tr ' ' '\n'); do
-    printf '%s\n' "${doc_tools[@]}" | grep -qx "$c" || doc_missing+=("$c")
+for n in $(awk -F'\t' '$1=="tool"{print $2}' "$porcelain_out"); do
+    grep -qE "^  ${n}[[:space:]]" <<< "$tools_section" || doc_missing+=("$n")
 done
-if [ "${#doc_missing[@]}" -eq 0 ]; then
-    note doctor-tools "every dep tool is in doctor.sh's tools loop"
-else
-    bad  doctor-tools "doctor.sh never looks for: ${doc_missing[*]}"
-fi
+[ "${#doc_missing[@]}" -eq 0 ] \
+    && note doctor-tools "the tools section names every DEPS_LIST entry" \
+    || bad  doctor-tools "missing from the tools section: ${doc_missing[*]}"
 
-# install.sh's curl-app list, for this purpose, is APP_UPDATE's keys — the
-# interactive CLIs among the curl apps, the same set that earns a "run it like
-# this" line there. bun and tailscale are curl apps too but neither is a key
-# (bun is a runtime already in doctor.sh's tools loop; tailscale's updates are
-# the package manager's job), so they are rightly absent from both sides here.
-mapfile -t inst_curlapps < <(sed -n 's/^APP_UPDATE\[\([a-zA-Z0-9_-]*\)\]=.*/\1/p' "$inst_src")
+# The stowed-symlinks section. Three kinds of thing land in a directory under
+# $XDG_CONFIG and doctor.sh reports all three: configs whose porcelain target
+# ends in "/", dep tools flagged hasconfig (bat, btop, tmux, lazygit) and apps
+# flagged hasconfig (alacritty, wezterm). Same filters doctor.sh applies to
+# the records itself — checking only the first kind is how the other two would
+# drop out of a bug report with nothing noticing.
+cfg_section=$(sed -n '/── stowed symlinks ───/,/── tools ───/p' "$doctor_out")
 doc_missing=()
-for c in "${inst_curlapps[@]}"; do
-    printf '%s\n' "${doc_curlapps[@]}" | grep -qx "$c" || doc_missing+=("$c")
+for n in $(awk -F'\t' '($1=="config" && $4 ~ /\/$/) || ($1!="var" && $5 ~ /hasconfig/){print $2}' "$porcelain_out"); do
+    grep -qE "/${n}[[:space:]]" <<< "$cfg_section" || doc_missing+=("$n")
 done
-if [ "${#inst_curlapps[@]}" -ge 8 ] && [ "${#doc_missing[@]}" -eq 0 ]; then
-    note doctor-curlapps "every interactive curl CLI is in doctor.sh's curl-app loop"
-else
-    bad  doctor-curlapps "doctor.sh never reports: ${doc_missing[*]:-<APP_UPDATE extraction found nothing>}"
-fi
+[ "${#doc_missing[@]}" -eq 0 ] \
+    && note doctor-configs "the config section names every directory-backed config, tool theme and app theme" \
+    || bad  doctor-configs "missing from the stowed-symlinks section: ${doc_missing[*]}"
 
-# Duplicated verbatim, on purpose — doctor.sh installs nothing and sources
-# nothing. A drifted copy is how bun in ~/.bun/bin gets reported missing on a
-# machine where it is installed and working.
-doc_path=$( sed -n 's/^CURL_APP_PATH=//p' "$doc_src"  | head -1)
-inst_path=$(sed -n 's/^CURL_APP_PATH=//p' "$inst_src" | head -1)
-if [ -n "$doc_path" ] && [ "$doc_path" = "$inst_path" ]; then
-    note doctor-path "CURL_APP_PATH is identical in both"
-else
-    bad  doctor-path "CURL_APP_PATH drifted: doctor ${doc_path:-<none>} vs install ${inst_path:-<none>}"
-fi
-
-# doctor.sh's ALT_BIN is the fourth hand-kept copy in that file: the names apt
-# installs a tool under when they differ from the Arch ones. install.sh keeps
-# the same fact in PKG_BIN, keyed by package rather than by tool, and the two
-# are only ever read on Debian/Ubuntu — where a drift means doctor.sh reports a
-# tool missing that is installed, which sends whoever pasted it debugging the
-# wrong thing. Checked in the direction that matters, and no tighter than the
-# truth: install.sh spreads these names across PKG_BIN and the two shim
-# helpers (batcat is only in ensure_bat_shim), so the assertion is that
-# install.sh knows the name at all — not that one particular map holds it.
-alt_bad=()
-while read -r tool alt; do
-    [ -n "$alt" ] || continue
-    grep -q "\b$alt\b" "$inst_src" \
-        || alt_bad+=("doctor.sh says $tool installs as $alt; install.sh has never heard of $alt")
-done < <(sed -n 's/^declare -A ALT_BIN=(\(.*\))$/\1/p' "$HERE/../doctor.sh" \
-         | tr ' ' '\n' | sed -n 's/^\[\([a-z-]*\)\]=\(.*\)$/\1 \2/p')
-if [ "${#alt_bad[@]}" -eq 0 ]; then
-    note doctor-altbin "every Debian binary name doctor.sh knows is one install.sh knows"
-else
-    for _m in "${alt_bad[@]}"; do bad doctor-altbin "$_m"; done
-fi
-unset alt_bad _m
+# The curl-CLI section: every app flagged "interactive" — the ones with an
+# APP_UPDATE entry and a "run it like this" line in install.sh's own summary.
+curl_section=$(sed -n '/── curl-installed CLIs ───/,/── ccstatusline/p' "$doctor_out")
+doc_missing=()
+for n in $(awk -F'\t' '$1=="app" && $5 ~ /interactive/{print $2}' "$porcelain_out"); do
+    grep -qE "^  ${n}[[:space:]]" <<< "$curl_section" || doc_missing+=("$n")
+done
+[ "${#doc_missing[@]}" -eq 0 ] \
+    && note doctor-curlapps "the curl-CLI section names every interactive app" \
+    || bad  doctor-curlapps "missing from the curl-CLI section: ${doc_missing[*]}"
+unset doc_missing porcelain_out human_out doctor_out tools_section cfg_section curl_section
+unset human_names porc_names only_human only_porc bad_lines
 
 echo
 echo "── release asset patterns ───────────────────────────────"
@@ -2027,6 +2142,57 @@ else
     for _m in "${upd_bad[@]}"; do bad upd-map "$_m"; done
 fi
 unset upd_keys apps_line upd_bad _m
+
+echo "── apt cleanup allowlists cover what install.sh writes ──"
+# apt_drop_own_dead_source only ever removes a source this installer added
+# itself — APT_OWN_PPAS matches a PPA's owner prefix, APT_OWN_SOURCES a vendor
+# repo's filename stem; anything else under sources.list.d is the user's and is
+# left alone on purpose. So a new ensure_<tool>_deb that writes a source, or a
+# new add_ppa call, is invisible to that cleanup forever unless its name/owner
+# is also added to the matching allowlist — the exact way a dead PPA breaks
+# apt-get update for good, except self-inflicted this time. Pure grep over
+# install.sh, no sandbox needed; the regexes are pulled out of the file rather
+# than retyped here, so a rename on either side is what trips this, not a copy
+# that can silently agree with itself.
+inst_src="$HERE/../install.sh"
+own_sources=$(sed -n "s/^APT_OWN_SOURCES='\(.*\)'\$/\1/p" "$inst_src")
+own_ppas=$(   sed -n "s/^APT_OWN_PPAS='\(.*\)'\$/\1/p"    "$inst_src")
+if [ -n "$own_sources" ] && [ -n "$own_ppas" ]; then
+    note apt-allowlist "APT_OWN_SOURCES and APT_OWN_PPAS extracted from install.sh"
+else
+    bad  apt-allowlist "could not read APT_OWN_SOURCES/APT_OWN_PPAS out of install.sh"
+fi
+
+# Every /etc/apt/sources.list.d/<name>.<list|sources> install.sh itself writes
+# — literal paths, plus the one built through $APT_SOURCES_D (same directory,
+# one level of indirection) — matched with the exact expression
+# apt_drop_own_dead_source runs, not a re-implementation of it.
+src_bad=()
+while read -r base; do
+    [ -n "$base" ] || continue
+    grep -qE "^(${own_sources})\.(list|sources)$" <<< "$base" || src_bad+=("$base")
+done < <(grep -oE '(/etc/apt/sources\.list\.d/|\$\{?APT_SOURCES_D\}?/)[A-Za-z0-9_.-]+\.(list|sources)' "$inst_src" \
+         | sed -E 's#.*/##' | sort -u)
+if [ "${#src_bad[@]}" -eq 0 ]; then
+    note apt-allowlist "every sources.list.d file install.sh writes is matched by APT_OWN_SOURCES"
+else
+    bad  apt-allowlist "not covered by APT_OWN_SOURCES: ${src_bad[*]}"
+fi
+
+# Every PPA install.sh actually adds — the owner has to be caught by the same
+# prefix match apt_drop_own_dead_source runs against the real PPA filename
+# (owner-ubuntu-name-release.list).
+ppa_bad=()
+while read -r owner; do
+    [ -n "$owner" ] || continue
+    grep -qE "^(${own_ppas})" <<< "$owner" || ppa_bad+=("$owner")
+done < <(grep -oE 'add_ppa ppa:[A-Za-z0-9_.-]+/' "$inst_src" | sed -E 's#add_ppa ppa:##; s#/$##' | sort -u)
+if [ "${#ppa_bad[@]}" -eq 0 ]; then
+    note apt-allowlist "every add_ppa owner install.sh calls is matched by APT_OWN_PPAS"
+else
+    bad  apt-allowlist "not covered by APT_OWN_PPAS: ${ppa_bad[*]}"
+fi
+unset own_sources own_ppas src_bad ppa_bad
 
 echo "── menu column invariants ───────────────────────────────"
 # tui_pad pads with printf '%-*s', which counts BYTES, and truncates with
