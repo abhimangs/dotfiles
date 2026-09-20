@@ -87,9 +87,14 @@ ls -A "$d" 2>/dev/null | tr '\n' ' ' | sed 's/^/  /'; echo
 echo
 
 echo "── stowed symlinks ───────────────────────────────────"
+# Same rule install.sh follows: XDG_CONFIG_HOME decides where configs live,
+# and unset means ~/.config. Reporting the wrong directory is exactly the kind
+# of answer that sends whoever pastes this output debugging the wrong thing.
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_SHOWN="${XDG_CONFIG/#$HOME/\~}"
 # Single-file targets are symlinks; ~/.config/<app> is a real directory by
 # design, with stow linking the files inside it — so look one level in.
-for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$HOME/.config/starship.toml" \
+for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \
          "$HOME/scripts/pvpn/pvpn.zsh"; do
     if [ -L "$t" ]; then
         printf "  %-26s -> %-30s %s\n" "${t#"$HOME"/}" "$(readlink "$t")" \
@@ -105,11 +110,11 @@ done
 # is the checkout dir set above, and reusing it as the loop variable destroyed
 # it for anything added below.
 for cfg in fastfetch kitty ghostty rofi micro fresh ccstatusline btop bat ulauncher wallpapers; do
-    t="$HOME/.config/$cfg"
+    t="$XDG_CONFIG/$cfg"
     [ -e "$t" ] || continue
     n=$(find "$t" -maxdepth 1 -type l 2>/dev/null | wc -l)
     broken=$(find "$t" -maxdepth 1 -xtype l 2>/dev/null | wc -l)
-    printf "  %-26s %s\n" ".config/$cfg" "$n symlink(s) inside$( [ "$broken" -gt 0 ] && echo ", $broken BROKEN")"
+    printf "  %-26s %s\n" "${XDG_SHOWN#\~/}/$cfg" "$n symlink(s) inside$( [ "$broken" -gt 0 ] && echo ", $broken BROKEN")"
 done
 echo
 

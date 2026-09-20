@@ -173,6 +173,18 @@ fi
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 START_TS=$SECONDS
 
+# ── Where configs live ───────────────────────────────────────────────────────
+# $HOME/.config was hardcoded at fifteen call sites, which is the same
+# portability rule this repo already applies to /home/<user> paths: honoured
+# everywhere or honoured nowhere. XDG_CONFIG_HOME unset means ~/.config, so
+# every path and every line of output below is byte-identical on a machine
+# that does not set it.
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+# The display form. backup_file's own "${target/#$HOME/~}" is the same idiom:
+# print ~ where the path is under $HOME, print it in full where it is not.
+XDG_SHOWN="${XDG_CONFIG/#$HOME/\~}"
+
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
 # emulators, the launchers and every GUI app are unusable — and pull hundreds of
@@ -716,9 +728,9 @@ tui_pane_build() {              # tui_pane_build <item index or empty>
                 zsh)       _t="~/.zshrc" ;;
                 bash)      _t="~/.bashrc" ;;
                 git)       _t="~/.gitconfig" ;;
-                starship)  _t="~/.config/starship.toml" ;;
+                starship)  _t="${XDG_SHOWN}/starship.toml" ;;
                 protonvpn) _t="~/scripts/pvpn/pvpn.zsh" ;;
-                *)         _t="~/.config/${key}/" ;;
+                *)         _t="${XDG_SHOWN}/${key}/" ;;
             esac
             tui_pane_add "stows    ${_t}" "$C_RESET" 9
             [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
@@ -2353,9 +2365,9 @@ vicinae_postinstall() {
 }
 
 # ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
-FONT_DIR_DEB="$HOME/.local/share/fonts/JetBrainsMono"
-MAPLE_FONT_DIR_DEB="$HOME/.local/share/fonts/MapleMono"
-SYMBOLS_FONT_DIR_DEB="$HOME/.local/share/fonts/NerdFontsSymbols"
+FONT_DIR_DEB="$XDG_DATA/fonts/JetBrainsMono"
+MAPLE_FONT_DIR_DEB="$XDG_DATA/fonts/MapleMono"
+SYMBOLS_FONT_DIR_DEB="$XDG_DATA/fonts/NerdFontsSymbols"
 
 font_dir_has_ttf() {
     [ -d "$1" ] && find "$1" -name '*.ttf' -print -quit 2>/dev/null | grep -q .
@@ -2885,7 +2897,7 @@ stow_config() {
     # literal today, but a future one passing an empty name would aim that at
     # ~/.config itself — cheap to make impossible, expensive to discover.
     [ -n "$name" ] || return 1
-    local target="$HOME/.config/$name"
+    local target="$XDG_CONFIG/$name"
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
 
@@ -2912,12 +2924,12 @@ stow_config() {
                 rm -rf "$target"
                 # The path, not the bare name: "Deleted btop" in the middle of
                 # the dep-tool installs reads like the tool was removed.
-                substep "Deleted ${C_ACCENT}~/.config/${name}${C_RESET}"
+                substep "Deleted ${C_ACCENT}${XDG_SHOWN}/${name}${C_RESET}"
             else
                 rotate_bak "$bak" "$oldbak" "$name"
                 mv "$target" "$bak"
-                substep "Backed up ${C_ACCENT}~/.config/${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
-                BACKED_UP+=("~/.config/${name}.bak")
+                substep "Backed up ${C_ACCENT}${XDG_SHOWN}/${name}${C_RESET} → ${C_DIM}${name}.bak${C_RESET}"
+                BACKED_UP+=("${XDG_SHOWN}/${name}.bak")
             fi
         fi
         # Only symlinks / empty dir: nothing to do — stow_to -D cleans ours
@@ -3845,7 +3857,7 @@ show_plan() {
           # One arm for all eight: same target shape (~/.config/<name>/), same
           # backup rules. The ones that differ do so by a line or two at the end.
           fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline|ulauncher)
-            target="$HOME/.config/$cfg"; bak="${target}.bak"
+            target="$XDG_CONFIG/$cfg"; bak="${target}.bak"
             # The symlink test comes first for the same reason it does in
             # stow_config: -d follows the link, and what gets moved aside is
             # the link, not whatever it happens to point at.
@@ -3858,11 +3870,11 @@ show_plan() {
                         steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                     steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
                 fi
-                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
+                steps+=("${C_GREEN}stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
             elif [ -e "$target" ]; then
-                steps+=("${C_GREEN}re-stow → ~/.config/${cfg}/${C_RESET}")
+                steps+=("${C_GREEN}re-stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
             else
-                steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+                steps+=("${C_GREEN}stow → ${XDG_SHOWN}/${cfg}/${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             # needs_wallpaper is what the install loop branches on too, so the
             # plan cannot drift from it the way a second hardcoded list would.
@@ -3874,7 +3886,7 @@ show_plan() {
             # used to be reported as "already in place" and then deleted or
             # backed up without a word of warning.
             if needs_wallpaper "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
-                target="$HOME/.config/wallpapers"; bak="${target}.bak"
+                target="$XDG_CONFIG/wallpapers"; bak="${target}.bak"
                 if dir_target_conflicts "$target"; then
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
                         steps+=("${C_RED}delete${C_RESET} ${C_DIM}wallpapers${C_RESET}")
@@ -3883,7 +3895,7 @@ show_plan() {
                             steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}wallpapers.bak → wallpapers.old.bak${C_RESET}")
                         steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers → wallpapers.bak${C_RESET}")
                     fi
-                    steps+=("${C_GREEN}stow → ~/.config/wallpapers/${C_RESET}")
+                    steps+=("${C_GREEN}stow → ${XDG_SHOWN}/wallpapers/${C_RESET}")
                 elif [ -e "$target" ]; then
                     steps+=("${C_DIM}wallpaper already in place${C_RESET}")
                 else
@@ -3897,7 +3909,7 @@ show_plan() {
             [[ "$cfg" == "ccstatusline" ]] && \
                 steps+=("${C_GREEN}point Claude Code at it${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}")
             if [[ "$cfg" == "ulauncher" ]]; then
-                if [ ! -f "$HOME/.config/autostart/ulauncher.desktop" ]; then
+                if [ ! -f "$XDG_CONFIG/autostart/ulauncher.desktop" ]; then
                     steps+=("${C_GREEN}enable autostart${C_RESET}")
                 else
                     steps+=("${C_DIM}autostart already configured${C_RESET}")
@@ -3944,13 +3956,13 @@ show_plan() {
             # Mirrors the three outcomes in the install loop. No backup line
             # here any more: an existing starship.toml is never moved, so
             # promising a .bak we will not take would be worse than silence.
-            target="$HOME/.config/starship.toml"
+            target="$XDG_CONFIG/starship.toml"
             if is_repo_link "$target"; then
                 steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
             elif [ -e "$target" ] || [ -L "$target" ]; then
                 steps+=("${C_DIM}keep your existing starship.toml — ours not installed${C_RESET}")
             else
-                steps+=("${C_GREEN}stow ~/.config/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
+                steps+=("${C_GREEN}stow ${XDG_SHOWN}/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
             fi
             ;;
           git)
@@ -4009,15 +4021,15 @@ show_plan() {
             for _dc in "${DEP_HAS_CONFIG[@]}"; do
                 [ "$_d" = "$_dc" ] || continue
                 [ -d "$DOTFILES_DIR/$_d" ] || continue
-                _dtarget="$HOME/.config/$_d"
+                _dtarget="$XDG_CONFIG/$_d"
                 if dir_target_conflicts "$_dtarget"; then
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}~/.config/${_d}${C_RESET}"
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/${_d}${C_RESET}"
                     else
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}~/.config/${_d} → ${_d}.bak${C_RESET}"
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/${_d} → ${_d}.bak${C_RESET}"
                     fi
                 fi
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ~/.config/${_d}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ${XDG_SHOWN}/${_d}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
             done
         done
     fi
@@ -4163,10 +4175,10 @@ restore_bash() {
 
     # The same test, by the same name now: this was is_repo_link written out by
     # hand, which is how the two drifted apart in the first place.
-    local st="$HOME/.config/starship.toml" st_action=""
+    local st="$XDG_CONFIG/starship.toml" st_action=""
     if is_repo_link "$st"; then
         st_action="unstow"
-        steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.config/starship.toml${C_RESET}")
+        steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}${XDG_SHOWN}/starship.toml${C_RESET}")
         [ -e "${st}.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}starship.toml.bak → starship.toml${C_RESET}")
     fi
 
@@ -4273,9 +4285,9 @@ restore_bash() {
     fi
 
     if [ "$st_action" = "unstow" ]; then
-        stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D starship &>/dev/null 2>&1 || true
+        stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" -D starship &>/dev/null 2>&1 || true
         [ -L "$st" ] && rm -f "$st"
-        substep "Unstowed ${C_ACCENT}~/.config/starship.toml${C_RESET}"
+        substep "Unstowed ${C_ACCENT}${XDG_SHOWN}/starship.toml${C_RESET}"
         if [ -e "${st}.bak" ] && [ ! -e "$st" ]; then
             mv "${st}.bak" "$st" && substep "Restored ${C_ACCENT}starship.toml${C_RESET} from .bak"
         fi
@@ -5035,8 +5047,8 @@ else
 
     if [ "$_fonts_changed" -eq 1 ] && command -v fc-cache &>/dev/null; then
         substep "Rebuilding font cache in background..."
-        if [ -d "$HOME/.local/share/fonts" ]; then
-            fc-cache -f "$HOME/.local/share/fonts" &>/dev/null &
+        if [ -d "$XDG_DATA/fonts" ]; then
+            fc-cache -f "$XDG_DATA/fonts" &>/dev/null &
         else
             fc-cache -f &>/dev/null &
         fi
@@ -5407,15 +5419,15 @@ for cfg in "${SELECTED[@]}"; do
         # delete mode, erasing it) to install our own is not a reasonable
         # reading of "install starship". Ours goes in only when there is
         # nothing there.
-        _st="$HOME/.config/starship.toml"
+        _st="$XDG_CONFIG/starship.toml"
         # is_repo_link, not a fourth hand-written copy of it. There were three,
         # and the one in restore_bash had already drifted into deleting links
         # it did not own before anyone noticed they were meant to agree.
         if is_repo_link "$_st"; then
             # ours from an earlier run — refresh the link
-            stow --target "$HOME/.config" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
-            if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
-                error "Stow failed for starship — check for conflicts in ~/.config/"
+            stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
+            if ! stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+                error "Stow failed for starship — check for conflicts in ${XDG_SHOWN}/"
                 FAILED+=(starship)
                 continue
             fi
@@ -5423,13 +5435,13 @@ for cfg in "${SELECTED[@]}"; do
             # Deliberately doing nothing is not installing: without the continue
             # this fell through to the loop tail and reported "starship
             # installed" for a file it had just decided to leave alone.
-            substep "${C_DIM}Keeping your existing ~/.config/starship.toml — ours not installed${C_RESET}"
+            substep "${C_DIM}Keeping your existing ${XDG_SHOWN}/starship.toml — ours not installed${C_RESET}"
             unset _st
             success "${C_ACCENT}starship${C_RESET} left as-is"
             continue
         else
-            if ! stow --target "$HOME/.config" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
-                error "Stow failed for starship — check for conflicts in ~/.config/"
+            if ! stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+                error "Stow failed for starship — check for conflicts in ${XDG_SHOWN}/"
                 FAILED+=(starship)
                 continue
             fi
@@ -5458,7 +5470,7 @@ for cfg in "${SELECTED[@]}"; do
         fi
 
         # Autostart — create desktop entry if missing
-        autostart_dir="$HOME/.config/autostart"
+        autostart_dir="$XDG_CONFIG/autostart"
         autostart_file="$autostart_dir/ulauncher.desktop"
         mkdir -p "$autostart_dir"
         if [ ! -f "$autostart_file" ]; then

@@ -275,6 +275,10 @@ Both rc files source a local file last, if it exists:
 
 Neither is tracked by the repo, and being last means anything in them wins. Move stray installer lines there, and put per-machine settings there too — a work proxy, a different `EDITOR`, an API key you would rather not commit.
 
+### `XDG_CONFIG_HOME`
+
+Honoured. Configs stow into `$XDG_CONFIG_HOME/<name>` when it is set, and `~/.config/<name>` when it is not, which is what the spec says unset means. The Debian/Ubuntu font downloads follow `XDG_DATA_HOME` the same way. Every path the plan prints matches wherever they actually land, and `doctor.sh` reports the same directory the installer used.
+
 ### The editor
 
 `~/.gitconfig` deliberately sets no `core.editor`. Git resolves `GIT_EDITOR` → `core.editor` → `VISUAL` → `EDITOR` → `vi`, so a name hardcoded there outranks `$EDITOR` on every machine, including the headless ones where the installer strips every GUI app and a graphical editor can never exist.
