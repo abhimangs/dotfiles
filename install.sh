@@ -415,7 +415,10 @@ SPIN_PID=""
 spin_start() {
     [ "$USE_COLOR" -eq 1 ] || return 0
     [ -z "$SPIN_PID" ] || return 0
-    local frames='|/-\\'
+    # Starts on '/' rather than '|' only so the backslash is not the last
+    # character: a single-quoted string ending in one is legal but reads as a
+    # botched escape, to a human and to shellcheck alike.
+    local frames='/-\|'
     # Sliced with ${var:i:1}, which counts characters, not bytes — safe here
     # only because USE_GLYPHS is already gated on a UTF-8 locale.
     [ "$USE_GLYPHS" -eq 1 ] && frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -1452,7 +1455,7 @@ APT_SOURCES_D=/etc/apt/sources.list.d
 # Sources this installer is the one that adds. Only these are ever removed
 # again — anything else under sources.list.d belongs to the user and is left
 # alone. PPAs are matched by their owner prefix, vendor repos by filename.
-APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal'
+APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal|aslatter'
 # Every vendor repo written by an ensure_*_deb function below, plus the mirror
 # fallback. A stale one of these breaks apt-get update for the whole machine
 # exactly as a dead PPA does — and used to do it permanently, because only PPAs
@@ -1460,7 +1463,7 @@ APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal'
 # left out of here, the one file written to heal a broken index was the one file
 # that could break it for good. zz-dotfiles-fallback is its pre-rename name, kept
 # so a machine that ran that version can still be healed.
-APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*|zz-installer-fallback|zz-dotfiles-fallback'
+APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*|wezterm|slack|docker|zz-installer-fallback|zz-dotfiles-fallback'
 APT_HEALED=0
 
 # An earlier run may have added a source that has since stopped publishing for
@@ -2049,7 +2052,7 @@ ensure_eza_deb() {
 ensure_protonvpn_cli_deb() {
     apt_pkg_installed proton-vpn-cli && return 0
 
-    if ! dpkg -s protonvpn-stable-release &>/dev/null; then
+    if ! apt_pkg_installed protonvpn-stable-release; then
         ensure_apt_deps
         local listing_url="https://repo.protonvpn.com/debian/dists/stable/main/binary-all/"
         local listing deb_name tmp
@@ -3296,9 +3299,8 @@ if [[ "$DISTRO" == "debian" ]]; then
     # no apt repo either) are Arch-only for now. ChatGPT is the same shape:
     # OpenAI's own installer bootstraps a signed pacman repo directly — it
     # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
-    # Slack is Zoom's shape again: a vendor .deb behind a download page (the
-    # old packagecloud apt repo is gone), repackaged on the AUR as
-    # slack-desktop.
+    # Slack is neither: it has a working apt repo, just not one every apt
+    # distro can resolve — see the strip below and ensure_slack_deb.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note above.
@@ -3842,7 +3844,8 @@ show_plan() {
                 if [[ "$BACKUP_MODE" == "delete" ]]; then
                     steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
                 else
-                    [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
+                    { [ -e "$bak" ] || [ -L "$bak" ]; } && \
+                        steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
                     steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
                 fi
                 steps+=("${C_GREEN}stow → ~/.config/${cfg}/${C_RESET}")
@@ -3866,7 +3869,8 @@ show_plan() {
                     if [[ "$BACKUP_MODE" == "delete" ]]; then
                         steps+=("${C_RED}delete${C_RESET} ${C_DIM}wallpapers${C_RESET}")
                     else
-                        [ -e "$bak" ] && steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers.bak → wallpapers.old.bak${C_RESET}")
+                        { [ -e "$bak" ] || [ -L "$bak" ]; } && \
+                            steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}wallpapers.bak → wallpapers.old.bak${C_RESET}")
                         steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers → wallpapers.bak${C_RESET}")
                     fi
                     steps+=("${C_GREEN}stow → ~/.config/wallpapers/${C_RESET}")
