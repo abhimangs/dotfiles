@@ -3371,7 +3371,28 @@ DEP_PKG_DEB[gh]="gh"
 DEP_PKG_DEB[delta]="git-delta"
 
 # Deps that also have a config to stow into ~/.config
-DEP_HAS_CONFIG=(bat btop)
+DEP_HAS_CONFIG=(bat btop tmux lazygit)
+
+# Apps that carry a config in this repo, the same idea one array up. alacritty
+# and wezterm are terminals the menu offers and then leaves unthemed, which in
+# a repo whose whole point is one Catppuccin Mocha everywhere is a gap you only
+# notice after installing one. They stay in APPS_LIST rather than moving to
+# CONFIGS the way ghostty and kitty live there: a key cannot be in two sections
+# (the menu's item table is flat, and tui_tick_key stops at the first match),
+# and moving them would silently break --apps=alacritty for anyone scripting
+# it. Both read ~/.config/<name>/, which is what stow_config already does.
+APP_HAS_CONFIG=(alacritty wezterm)
+
+# Is <name> one of the two "also carries a config" lists, and is that config
+# actually in this checkout? Private mode never removes a config folder, but a
+# partial clone could.
+has_side_config() {             # has_side_config <name>
+    local n
+    for n in "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}"; do
+        [ "$n" = "$1" ] && [ -d "$DOTFILES_DIR/$1" ] && return 0
+    done
+    return 1
+}
 
 dep_pkg_name() {
     local dep="$1"
@@ -3745,8 +3766,8 @@ APP_DESC[brave-stable]="chromium browser, no telemetry"
 APP_DESC[vscode]="the editor"
 APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
 APP_DESC[neovim]="the editor, in the terminal"
-APP_DESC[alacritty]="GPU-accelerated terminal"
-APP_DESC[wezterm]="GPU-accelerated terminal  ${G_DOT}  multiplexer built in"
+APP_DESC[alacritty]="GPU-accelerated terminal  ${G_DOT}  Catppuccin Mocha"
+APP_DESC[wezterm]="GPU-accelerated terminal  ${G_DOT}  multiplexer, Catppuccin"
 APP_DESC[antigravity-ide]="agentic IDE"
 APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
@@ -3785,13 +3806,13 @@ DEP_DESC[eza]="modern ls  ${G_RIGHT}  ls  ll  lt  la aliases"
 DEP_DESC[fd]="fast find replacement  ${G_RIGHT}  fzf integration"
 DEP_DESC[zoxide]="smart cd  ${G_RIGHT}  z command"
 DEP_DESC[pay-respects]="corrects last command  ${G_RIGHT}  fuck alias"
-DEP_DESC[lazygit]="git TUI  ${G_RIGHT}  lg alias"
+DEP_DESC[lazygit]="git TUI  ${G_RIGHT}  lg alias  ${G_DOT}  Catppuccin, delta diffs"
 DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
 DEP_DESC[tree]="directory tree listing"
 DEP_DESC[gh]="GitHub CLI  ${G_RIGHT}  gh auth login, PRs, issues"
 DEP_DESC[ripgrep]="fast recursive grep  ${G_RIGHT}  rg command"
 DEP_DESC[delta]="side-by-side git diffs  ${G_DOT}  pairs with lazygit"
-DEP_DESC[tmux]="terminal multiplexer"
+DEP_DESC[tmux]="terminal multiplexer      ${G_DOT}  Catppuccin Mocha"
 
 # ── Does a directory-shaped config target conflict? ──────────────────────────
 # True when a ~/.config/<name> target is a foreign symlink, or holds a real
@@ -4111,6 +4132,7 @@ show_plan() {
     if [ "${#APPS[@]}" -gt 0 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
+        local _atarget
         for _a in "${APPS[@]}"; do
             local _lbl="${APP_LABEL[$_a]}"
             local _type="${RESOLVED_APP_TYPE[$_a]}"
@@ -4141,6 +4163,20 @@ show_plan() {
                 else
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
                 fi
+            fi
+            # An app that also stows a theme reaches stow_config, which in
+            # delete mode rm -rf's ~/.config/<app> with no .bak. Unannounced,
+            # that is the exact surprise the dep-tool section was fixed for.
+            if has_side_config "$_a"; then
+                _atarget="$XDG_CONFIG/$_a"
+                if dir_target_conflicts "$_atarget"; then
+                    if [[ "$BACKUP_MODE" == "delete" ]]; then
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/${_a}${C_RESET}"
+                    else
+                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/${_a} → ${_a}.bak${C_RESET}"
+                    fi
+                fi
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ${XDG_SHOWN}/${_a}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
             fi
         done
         # Step 5c½ fires on either trigger, so picking Claude Code alone
@@ -4427,7 +4463,7 @@ backup_bases() {
             *)         printf '%s\n' "$XDG_CONFIG/$n" ;;
         esac
     done
-    for n in "${DEP_HAS_CONFIG[@]}"; do printf '%s\n' "$XDG_CONFIG/$n"; done
+    for n in "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}"; do printf '%s\n' "$XDG_CONFIG/$n"; done
     printf '%s\n' "$XDG_CONFIG/wallpapers"
 }
 
@@ -4549,7 +4585,7 @@ uninstall_run() {
         # Every config plus the two dep tools that carry one and the
         # wallpapers directory, which the install loop stows as a side effect
         # of ghostty/kitty and which nothing else would ever take back out.
-        list=("${CONFIGS[@]}" "${DEP_HAS_CONFIG[@]}" wallpapers)
+        list=("${CONFIGS[@]}" "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}" wallpapers)
     fi
 
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Uninstall${C_RESET}"
@@ -4684,7 +4720,10 @@ list_porcelain() {
         printf 'tool\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f"
     done
     for n in "${APPS_LIST[@]}"; do
-        f="-"; [ -n "${APP_UPDATE[$n]+x}" ] && f="interactive"
+        f=""
+        [ -n "${APP_UPDATE[$n]+x}" ] && f="interactive"
+        has_side_config "$n" && f="${f:+$f,}hasconfig"
+        f="${f:--}"
         printf 'app\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe apps "$n")" "$(app_type_resolved "$n")" "$f"
     done
     printf 'var\tCURL_APP_PATH\t%s\t-\t-\n' "$CURL_APP_PATH"
@@ -6078,6 +6117,17 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                             || substep "${C_YELLOW}Could not install docker-compose/docker-buildx${C_RESET} ${C_DIM}— docker itself is installed${C_RESET}"
                     fi
                     docker_postinstall
+                fi
+                # After the install, not before: stowing a theme for something
+                # that failed to install leaves a config with nothing to read
+                # it. Same call the configs loop and the dep tools make, so the
+                # backup and delete rules are the same ones too.
+                if has_side_config "$app"; then
+                    if stow_config "$app"; then
+                        substep "${C_DIM}Config stowed → ${XDG_SHOWN}/${app}/${C_RESET}"
+                    else
+                        FAILED+=("${_lbl} config")
+                    fi
                 fi
                 success "${C_ACCENT}${_lbl}${C_RESET} done"
                 INSTALLED+=("$_lbl")

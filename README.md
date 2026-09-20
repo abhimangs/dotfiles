@@ -80,6 +80,10 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* | PPA (Ubuntu) / GitHub `.deb` (Debian) |
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |
+| `tmux/` | `~/.config/tmux/` | `tmux` *(dep)* | apt — needs tmux 3.1+, older builds read only `~/.tmux.conf` |
+| `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` |
+| `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
+| `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |
 | `wallpapers/` | `~/.config/wallpapers/` | - | - |
 | `bash/` | `~/.bashrc` | `bash` | apt (plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash)) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |

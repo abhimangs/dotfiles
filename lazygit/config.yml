@@ -1,0 +1,49 @@
+# ── Appearance ───────────────────────────────────────────────────────────────
+gui:
+  # JetBrainsMono Nerd Font is installed on every run that installs a config,
+  # so the file and branch icons have something to render with.
+  nerdFontsVersion: "3"
+  border: rounded
+
+  # Catppuccin Mocha, same values as kitty/current-theme.conf.
+  theme:
+    activeBorderColor:
+      - "#cba6f7"
+      - bold
+    inactiveBorderColor:
+      - "#6c7086"
+    searchingActiveBorderColor:
+      - "#f9e2af"
+      - bold
+    optionsTextColor:
+      - "#89b4fa"
+    selectedLineBgColor:
+      - "#313244"
+    inactiveViewSelectedLineBgColor:
+      - "#313244"
+    cherryPickedCommitFgColor:
+      - "#89b4fa"
+    cherryPickedCommitBgColor:
+      - "#94e2d5"
+    markedBaseCommitFgColor:
+      - "#89b4fa"
+    markedBaseCommitBgColor:
+      - "#f9e2af"
+    unstagedChangesColor:
+      - "#f38ba8"
+    defaultFgColor:
+      - "#cdd6f4"
+
+# ── Git ──────────────────────────────────────────────────────────────────────
+# Render diffs with delta rather than lazygit's built-in differ. delta is
+# already this repo's git pager (git/.gitconfig) and DEP_DESC[delta] in
+# install.sh says outright that it is meant to pair with lazygit — this is the
+# line that actually pairs them.
+#
+# The key is `git.diffRenderers`. The `git.paging.pager` / `useConfig` form
+# that most guides still show was removed upstream and is silently ignored.
+git:
+  diffRenderers:
+    - name: delta
+      colorArg: "always"
+      command: delta --dark --paging=never
