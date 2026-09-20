@@ -1207,25 +1207,30 @@ check   debian-orca 2
 want    debian-orca 'Unknown app'           'rejected on Debian/Ubuntu'
 
 echo
-echo "── obs-studio + zoom ────────────────────────────────────"
+echo "── obs-studio + zoom + slack ────────────────────────────"
 # 22. OBS is the only app whose extras are not optional: without
 #     v4l2loopback-dkms the virtual camera fails at runtime and without
 #     qt6-wayland the UI falls back to XWayland. They have no menu row of their
 #     own, so nothing but this says they were actually installed. Zoom rides
 #     along in the same run — it is the second AUR-only entry, so it also proves
 #     the fallback is not something only vicinae's name reaches.
-RUN_ARGS=--gui run arch-obs arch "$WORK/k-sel" DOTFILES_APPS="obs-studio,zoom"
+RUN_ARGS=--gui run arch-obs arch "$WORK/k-sel" DOTFILES_APPS="obs-studio,zoom,slack"
 check   arch-obs 0
 want    arch-obs 'OBS Studio.*done'  'app reported installed'
 want    arch-obs 'Zoom.*done'        'and so did zoom'
+want    arch-obs 'Slack.*done'       'and so did slack'
 d="$WORK/run/arch-obs"
-for p in obs-studio v4l2loopback-dkms qt6-wayland zoom; do
+for p in obs-studio v4l2loopback-dkms qt6-wayland zoom slack-desktop; do
     grep -qxF "$p" "$d/state/installed" \
         && note arch-obs "$p installed" || bad arch-obs "$p missing"
 done
-grep -qxF zoom "$d/state/aur-installed" 2>/dev/null \
-    && note arch-obs "zoom came through the AUR helper" \
-    || bad  arch-obs "zoom never reached the AUR fallback"
+# slack is the menu name, slack-desktop the AUR package — the loop above is the
+# only thing that would notice APP_PKG[slack] going wrong.
+for p in zoom slack-desktop; do
+    grep -qxF "$p" "$d/state/aur-installed" 2>/dev/null \
+        && note arch-obs "$p came through the AUR helper" \
+        || bad  arch-obs "$p never reached the AUR fallback"
+done
 
 # 23. Same two packages on apt, under the same names — which is why there is no
 #     *_DEB map entry for them, and why a typo there would be invisible without
@@ -1244,6 +1249,12 @@ done
 RUN_ARGS="--gui --apps=zoom" run debian-zoom debian "$WORK/k-sel"
 check   debian-zoom 2
 want    debian-zoom 'Unknown app'  'rejected on Debian/Ubuntu'
+
+# 24b. Same for slack: the AUR package wraps the vendor .deb, and Slack's apt
+#      repo is gone, so the name must not be offered on apt either.
+RUN_ARGS="--gui --apps=slack" run debian-slack debian "$WORK/k-sel"
+check   debian-slack 2
+want    debian-slack 'Unknown app'  'rejected on Debian/Ubuntu'
 
 echo
 echo "── restore bash ─────────────────────────────────────────"
