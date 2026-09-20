@@ -1207,29 +1207,32 @@ check   debian-orca 2
 want    debian-orca 'Unknown app'           'rejected on Debian/Ubuntu'
 
 echo
-echo "── obs-studio + zoom + slack ────────────────────────────"
+echo "── obs-studio + zoom + slack + discord ──────────────────"
 # 22. OBS is the only app whose extras are not optional: without
 #     v4l2loopback-dkms the virtual camera fails at runtime and without
 #     qt6-wayland the UI falls back to XWayland. They have no menu row of their
 #     own, so nothing but this says they were actually installed. Zoom rides
 #     along in the same run — it is the second AUR-only entry, so it also proves
 #     the fallback is not something only vicinae's name reaches.
-RUN_ARGS=--gui run arch-obs arch "$WORK/k-sel" DOTFILES_APPS="obs-studio,zoom,slack"
+RUN_ARGS=--gui run arch-obs arch "$WORK/k-sel" DOTFILES_APPS="obs-studio,zoom,slack,discord-canary"
 check   arch-obs 0
 want    arch-obs 'OBS Studio.*done'  'app reported installed'
 want    arch-obs 'Zoom.*done'        'and so did zoom'
 want    arch-obs 'Slack.*done'       'and so did slack'
+want    arch-obs 'Discord Canary.*done' 'and so did discord canary'
 d="$WORK/run/arch-obs"
-for p in obs-studio v4l2loopback-dkms qt6-wayland zoom slack-desktop; do
+for p in obs-studio v4l2loopback-dkms qt6-wayland zoom slack-desktop discord-canary; do
     grep -qxF "$p" "$d/state/installed" \
         && note arch-obs "$p installed" || bad arch-obs "$p missing"
 done
 # slack is the menu name, slack-desktop the AUR package — the loop above is the
 # only thing that would notice APP_PKG[slack] going wrong.
-for p in zoom slack-desktop; do
-    grep -qxF "$p" "$d/state/aur-installed" 2>/dev/null \
-        && note arch-obs "$p came through the AUR helper" \
-        || bad  arch-obs "$p never reached the AUR fallback"
+for p in zoom slack-desktop discord-canary; do
+    if grep -qxF "$p" "$d/state/aur-installed" 2>/dev/null; then
+        note arch-obs "$p came through the AUR helper"
+    else
+        bad  arch-obs "$p never reached the AUR fallback"
+    fi
 done
 
 # 23. Same two packages on apt, under the same names — which is why there is no
@@ -1255,6 +1258,9 @@ want    debian-zoom 'Unknown app'  'rejected on Debian/Ubuntu'
 RUN_ARGS="--gui --apps=slack" run debian-slack debian "$WORK/k-sel"
 check   debian-slack 2
 want    debian-slack 'Unknown app'  'rejected on Debian/Ubuntu'
+# The rejection prints the whole offered pool, so one run is also where the
+# rest of the Arch-only apps can be checked for having been stripped.
+nowant  debian-slack 'discord-canary'  'and discord-canary is not offered either'
 
 echo
 echo "── restore bash ─────────────────────────────────────────"

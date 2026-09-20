@@ -221,7 +221,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack alacritty wezterm vicinae vlc obs-studio zoom)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -3243,7 +3243,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian chatgpt slack vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian chatgpt slack discord-canary vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -3256,11 +3256,12 @@ if [[ "$DISTRO" == "debian" ]]; then
     # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
     # Slack is Zoom's shape again: a vendor .deb behind a download page (the
     # old packagecloud apt repo is gone), repackaged on the AUR as
-    # slack-desktop.
+    # slack-desktop. Discord Canary is the same again: the nightly build is a
+    # vendor download, and only the AUR packages it.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca chatgpt slack
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca chatgpt slack discord-canary
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -3298,6 +3299,7 @@ APP_LABEL[notion]="Notion"
 APP_LABEL[obsidian]="Obsidian"
 APP_LABEL[chatgpt]="ChatGPT"
 APP_LABEL[slack]="Slack"
+APP_LABEL[discord-canary]="Discord Canary"
 APP_LABEL[claude-desktop]="Claude Desktop"
 APP_LABEL[vlc]="VLC"
 APP_LABEL[obs-studio]="OBS Studio"
@@ -3354,6 +3356,8 @@ APP_TYPE[obsidian]="pacman"
 APP_TYPE[chatgpt]="chatgpt"
 # AUR-only, like vicinae/zoom — slack-desktop repackages the vendor .deb
 APP_TYPE[slack]="paru"
+# Canary is AUR-only — only the stable "discord" is in the official repos
+APP_TYPE[discord-canary]="paru"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[obs-studio]="pacman"
 # AUR-only, like vicinae — no zoom in the official repos
@@ -3377,6 +3381,7 @@ APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
 APP_PKG[chatgpt]="chatgpt-bin"
 APP_PKG[slack]="slack-desktop"
+APP_PKG[discord-canary]="discord-canary"
 APP_PKG[vlc]="vlc"
 # v4l2loopback-dkms (virtual camera) and qt6-wayland (Wayland rendering) are
 # pulled in as a post-install step, same shape as docker's compose/buildx:
@@ -3619,6 +3624,7 @@ APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[chatgpt]="OpenAI's ChatGPT, as a desktop app"
 APP_DESC[slack]="team chat"
+APP_DESC[discord-canary]="voice and text chat  ${G_DOT}  nightly build"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
 APP_DESC[vlc]="plays anything"
 APP_DESC[obs-studio]="screen recording and streaming  ${G_DOT}  virtual camera, Wayland"
