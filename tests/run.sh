@@ -1257,10 +1257,41 @@ want    debian-zoom 'Unknown app'  'rejected on Debian/Ubuntu'
 #      repo is gone, so the name must not be offered on apt either.
 RUN_ARGS="--gui --apps=slack" run debian-slack debian "$WORK/k-sel"
 check   debian-slack 2
-want    debian-slack 'Unknown app'  'rejected on Debian/Ubuntu'
-# The rejection prints the whole offered pool, so one run is also where the
-# rest of the Arch-only apps can be checked for having been stripped.
-nowant  debian-slack 'discord-canary'  'and discord-canary is not offered either'
+want    debian-slack 'Unknown app'  'rejected on Debian'
+# The rejection prints the whole offered pool, which is where the other half of
+# the split shows: Discord Canary's .deb has no appindicator dependency, so it
+# is offered on the same Debian box that cannot have Slack.
+want    debian-slack 'available:.*discord-canary'  'while discord-canary is'
+
+# 24c. Ubuntu is the one distro that gets Slack: libappindicator3-1 is still in
+#      universe there, so Slack's own apt repo resolves. Nothing else in the
+#      app list is Ubuntu-only, so this is the only cover the IS_UBUNTU branch
+#      in APPS_LIST has.
+RUN_ARGS="--gui --apps=slack" run ubuntu-slack ubuntu "$WORK/k-sel"
+check   ubuntu-slack 0
+want    ubuntu-slack 'Slack.*done'  'installed on Ubuntu'
+d="$WORK/run/ubuntu-slack"
+grep -qxF slack-desktop "$d/state/installed" \
+    && note ubuntu-slack "slack-desktop installed" || bad ubuntu-slack "slack-desktop missing"
+src="$d/etc/apt/sources.list.d/slack.list"
+if [ -f "$src" ] && grep -q 'packagecloud.io/slacktechnologies/slack' "$src"; then
+    note ubuntu-slack "slack.list points at Slack's own repo"
+else
+    bad  ubuntu-slack "slack.list missing or wrong host"
+fi
+[ -s "$d/etc/apt/keyrings/slack.asc" ] \
+    && note ubuntu-slack "keyring written" || bad ubuntu-slack "keyring missing"
+
+# 24d. Discord Canary on apt is a vendor .deb behind a 302 with no version in
+#      the URL and no published checksum — the one caller of install_deb_url
+#      that is not a GitHub release, and so the only thing that would notice
+#      the split out of install_release_deb going wrong.
+RUN_ARGS="--gui --apps=discord-canary" run debian-discord debian "$WORK/k-sel"
+check   debian-discord 0
+want    debian-discord 'Discord Canary.*done'  'installed on Debian'
+grep -qxF discord-canary "$WORK/run/debian-discord/state/installed" \
+    && note debian-discord "discord-canary installed" \
+    || bad  debian-discord "discord-canary missing"
 
 echo
 echo "── restore bash ─────────────────────────────────────────"

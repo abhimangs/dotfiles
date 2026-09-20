@@ -126,7 +126,7 @@ merge is deliberately conservative:
 
 - **One menu**: dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab**: bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux (all of them come automatically with zsh, see below)
-- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack\*, Discord Canary\*, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
+- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
 - **Confirmation plan**: shows exactly what will be installed before proceeding
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
 - **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
@@ -226,7 +226,28 @@ installed but my shell is still bash", which is the question it was written for.
 
 ### Arch-only items
 
-`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build, only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only: upstream ships a release tarball and a Nix flake, no apt repo), `zoom` (a vendor `.deb` behind a download page, no apt repo), `deepseek-harness` (AUR only, `deepseek-harness-bin`; DeepSeek's plugin-based agent harness — `dsh web` opens its browser UI), `orca` (AUR only, `stably-orca-bin`; Stably's agent worktree manager), `chatgpt` (OpenAI's own installer bootstraps a signed pacman repo directly, with no apt/deb equivalent — `chatgpt-bin`, the desktop app, not the CLI), `slack` (AUR only, `slack-desktop`, which repackages the vendor `.deb`; Slack's apt repo is gone and the download page is all that is left — Zoom's shape exactly) and `discord-canary` (AUR only, `discord-canary`; the nightly build is a vendor download — only the stable `discord` is packaged in a distro repo, and not on apt) are only offered on Arch. `orca` is not a GUI entry, so unlike the rest of that list it is still offered on a headless Arch box. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` (the command to bind to a hotkey) is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build, only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only: upstream ships a release tarball and a Nix flake, no apt repo), `zoom` (a vendor `.deb` behind a download page, no apt repo), `deepseek-harness` (AUR only, `deepseek-harness-bin`; DeepSeek's plugin-based agent harness — `dsh web` opens its browser UI), `orca` (AUR only, `stably-orca-bin`; Stably's agent worktree manager) and `chatgpt` (OpenAI's own installer bootstraps a signed pacman repo directly, with no apt/deb equivalent — `chatgpt-bin`, the desktop app, not the CLI) are only offered on Arch. `orca` is not a GUI entry, so unlike the rest of that list it is still offered on a headless Arch box. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` (the command to bind to a hotkey) is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
+
+### Slack and Discord Canary, per distro
+
+Both are AUR packages on Arch (`slack-desktop`, `discord-canary`) and both have
+a real path on apt, so neither is Arch-only — but they do not have the *same*
+path:
+
+- **Discord Canary** — everywhere. There is no apt repo, so the installer takes
+  the `.deb` Discord publishes for the current build
+  (`discord.com/api/download/canary?platform=linux&format=deb`, a 302 to the
+  versioned file) and hands it to apt. Its dependencies are all stock, so
+  Debian and Ubuntu both resolve it.
+- **Slack** — Arch and Ubuntu, not Debian. Slack's own apt repo
+  (`packagecloud.io/slacktechnologies/slack`) is signed and still current, and
+  that is what the installer adds. Debian is the exception: the `.deb` depends
+  on `libappindicator3-1`, which Debian dropped after bullseye — only
+  `libayatana-appindicator3-1` is left — so apt cannot resolve it on bookworm
+  or trixie. Ubuntu still ships the package in universe, 24.04 included.
+  Forcing it past the dependency would be the kind of worse substitute this
+  installer does not fake, so on Debian the name is rejected like any other
+  unavailable app.
 
 ### Debian/Ubuntu-only items
 

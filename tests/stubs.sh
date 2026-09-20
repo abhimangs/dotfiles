@@ -421,7 +421,7 @@ if [ -n "$out" ]; then
     # and a scenario asserting the rc file is clean is the only thing that can
     # prove APP_CURL_ARGS/APP_CURL_ENV/CURL_APP_PATH reached the installer.
     case "$url" in
-        */gpg|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
+        */gpg|*/gpgkey|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
         *.deb)
             : > "$out"
             # Vendor .deb: the -o path is a mktemp name that says nothing, but the
@@ -432,6 +432,15 @@ if [ -n "$out" ]; then
             # below is by construction the right one for this file. A literal
             # constant here would be the hash of an empty file, and would go
             # stale the day this branch writes anything into it.
+            sha256sum "$out" | cut -d' ' -f1 > "${STUB_STATE:?}/deb_sha" ;;
+        *discord.com/api/download*)
+            : > "$out"
+            # The real curl follows a 302 to discord-canary-<ver>.deb; here the
+            # endpoint is all there is, so the package name comes from that.
+            case "$url" in
+                *canary*) printf 'discord-canary\n' ;;
+                *)        printf 'discord\n' ;;
+            esac > "${STUB_STATE:?}/deb_pkg"
             sha256sum "$out" | cut -d' ' -f1 > "${STUB_STATE:?}/deb_sha" ;;
         *nousresearch.com*)
             # The one vendor installer served for real, because Hermes is the

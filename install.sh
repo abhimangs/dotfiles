@@ -1746,8 +1746,15 @@ github_latest_asset_url() {
 # would break three working tools for a check that cannot be performed. A
 # checksum that *is* published and does not match is refused, and said out loud.
 install_release_deb() {
-    local url tmp want got rc
-    url=$(github_latest_asset_url "$1" "$2")
+    install_deb_url "$(github_latest_asset_url "$1" "$2")"
+}
+
+# The half of the above that is not GitHub-specific: fetch a .deb, check any
+# published checksum, hand it to apt. Split out for the vendors that publish a
+# "latest" URL instead of a release feed (Discord), so there is one download-
+# and-verify path rather than a second copy of it.
+install_deb_url() {
+    local url=$1 tmp want got rc
     [ -n "$url" ] || return 1
     tmp=$(mktemp -p "$RUN_TMPDIR" release_XXXXXX.deb)
     curl -fsSL "$url" -o "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
@@ -2153,6 +2160,41 @@ ensure_claude_desktop_deb() {
     apt_update_once
     apt_install claude-desktop
     apt_pkg_installed claude-desktop
+}
+
+# ── Slack (Ubuntu only) ───────────────────────────────────────────────────────
+# packagecloud is Slack's own repo and is still current — it carries the same
+# build the AUR package repackages — so this is an apt source rather than a
+# downloaded .deb, and slack upgrades with everything else afterwards. The
+# suite name is packagecloud's own convention, not a jessie-era package.
+#
+# Debian is excluded from the app list instead of coming through here: the .deb
+# depends on libappindicator3-1, which Debian dropped after bullseye (only
+# libayatana-appindicator3-1 is left), so apt cannot resolve it there. Ubuntu
+# still ships the package in universe, 24.04 included. Forcing it in past the
+# dependency is the kind of worse substitute this installer does not fake.
+ensure_slack_deb() {
+    apt_pkg_installed slack-desktop && return 0
+    ensure_apt_deps
+    apt_install_keyring https://packagecloud.io/slacktechnologies/slack/gpgkey \
+        /etc/apt/keyrings/slack.asc --armored || return 1
+    apt_write_source_line \
+        "deb [arch=amd64 signed-by=/etc/apt/keyrings/slack.asc] https://packagecloud.io/slacktechnologies/slack/debian/ jessie main" \
+        /etc/apt/sources.list.d/slack.list
+    apt_update_once
+    apt_install slack-desktop
+    apt_pkg_installed slack-desktop
+}
+
+# ── Discord Canary (Debian/Ubuntu) ────────────────────────────────────────────
+# No apt repo at all — Discord publishes one .deb per build and this endpoint
+# 302s to the current one, which is why there is no version to pin or scrape.
+# Its dependencies are all stock (no appindicator), so unlike Slack it installs
+# on Debian as well as Ubuntu.
+ensure_discord_canary_deb() {
+    apt_pkg_installed discord-canary && return 0
+    install_deb_url "https://discord.com/api/download/canary?platform=linux&format=deb"
+    apt_pkg_installed discord-canary
 }
 
 # ── Docker Engine (Debian/Ubuntu) ─────────────────────────────────────────────
@@ -3256,12 +3298,16 @@ if [[ "$DISTRO" == "debian" ]]; then
     # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
     # Slack is Zoom's shape again: a vendor .deb behind a download page (the
     # old packagecloud apt repo is gone), repackaged on the AUR as
-    # slack-desktop. Discord Canary is the same again: the nightly build is a
-    # vendor download, and only the AUR packages it.
+    # slack-desktop.
     # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
     # but there is no Arch package — so it is Debian/Ubuntu-only.
     # Strip + append, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca chatgpt slack discord-canary
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca chatgpt
+    # Slack splits the two: Ubuntu still has libappindicator3-1 in universe and
+    # takes Slack's own apt repo, Debian dropped the library and cannot resolve
+    # the package at all. The only entry that is Ubuntu-only rather than
+    # apt-wide — see ensure_slack_deb.
+    [ "$IS_UBUNTU" -eq 1 ] || strip_items APPS_LIST slack
     APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
@@ -3354,7 +3400,8 @@ APP_TYPE[obsidian]="pacman"
 # AUR, not a plain repo package, so it gets a dedicated dispatch value like
 # brave/vscode/claude-desktop do on the Debian side (see ensure_chatgpt_arch).
 APP_TYPE[chatgpt]="chatgpt"
-# AUR-only, like vicinae/zoom — slack-desktop repackages the vendor .deb
+# AUR-only — slack-desktop repackages the same vendor .deb that Slack's own
+# apt repo serves on the Ubuntu side
 APP_TYPE[slack]="paru"
 # Canary is AUR-only — only the stable "discord" is in the official repos
 APP_TYPE[discord-canary]="paru"
@@ -3534,6 +3581,8 @@ APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
 APP_TYPE_DEB[wezterm]="wezterm"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
+APP_TYPE_DEB[slack]="slack"
+APP_TYPE_DEB[discord-canary]="discord-canary"
 APP_TYPE_DEB[docker]="docker"
 APP_TYPE_DEB[tailscale]="curl"
 # vlc/flatpak fall through to the "apt" default below
@@ -5585,6 +5634,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
                 chatgpt) ensure_chatgpt_arch ;;
+                slack) ensure_slack_deb ;;
+                discord-canary) ensure_discord_canary_deb ;;
                 docker) ensure_docker_deb ;;
             esac
             if pkg_installed "$_pkg"; then
