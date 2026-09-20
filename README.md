@@ -55,7 +55,7 @@ variable is silently unset for the whole run.
 Anything else is rejected with exit 2 rather than ignored: a mistyped `--dryrun`
 would otherwise have run a real install.
 
-Each flag has an environment equivalent (`DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_LIST`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS`, `DOTFILES_PRIVATE`, `DOTFILES_BACKUP_MODE`), because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
+Each flag has an environment equivalent (`DOTFILES_DRY_RUN`, `DOTFILES_GUI`, `DOTFILES_RESTORE_BASH`, `DOTFILES_LIST`, `DOTFILES_ASCII`, `DOTFILES_NO_COLOR`, `DOTFILES_CONFIGS`, `DOTFILES_TOOLS`, `DOTFILES_APPS`, `DOTFILES_PRIVATE`, `DOTFILES_BACKUP_MODE`, `DOTFILES_UNINSTALL`, `DOTFILES_BACKUPS`, `DOTFILES_PORCELAIN`), because the bootstrap ends in `exec ./install.sh` with no arguments, so flags cannot reach it through the curl path but the environment can:
 
 ```bash
 curl -fsSL https://abhiman.io/linux.sh | DOTFILES_DRY_RUN=1 bash

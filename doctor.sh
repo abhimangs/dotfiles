@@ -86,6 +86,21 @@ echo "top level:"
 ls -A "$d" 2>/dev/null | tr '\n' ' ' | sed 's/^/  /'; echo
 echo
 
+# ── install.sh's own lists ────────────────────────────────────────────
+# These used to be hand-kept copies of CONFIGS, DEPS_LIST, the APP_UPDATE keys
+# and CURL_APP_PATH, and they fell behind four times — micro, fresh,
+# ccstatusline and pay-respects were each silently absent from this report for
+# a while, which sends whoever pastes it debugging the wrong thing. Ask
+# install.sh instead. `--list --porcelain` installs nothing, prompts for
+# nothing and needs no terminal, so this stays a read-only script.
+PORCELAIN=""
+[ -f "$d/install.sh" ] && PORCELAIN="$(bash "$d/install.sh" --list --porcelain 2>/dev/null)"
+pcl() { awk -F'\t' "$1" <<< "$PORCELAIN"; }
+if [ -z "$PORCELAIN" ]; then
+    echo "NOTE: install.sh --list --porcelain returned nothing — the config, tool"
+    echo "      and CLI lists below are incomplete. That is itself worth reporting."
+fi
+
 echo "── stowed symlinks ───────────────────────────────────"
 # Same rule install.sh follows: XDG_CONFIG_HOME decides where configs live,
 # and unset means ~/.config. Reporting the wrong directory is exactly the kind
@@ -105,11 +120,15 @@ for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \
         printf "  %-26s %s\n" "${t#"$HOME"/}" "(absent)"
     fi
 done
-# Hand-kept copy of every CONFIGS entry that stows into ~/.config/<name>/,
-# plus bat/btop (dep tools that carry a config) and wallpapers. Not "d": that
-# is the checkout dir set above, and reusing it as the loop variable destroyed
-# it for anything added below.
-for cfg in fastfetch kitty ghostty rofi micro fresh ccstatusline btop bat ulauncher wallpapers; do
+# Every entry that stows into a directory under $XDG_CONFIG — configs whose
+# target ends in "/", plus the dep tools flagged "hasconfig" (bat, btop).
+# wallpapers is the one name that is in no array: the installer stows it as a
+# side effect of ghostty/kitty, so it is named here and nowhere else. Not "d"
+# as the loop variable: that is the checkout dir set above, and reusing it
+# destroyed it for everything below.
+for cfg in $(pcl '$1=="config" && $4 ~ /\/$/ {print $2}') \
+           $(pcl '$1=="tool" && $5=="hasconfig" {print $2}') \
+           wallpapers; do
     t="$XDG_CONFIG/$cfg"
     [ -e "$t" ] || continue
     n=$(find "$t" -maxdepth 1 -type l 2>/dev/null | wc -l)
@@ -120,10 +139,12 @@ echo
 
 echo "── tools ─────────────────────────────────────────────"
 echo "git version     : $(git --version 2>/dev/null || echo '<not installed>')"
-# Mirrors install.sh's CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on
-# the PATH of a non-login shell — without this it reports as missing on a
-# machine where it is installed and working.
-CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.bun/bin:$HOME/.grok/bin"
+# install.sh's own CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on the
+# PATH of a non-login shell — without this it reports as missing on a machine
+# where it is installed and working. The fallback is the two directories that
+# matter most, for the case where install.sh could not be read at all.
+CURL_APP_PATH="$(pcl '$1=="var" && $2=="CURL_APP_PATH" {print $3}')"
+[ -n "$CURL_APP_PATH" ] || CURL_APP_PATH="$HOME/.local/bin:$HOME/.bun/bin"
 # Debian/Ubuntu ship these two under other names, and the ~/.local/bin shims
 # install.sh adds are best-effort — it reports "installed as batcat; could not
 # add the bat shim" and carries on. So "found, wrong name" is a real state and
@@ -135,7 +156,11 @@ CURL_APP_PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.kimi-code/bin:$HOME/.
 # at all — package and binary are both delta.
 declare -A ALT_BIN=([bat]=batcat [fd]=fdfind [ripgrep]=rg)
 declare -A ALT_SHIM=([bat]=1 [fd]=1)
-for c in stow fzf git zsh starship fastfetch bat eza fd zoxide pay-respects lazygit btop tree gh ripgrep delta tmux micro fresh bun; do
+# The dep tools come from install.sh; the handful before them are this
+# script's own choice — what the installer itself needs to work at all, plus
+# the two editors and the runtime the statusline renders through.
+for c in stow fzf git zsh starship fastfetch micro fresh bun \
+         $(pcl '$1=="tool" {print $2}'); do
     p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$c")"
     if [ -z "$p" ] && [ -n "${ALT_BIN[$c]:-}" ]; then
         p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${ALT_BIN[$c]}")"
@@ -158,16 +183,14 @@ echo "── curl-installed CLIs ───────────────�
 # a package manager's, so "on PATH right now" and "actually installed" can
 # disagree here too. bun is already in the tools loop above (it is a runtime,
 # not one of these); tailscale is left to the package manager.
-declare -A CURL_APP_BIN=(
-    [antigravity-cli]=agy [claude-code]=claude [codex-cli]=codex
-    [cursor-cli]=agent [devin]=devin [ori]=ori [hermes]=hermes
-    [opencode]=opencode [kimi-code]=kimi [muse]=muse [grok-cli]=grok
-    [mistral-cli]=vibe
-)
-for app in antigravity-cli claude-code codex-cli cursor-cli devin ori hermes opencode kimi-code muse grok-cli mistral-cli; do
-    p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${CURL_APP_BIN[$app]}")"
+# name and binary both come from install.sh — "interactive" is the flag it
+# puts on an app that has an APP_UPDATE entry, which is the same set that
+# earns the "run it like this" line.
+while IFS=$'\t' read -r app bin; do
+    [ -n "$app" ] || continue
+    p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$bin")"
     printf "  %-16s %s\n" "$app" "${p:--}"
-done
+done < <(pcl '$1=="app" && $5=="interactive" {print $2 "\t" $3}')
 echo
 
 echo "── ccstatusline (Claude Code statusLine) ─────────────"

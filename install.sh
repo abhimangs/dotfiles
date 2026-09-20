@@ -24,7 +24,11 @@ fi
 DRY_RUN=0
 FORCE_GUI=0
 RESTORE_BASH=0
+UNINSTALL=0
+PICK_UNINSTALL=""
+BACKUPS_MODE=""
 LIST_ONLY=0
+OPT_PORCELAIN=0
 OPT_ASCII=0
 OPT_NO_COLOR=0
 PICK_CONFIGS=""
@@ -48,15 +52,28 @@ Options:
   --gui            Offer the GUI configs and apps even with no display server.
   --restore-bash   Undo the zsh setup: the rc files, the .bashrc hand-off hook
                    and the login shell. Runs alone and skips every menu.
+  --uninstall[=L]  Unstow the configs this repo installed and put any .bak
+                   back. L is a comma-separated list, or every config when
+                   left out. Removes no packages — that is a separate
+                   decision, and this does not make it for you. Runs alone.
+  --backups[=M]    M is "list" (the default) to show every .bak and .old.bak
+                   this installer has left in place, or "prune" to delete the
+                   older .old.bak generation of each. The pristine copies
+                   (.bashrc.orig, settings.json.orig) are never pruned.
   --list           Print every config, tool and app this machine can install —
                    the names --configs/--tools/--apps take — and exit. Installs
                    nothing and asks for nothing, not even a password.
+  --porcelain      With --list, print tab-separated records for scripts
+                   instead of the human table. Format is documented in
+                   list_porcelain() and is meant to stay stable.
   --ascii          Plain ASCII instead of Nerd Font glyphs.
   --no-color       No colour. NO_COLOR is honoured too.
-  --configs=LIST   Skip the menu and take these configs. Comma-separated,
-                   or "all". --tools=LIST and --apps=LIST do the same for the
-                   dep tools and the applications. Any of the three may be
-                   left out, which means "none of those".
+  --configs=LIST   Skip the menu and take these configs. Comma-separated, or
+                   "all", or "installed" for everything already on this machine
+                   — which is what an update run wants. --tools=LIST and
+                   --apps=LIST do the same for the dep tools and the
+                   applications. Any of the three may be left out, which means
+                   "none of those".
   --private        Answer the privacy prompt with "private": remove every sign
                    the checkout came from a repo at the end of the run.
   --backup-mode=M  Answer the existing-configs prompt. M is "backup" (move to
@@ -73,8 +90,10 @@ one also has an environment variable:
 
   DOTFILES_DRY_RUN   DOTFILES_GUI     DOTFILES_RESTORE_BASH
   DOTFILES_LIST      DOTFILES_ASCII   DOTFILES_NO_COLOR
+  DOTFILES_PORCELAIN
   DOTFILES_CONFIGS   DOTFILES_TOOLS   DOTFILES_APPS
   DOTFILES_PRIVATE   DOTFILES_BACKUP_MODE
+  DOTFILES_UNINSTALL DOTFILES_BACKUPS
 
   curl -fsSL https://abhiman.io/linux.sh | DOTFILES_GUI=1 bash
 USAGE
@@ -85,7 +104,18 @@ for _arg in "$@"; do
         --dry-run)      DRY_RUN=1 ;;
         --gui)          FORCE_GUI=1 ;;
         --restore-bash) RESTORE_BASH=1 ;;
+        --uninstall)    UNINSTALL=1 ;;
+        --uninstall=*)  UNINSTALL=1; PICK_UNINSTALL="${_arg#*=}" ;;
+        --backups)      BACKUPS_MODE="list" ;;
+        --backups=*)
+            BACKUPS_MODE="${_arg#*=}"
+            case "$BACKUPS_MODE" in
+                list|prune) ;;
+                *)  echo "Unknown --backups mode: $BACKUPS_MODE (want list or prune)" >&2
+                    exit 2 ;;
+            esac ;;
         --list)         LIST_ONLY=1 ;;
+        --porcelain)    OPT_PORCELAIN=1 ;;
         --ascii)        OPT_ASCII=1 ;;
         --no-color)     OPT_NO_COLOR=1 ;;
         --configs=*)    PICK_CONFIGS="${_arg#*=}"; SELECTION_FLAG_GIVEN=1 ;;
@@ -114,7 +144,16 @@ unset _arg
 [ -n "${DOTFILES_DRY_RUN:-}" ]      && DRY_RUN=1
 [ -n "${DOTFILES_GUI:-}" ]          && FORCE_GUI=1
 [ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
+[ -n "${DOTFILES_UNINSTALL:-}" ]    && { UNINSTALL=1; [ "$DOTFILES_UNINSTALL" = 1 ] || PICK_UNINSTALL="$DOTFILES_UNINSTALL"; }
+if [ -n "${DOTFILES_BACKUPS:-}" ]; then
+    case "$DOTFILES_BACKUPS" in
+        list|prune) BACKUPS_MODE="$DOTFILES_BACKUPS" ;;
+        *)  echo "Unknown DOTFILES_BACKUPS: $DOTFILES_BACKUPS (want list or prune)" >&2
+            exit 2 ;;
+    esac
+fi
 [ -n "${DOTFILES_LIST:-}" ]         && LIST_ONLY=1
+[ -n "${DOTFILES_PORCELAIN:-}" ]    && OPT_PORCELAIN=1
 [ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
 [ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
 [ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
@@ -519,10 +558,54 @@ tui_add() {                     # tui_add <key> <name> <desc> <section> <package
     T_TICK+=(0);   T_STATE+=(new)
 }
 
+# What to ask the package manager (or PATH) about, for one menu entry. The
+# three callers that need it — the menu's item table, --list --porcelain, and
+# the `installed` selection keyword — each had their own copy of this case,
+# which is two more than a rule this small survives.
+item_probe() {                  # item_probe <dotfiles|tools|apps> <key>
+    case "$1" in
+        dotfiles) printf '%s' "${PKG_MAP[$2]}" ;;
+        tools)    dep_pkg_name "$2" ;;
+        apps)
+            if [[ "$(app_type_resolved "$2")" == "curl" ]]; then
+                printf '%s' "${APP_BIN[$2]:-$2}"
+            else
+                app_pkg_name "$2"
+            fi ;;
+    esac
+}
+
+# Is the thing item_probe named already here? Reads the one-time snapshot, so
+# scan_installed_pkgs has to have run. Three ways to be installed: a package
+# the manager knows, a curl CLI in its own bin dir, or a binary put there by
+# something else entirely (the starship script, the lazygit tarball).
+item_installed() {              # item_installed <probe-name>
+    local p="$1"
+    [ -n "$p" ] || return 1
+    [ -n "${PKG_HAVE[$p]:-}" ] && return 0
+    curl_app_installed "$p" && return 0
+    [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null
+}
+
+# Where a dotfiles entry lands. Display form — this is printed, never stowed
+# to; the install loop owns the real paths. The details pane and
+# --list --porcelain both read it, and they used to disagree because only the
+# pane had it.
+config_target() {               # config_target <key>
+    case "$1" in
+        zsh)       printf '~/.zshrc' ;;
+        bash)      printf '~/.bashrc' ;;
+        git)       printf '~/.gitconfig' ;;
+        starship)  printf '%s/starship.toml' "$XDG_SHOWN" ;;
+        protonvpn) printf '~/scripts/pvpn/pvpn.zsh' ;;
+        *)         printf '%s/%s/' "$XDG_SHOWN" "$1" ;;
+    esac
+}
+
 tui_build_items() {
     local k
-    for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "${PKG_MAP[$k]}"; done
-    for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(dep_pkg_name "$k")"; done
+    for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "$(item_probe dotfiles "$k")"; done
+    for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(item_probe tools "$k")"; done
     for k in "${APPS_LIST[@]}"; do
         local _p
         if [[ "$(app_type_resolved "$k")" == "curl" ]]; then
@@ -565,11 +648,9 @@ scan_installed_pkgs() {
 
 tui_scan_installed() {
     scan_installed_pkgs
-    local i p
+    local i
     for i in "${!T_KEY[@]}"; do
-        p="${T_PKG[$i]}"
-        if [ -n "${PKG_HAVE[$p]:-}" ] || curl_app_installed "$p" \
-           || { [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null; }; then
+        if item_installed "${T_PKG[$i]}"; then
             T_STATE[$i]=installed
         else
             T_STATE[$i]=new
@@ -723,15 +804,7 @@ tui_pane_build() {              # tui_pane_build <item index or empty>
         tui_pane_add "menu     ${T_SEC[$idx]}" "$C_RESET" 9
         tui_pane_add "package  ${T_PKG[$idx]}" "$C_RESET" 9
         if [ "${T_SEC[$idx]}" = dotfiles ]; then
-            local _t
-            case "$key" in
-                zsh)       _t="~/.zshrc" ;;
-                bash)      _t="~/.bashrc" ;;
-                git)       _t="~/.gitconfig" ;;
-                starship)  _t="${XDG_SHOWN}/starship.toml" ;;
-                protonvpn) _t="~/scripts/pvpn/pvpn.zsh" ;;
-                *)         _t="${XDG_SHOWN}/${key}/" ;;
-            esac
+            local _t; _t="$(config_target "$key")"
             tui_pane_add "stows    ${_t}" "$C_RESET" 9
             [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
             [ "$key" = ccstatusline ] && tui_pane_add "pulls    bun (renders it)" "$C_RESET" 9
@@ -4331,6 +4404,233 @@ restore_bash() {
     return 0
 }
 
+# ── Backups this installer left behind ───────────────────────────────────────
+# Two generations are kept per target and nothing ever removed them, so a
+# machine re-run a few times accumulates a .bak and a .old.bak for every config
+# with no way to see them short of ls-ing six directories. Enumerated from the
+# same arrays the installer stows from, so a new config is covered by being
+# added there.
+#
+# The pristine copies are deliberately NOT in this list. ~/.bashrc.orig is the
+# only record of the rc file before we edited it and --restore-bash needs it;
+# settings.json.orig is the same promise for Claude Code. Neither is a rotation
+# generation and neither is ever pruned.
+backup_bases() {
+    local n
+    for n in "${CONFIGS[@]}"; do
+        case "$n" in
+            zsh)       printf '%s\n' "$HOME/.zshrc" ;;
+            bash)      printf '%s\n' "$HOME/.bashrc" ;;
+            git)       printf '%s\n' "$HOME/.gitconfig" ;;
+            starship)  printf '%s\n' "$XDG_CONFIG/starship.toml" ;;
+            protonvpn) printf '%s\n' "$HOME/scripts/pvpn" "$HOME/scripts/pvpn/pvpn.zsh" ;;
+            *)         printf '%s\n' "$XDG_CONFIG/$n" ;;
+        esac
+    done
+    for n in "${DEP_HAS_CONFIG[@]}"; do printf '%s\n' "$XDG_CONFIG/$n"; done
+    printf '%s\n' "$XDG_CONFIG/wallpapers"
+}
+
+# du on a symlink reports the link, not the target, which is the honest answer
+# here: what pruning frees is this path, not whatever it points at.
+_bk_size() { du -shx "$1" 2>/dev/null | cut -f1; }
+
+backups_report() {              # backups_report <list|prune>
+    local mode="$1" base b o shown=0 pruned=0 freed
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Backups${C_RESET}"
+    while IFS= read -r base; do
+        for b in "${base}.bak" "${base}.old.bak"; do
+            # -L as well as -e: a .bak that is itself a broken symlink is
+            # invisible to -e, and it is still a file taking up a name.
+            { [ -e "$b" ] || [ -L "$b" ]; } || continue
+            shown=$(( shown + 1 ))
+            substep "${C_DIM}$(_bk_size "$b")${C_RESET}  ${b/#$HOME/\~}"
+        done
+    done < <(backup_bases)
+
+    if [ "$shown" -eq 0 ]; then
+        substep "${C_DIM}None — nothing this installer backed up is still around${C_RESET}"
+        success "Nothing to do"
+        return 0
+    fi
+
+    if [ "$mode" != prune ]; then
+        substep "${C_DIM}Restore one with: ${C_ACCENT}mv <path>.bak <path>${C_RESET}"
+        substep "${C_DIM}Drop the older generation of each with: ${C_ACCENT}install.sh --backups=prune${C_RESET}"
+        success "${shown} found"
+        return 0
+    fi
+
+    # Only .old.bak. The .bak generation is the one a restore actually reaches
+    # for, and deleting both on a single flag is the kind of surprise this
+    # whole script is written to avoid.
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    substep "${C_YELLOW}Prune removes only the .old.bak generation — .bak is kept${C_RESET}"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        while IFS= read -r base; do
+            o="${base}.old.bak"
+            { [ -e "$o" ] || [ -L "$o" ]; } && substep "${C_RED}would delete${C_RESET} ${C_DIM}${o/#$HOME/\~}${C_RESET}"
+        done < <(backup_bases)
+        success "Dry run — nothing removed"
+        return 0
+    fi
+    if [ "${UNATTENDED:-0}" -eq 0 ]; then
+        echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Delete every .old.bak above? [y/N]: ${C_RESET}"
+        local ans; read -r ans <"$TTY_IN"
+        [[ "$ans" =~ ^[Yy]$ ]] || { substep "${C_DIM}Left alone${C_RESET}"; success "Nothing removed"; return 0; }
+    fi
+    while IFS= read -r base; do
+        o="${base}.old.bak"
+        { [ -e "$o" ] || [ -L "$o" ]; } || continue
+        freed="$(_bk_size "$o")"
+        if rm -rf "$o"; then
+            pruned=$(( pruned + 1 ))
+            substep "Deleted ${C_DIM}${o/#$HOME/\~}${C_RESET} ${C_DIM}(${freed})${C_RESET}"
+        else
+            substep "${C_YELLOW}Could not delete ${o/#$HOME/\~}${C_RESET}"
+        fi
+    done < <(backup_bases)
+    success "Pruned ${pruned}"
+    return 0
+}
+
+# ── Uninstall: unstow what we stowed, put back what we moved ─────────────────
+# The counterpart to the install loop, and it follows the same one rule the
+# whole script is built on: is_repo_link decides what is ours. Ours is
+# unstowed; anything else at the same path is left exactly where it is, said
+# out loud, and never counted as removed.
+#
+# It removes no packages. "Uninstall the configs" and "remove bat, eza, zsh and
+# thirty applications from this machine" are different decisions, and a flag
+# that quietly made the second one is not something you could take back.
+# --restore-bash is still the thing that moves the login shell; this leaves it
+# alone, and says so when it finds zsh still set.
+uninstall_target() {            # uninstall_target <cfg> — prints the path it owns
+    case "$1" in
+        zsh)       printf '%s' "$HOME/.zshrc" ;;
+        bash)      printf '%s' "$HOME/.bashrc" ;;
+        git)       printf '%s' "$HOME/.gitconfig" ;;
+        starship)  printf '%s' "$XDG_CONFIG/starship.toml" ;;
+        protonvpn) printf '%s' "$HOME/scripts/pvpn/pvpn.zsh" ;;
+        *)         printf '%s' "$XDG_CONFIG/$1" ;;
+    esac
+}
+
+# stow package name and target dir differ per config, exactly as they do in the
+# install loop. One place, so the two cannot drift.
+uninstall_stow_args() {         # uninstall_stow_args <cfg> — prints "<target-dir> <pkg>"
+    case "$1" in
+        zsh|bash|git) printf '%s %s' "$HOME" "$1" ;;
+        starship)     printf '%s %s' "$XDG_CONFIG" starship ;;
+        protonvpn)    printf '%s %s' "$HOME/scripts/pvpn" proton-vpn ;;
+        *)            printf '%s %s' "$XDG_CONFIG/$1" "$1" ;;
+    esac
+}
+
+# True when this config still has at least one of our symlinks in place. For a
+# single-file config that is is_repo_link on the file; for a directory it is
+# any entry inside pointing back into the checkout — the directory itself is
+# real, stow only links the files in it.
+uninstall_is_ours() {           # uninstall_is_ours <cfg>
+    local t; t="$(uninstall_target "$1")"
+    is_repo_link "$t" && return 0
+    [ -d "$t" ] || return 1
+    local f
+    while IFS= read -r f; do is_repo_link "$f" && return 0; done \
+        < <(find "$t" -maxdepth 1 -type l 2>/dev/null)
+    return 1
+}
+
+uninstall_run() {
+    local list=() cfg t dir pkg bak removed=() skipped=() restored=() failed=()
+    if [ -n "$PICK_UNINSTALL" ]; then
+        menu_from_flags list CONFIGS "$PICK_UNINSTALL" "config" dotfiles
+    else
+        # Every config plus the two dep tools that carry one and the
+        # wallpapers directory, which the install loop stows as a side effect
+        # of ghostty/kitty and which nothing else would ever take back out.
+        list=("${CONFIGS[@]}" "${DEP_HAS_CONFIG[@]}" wallpapers)
+    fi
+
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Uninstall${C_RESET}"
+    local plan=()
+    for cfg in "${list[@]}"; do
+        t="$(uninstall_target "$cfg")"
+        bak="${t}.bak"
+        if uninstall_is_ours "$cfg"; then
+            plan+=("$cfg")
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}unstow${C_RESET} ${C_DIM}${t/#$HOME/\~}${C_RESET}"
+            { [ -e "$bak" ] || [ -L "$bak" ]; } && \
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_GREEN}restore${C_RESET} ${C_DIM}${cfg}.bak → ${cfg}${C_RESET}"
+        elif [ -e "$t" ] || [ -L "$t" ]; then
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}leave  ${t/#$HOME/\~} — not ours${C_RESET}"
+        fi
+    done
+    if [ "${#plan[@]}" -eq 0 ]; then
+        substep "${C_DIM}Nothing of ours is stowed — nothing to undo${C_RESET}"
+        success "Already uninstalled"
+        return 0
+    fi
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    substep "${C_DIM}Packages are left installed — this only undoes the stowing${C_RESET}"
+    substep "${C_DIM}The login shell is --restore-bash's job, not this one${C_RESET}"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
+        return 0
+    fi
+    if [ "${UNATTENDED:-0}" -eq 0 ]; then
+        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [y/N]: ${C_RESET}"
+        local ans; read -r ans <"$TTY_IN"
+        [[ "$ans" =~ ^[Yy]$ ]] || { echo ""; substep "${C_DIM}Cancelled${C_RESET}"; return 0; }
+        echo ""
+    fi
+
+    info "Unstowing..."
+    for cfg in "${plan[@]}"; do
+        read -r dir pkg <<< "$(uninstall_stow_args "$cfg")"
+        t="$(uninstall_target "$cfg")"
+        bak="${t}.bak"
+        stow --target "$dir" --dir "$DOTFILES_DIR" -D "$pkg" &>/dev/null 2>&1 || true
+        # stow -D leaves a link it did not recognise; ours goes either way,
+        # and is_repo_link is what "ours" means here as everywhere else.
+        is_repo_link "$t" && rm -f "$t"
+        # An emptied directory is ours to remove — rmdir refuses if anything
+        # the user put there is still inside, which is the behaviour wanted.
+        [ -d "$t" ] && rmdir "$t" 2>/dev/null
+        if [ -e "$t" ] || [ -L "$t" ]; then
+            skipped+=("$cfg")
+            substep "${C_YELLOW}${cfg}${C_RESET} ${C_DIM}— something is still at ${t/#$HOME/\~}, left alone${C_RESET}"
+            continue
+        fi
+        removed+=("$cfg")
+        if { [ -e "$bak" ] || [ -L "$bak" ]; }; then
+            if mv "$bak" "$t"; then
+                restored+=("$cfg")
+                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET}, restored ${C_DIM}${cfg}.bak${C_RESET}"
+            else
+                failed+=("$cfg")
+                substep "${C_YELLOW}Unstowed ${cfg} but could not restore its .bak${C_RESET}"
+            fi
+        else
+            substep "Unstowed ${C_ACCENT}${cfg}${C_RESET}"
+        fi
+    done
+
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    [ "${#removed[@]}"  -gt 0 ] && substep "Unstowed (${#removed[@]}): ${C_DIM}$(join_list "${removed[@]}")${C_RESET}"
+    [ "${#restored[@]}" -gt 0 ] && substep "Restored from .bak (${#restored[@]}): ${C_DIM}$(join_list "${restored[@]}")${C_RESET}"
+    [ "${#skipped[@]}"  -gt 0 ] && substep "${C_YELLOW}Left in place (${#skipped[@]}): $(join_list "${skipped[@]}")${C_RESET}"
+    # A .bak that would not move is the one outcome worth a non-zero exit: the
+    # config is gone and the thing meant to replace it is not there.
+    if [ "${#failed[@]}" -gt 0 ]; then
+        error "Could not restore: ${C_RED}$(join_list "${failed[@]}")${C_RESET}"
+        return 1
+    fi
+    success "Uninstalled"
+    return 0
+}
+
 # ── The names --configs/--tools/--apps take ──────────────────────────────────
 # Printed for the machine it is printed on: the arrays are already distro- and
 # headless-filtered by now, so a Debian VPS lists exactly what a Debian VPS can
@@ -4351,7 +4651,43 @@ list_items() {
     for n in "${APPS_LIST[@]}"; do
         printf '  %-16s %-20s %s\n' "$n" "${APP_LABEL[$n]:-}" "${APP_DESC[$n]:-}"
     done
-    printf '\n%s\n' "${C_DIM}${#CONFIGS[@]} configs, ${#DEPS_LIST[@]} tools, ${#APPS_LIST[@]} apps on this machine. \"all\" is accepted in place of a list.${C_RESET}"
+    printf '\n%s\n' "${C_DIM}${#CONFIGS[@]} configs, ${#DEPS_LIST[@]} tools, ${#APPS_LIST[@]} apps on this machine.${C_RESET}"
+    printf '%s\n' "${C_DIM}\"all\" and \"installed\" are accepted in place of a list; --porcelain prints this for scripts.${C_RESET}"
+}
+
+# The same three lists, for something that is not a person. One record per
+# line, tab-separated, five fields, never coloured and never padded:
+#
+#   <section>  <name>  <probe>  <where-or-type>  <flags>
+#
+#   config  kitty        kitty          ~/.config/kitty/  -
+#   tool    fd           fd-find        -                 -
+#   tool    bat          bat            ~/.config/bat/    hasconfig
+#   app     claude-code  claude         curl              interactive
+#   var     CURL_APP_PATH  <value>      -                 -
+#
+# <probe> is what item_probe would ask about — a package name, or a binary for
+# the curl CLIs. <flags> is a comma-separated set, "-" when empty. The lists
+# are already distro- and headless-filtered, so this describes the machine it
+# runs on, which is the whole reason doctor.sh reads it rather than keeping
+# its own copy.
+list_porcelain() {
+    local n t f
+    for n in "${CONFIGS[@]}"; do
+        printf 'config\t%s\t%s\t%s\t-\n' "$n" "$(item_probe dotfiles "$n")" "$(config_target "$n")"
+    done
+    for n in "${DEPS_LIST[@]}"; do
+        t="-"; f="-"
+        for _dc in "${DEP_HAS_CONFIG[@]}"; do
+            [ "$n" = "$_dc" ] && { t="${XDG_SHOWN}/${n}/"; f="hasconfig"; break; }
+        done
+        printf 'tool\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f"
+    done
+    for n in "${APPS_LIST[@]}"; do
+        f="-"; [ -n "${APP_UPDATE[$n]+x}" ] && f="interactive"
+        printf 'app\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe apps "$n")" "$(app_type_resolved "$n")" "$f"
+    done
+    printf 'var\tCURL_APP_PATH\t%s\t-\t-\n' "$CURL_APP_PATH"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4360,7 +4696,7 @@ list_items() {
 # stdout but the list itself. --restore-bash needs chsh and cannot short-circuit
 # this early, which is why the two sit apart.
 if [ "$LIST_ONLY" -eq 1 ]; then
-    list_items
+    if [ "$OPT_PORCELAIN" -eq 1 ]; then list_porcelain; else list_items; fi
     exit 0
 fi
 
@@ -4403,13 +4739,19 @@ elif ! command -v sudo &>/dev/null; then
     error "sudo is not installed and you are not root."
     substep "Install sudo, or re-run this script as root."
     exit 1
-elif [ "$RESTORE_BASH" -eq 1 ] && [ "$DRY_RUN" -eq 1 ]; then
+elif { [ "$RESTORE_BASH" -eq 1 ] && [ "$DRY_RUN" -eq 1 ]; } \
+     || [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; then
     # A --restore-bash dry run prints its plan and returns without running a
     # single privileged command. The ad-hoc 'sudo -v' this branch used to do for
     # itself skipped DRY_RUN for that reason; hoisting must not turn a mode whose
     # contract is "no writes" into a password prompt.
+    #
+    # --uninstall and --backups are here for a stronger reason: everything they
+    # touch is under $HOME and owned by the user already, so asking for a root
+    # password to unstow a symlink would be asking for a privilege the work
+    # does not need.
     IS_ROOT=0
-    substep "Dry run — nothing to authenticate for"
+    substep "Nothing here needs root"
     success "Ready"
 else
     IS_ROOT=0
@@ -4436,6 +4778,23 @@ if [ "$RESTORE_BASH" -eq 1 ]; then
         substep "${C_DIM}--restore-bash runs alone — ignoring --configs/--tools/--apps${C_RESET}"
     fi
     restore_bash
+    exit $?
+fi
+
+# Same contract as --restore-bash: they run alone, above every prompt and every
+# menu. Backups first, so `--uninstall --backups=prune` reports what is there
+# before the uninstall starts moving .bak files back into place.
+if [ -n "$BACKUPS_MODE" ]; then
+    backups_report "$BACKUPS_MODE" || exit $?
+    [ "$UNINSTALL" -eq 1 ] || exit 0
+    echo ""
+fi
+
+if [ "$UNINSTALL" -eq 1 ]; then
+    if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; then
+        substep "${C_DIM}--uninstall runs alone — ignoring --configs/--tools/--apps${C_RESET}"
+    fi
+    uninstall_run
     exit $?
 fi
 
@@ -4849,9 +5208,20 @@ menu_numeric() {
 # unattended run would otherwise look like a successful install of nothing.
 menu_from_flags() {
     local -n _out=$1; local -n _pool=$2
-    local raw=$3 what=$4 name found item have
+    local raw=$3 what=$4 name found item have sec=$5
     [ "$raw" = "-" ] && return 0
     if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
+    # "installed" is what an update run means: take what is already on this
+    # machine and leave the rest alone. The menu has had this as ctrl-u since
+    # it was written; without it here there was no way to say it unattended,
+    # which is the only place an update run actually happens.
+    if [ "$raw" = "installed" ]; then
+        scan_installed_pkgs
+        for item in "${_pool[@]}"; do
+            item_installed "$(item_probe "$sec" "$item")" && _out+=("$item")
+        done
+        return 0
+    fi
     local IFS=', '
     for name in $raw; do
         # A name repeated in the list — `--configs=zsh,zsh`, or a shell that
@@ -4876,9 +5246,9 @@ menu_from_flags() {
 
 if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; then
     info "Selection given on the command line..."
-    menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config"
-    menu_from_flags DEPS     DEPS_LIST "${PICK_TOOLS:--}"   "tool"
-    menu_from_flags APPS     APPS_LIST "${PICK_APPS:--}"    "app"
+    menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config" dotfiles
+    menu_from_flags DEPS     DEPS_LIST "${PICK_TOOLS:--}"   "tool"   tools
+    menu_from_flags APPS     APPS_LIST "${PICK_APPS:--}"    "app"    apps
 elif tui_available; then
     info "Choose what to install..."
     substep "${C_DIM}dotfiles, tools and apps — one screen, ${G_LEFT} ${G_RIGHT} between them${C_RESET}"
