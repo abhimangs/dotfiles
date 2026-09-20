@@ -162,10 +162,20 @@ if command -v eza &>/dev/null; then
 fi
 
 # ── Aliases: Tools ────────────────────────────────────────────
+# batcat is the same tool under Debian's name for it. install.sh drops a `bat`
+# shim in ~/.local/bin, but that is best-effort — it says so and carries on
+# when it cannot — so the fallback belongs here too, as it already does in the
+# bash rc.
 if command -v bat &>/dev/null; then
-    alias cat='bat'
-    alias fp='fzf --preview "bat --color=always --style=numbers {}"'
+    _bat=bat
+elif command -v batcat &>/dev/null; then
+    _bat=batcat
 fi
+if [[ -n "${_bat:-}" ]]; then
+    alias cat="$_bat"
+    alias fp="fzf --preview '$_bat --color=always --style=numbers {}'"
+fi
+unset _bat
 alias grep='grep --color=auto'
 alias fkill='kill -9 $(ps aux | fzf | awk "{print \$2}")'
 
@@ -209,6 +219,19 @@ alias dc='docker compose'
 alias dlog='docker logs -f'
 alias dex='docker exec -it'
 
+# ── Editor ────────────────────────────────────────────────────
+# ~/.gitconfig sets no core.editor (see the note there), so this is what git,
+# crontab, visudo and every other tool that asks actually get. First one that
+# exists wins, terminal editors only: EDITOR is read in places where a window
+# cannot open — an interactive rebase over SSH, a commit on a headless box.
+for _ed in micro nvim vim nano vi; do
+    if command -v "$_ed" &>/dev/null; then
+        export EDITOR="$_ed" VISUAL="$_ed"
+        break
+    fi
+done
+unset _ed
+
 # ── Starship ──────────────────────────────────────────────────
 command -v starship &>/dev/null && eval "$(starship init zsh)"
 
@@ -225,3 +248,17 @@ alias ccr='claude --dangerously-skip-permissions --resume'
 alias ccc='claude --dangerously-skip-permissions --continue'
 
 alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=4080x3072 --video-codec=h265 --video-bit-rate=25M --max-fps=30 --v4l2-sink=/dev/video2 --no-playback'
+
+# ── Local overrides ───────────────────────────────────────────
+# Last, so it can override anything above it. This file is a stow symlink into
+# the repo, and nvm, rustup, conda, pyenv, bun, deno and half the CLI
+# installers in install.sh all want to append a line to ~/.zshrc — which lands
+# in the checkout and dirties it. install.sh fights eight of them off with
+# opt-out flags and a pre-seeded PATH; this is where the ones it cannot stop
+# should be moved to. Not tracked by the repo.
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+
+# Sourcing this file must not report failure — the same reason the bash rc
+# ends this way: without it the last command above sets $? at the prompt and
+# aborts any provisioning script that sources it under `set -e`.
+true

@@ -648,14 +648,14 @@ tui_build_view() {
 
 tui_recount() {
     local i s
+    # No separate [total]: the selected tab holds every ticked row by
+    # definition, so it was the same number counted twice per redraw.
     for s in "${TUI_TABS[@]}"; do TUI_CNT[$s]=0; done
-    TUI_CNT[total]=0
     for i in "${!T_KEY[@]}"; do
         [ "${T_TICK[$i]}" = 1 ] || continue
         s=${T_SEC[$i]}
         TUI_CNT[$s]=$(( ${TUI_CNT[$s]} + 1 ))
         TUI_CNT[selected]=$(( ${TUI_CNT[selected]} + 1 ))
-        TUI_CNT[total]=$(( ${TUI_CNT[total]} + 1 ))
     done
 }
 
@@ -731,9 +731,9 @@ tui_pane_build() {              # tui_pane_build <item index or empty>
         esac
     fi
     tui_pane_add "" "$C_RESET"
-    tui_pane_add "TICKED  ${TUI_CNT[total]}" "${C_GREEN}${C_BOLD}"
+    tui_pane_add "TICKED  ${TUI_CNT[selected]}" "${C_GREEN}${C_BOLD}"
     tui_pane_add "" "$C_RESET"
-    if [ "${TUI_CNT[total]}" = 0 ]; then
+    if [ "${TUI_CNT[selected]}" = 0 ]; then
         tui_pane_add "space or enter ticks a row" "$C_DIM"
         return
     fi
@@ -1463,7 +1463,7 @@ APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal|aslatter'
 # left out of here, the one file written to heal a broken index was the one file
 # that could break it for good. zz-dotfiles-fallback is its pre-rename name, kept
 # so a machine that ran that version can still be healed.
-APT_OWN_SOURCES='gierens|vscode|vscode-insiders|claude-desktop|brave-browser-.*|wezterm|slack|docker|zz-installer-fallback|zz-dotfiles-fallback'
+APT_OWN_SOURCES='gierens|vscode|claude-desktop|brave-browser-.*|wezterm|slack|docker|zz-installer-fallback|zz-dotfiles-fallback'
 APT_HEALED=0
 
 # An earlier run may have added a source that has since stopped publishing for
@@ -1765,7 +1765,17 @@ install_deb_url() {
     # The file holds "<sha256>  <filename>". Grep the hash out instead of using
     # `sha256sum -c`, which insists the file sit there under its published name
     # — this one is a mktemp. Empty $want means nothing was published.
-    want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
+    #
+    # Only for a URL that ends in the filename. Discord's is a download
+    # endpoint with a query string, so appending .sha256 asks for
+    # "...format=deb.sha256" — a different request whose answer has nothing to
+    # do with this file. A 200 there with 64 hex characters anywhere in it
+    # would refuse a perfectly good install.
+    want=""
+    case "$url" in
+        *\?*) ;;
+        *) want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1) ;;
+    esac
     if [ -n "$want" ]; then
         # sha256sum is coreutils: Essential:yes on Debian, in base on Arch, so
         # its absence means a box that cannot apt-get either. If it is somehow
@@ -4827,11 +4837,19 @@ menu_numeric() {
 # unattended run would otherwise look like a successful install of nothing.
 menu_from_flags() {
     local -n _out=$1; local -n _pool=$2
-    local raw=$3 what=$4 name found item
+    local raw=$3 what=$4 name found item have
     [ "$raw" = "-" ] && return 0
     if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
     local IFS=', '
     for name in $raw; do
+        # A name repeated in the list — `--configs=zsh,zsh`, or a shell that
+        # expanded something twice — used to be installed twice and counted
+        # twice in the summary. Accepted, taken once.
+        have=0
+        for item in "${_out[@]}"; do
+            [ "$item" = "$name" ] && { have=1; break; }
+        done
+        [ "$have" -eq 1 ] && continue
         found=0
         for item in "${_pool[@]}"; do
             [ "$item" = "$name" ] && { _out+=("$name"); found=1; break; }

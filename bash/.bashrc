@@ -57,6 +57,19 @@ case "${TERM:-}" in
     *)                 PS1='\[\e[1;34m\]\u@\h\[\e[0m\]:\[\e[1;32m\]\w\[\e[0m\]\$ ' ;;
 esac
 
+# ── Editor ────────────────────────────────────────────────────
+# ~/.gitconfig sets no core.editor (see the note there), so this is what git,
+# crontab, visudo and every other tool that asks actually get. First one that
+# exists wins, terminal editors only: EDITOR is read in places where a window
+# cannot open — an interactive rebase over SSH, a commit on a headless box.
+for _ed in micro nvim vim nano vi; do
+    if command -v "$_ed" &>/dev/null; then
+        export EDITOR="$_ed" VISUAL="$_ed"
+        break
+    fi
+done
+unset _ed
+
 # ── Aliases: Navigation ───────────────────────────────────────
 alias ..='cd ..'
 alias ...='cd ../..'

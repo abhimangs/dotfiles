@@ -3,7 +3,12 @@
     email = abhimangs23@gmail.com
 
 [core]
-    editor       = code --wait
+    # No core.editor on purpose. git resolves GIT_EDITOR -> core.editor ->
+    # VISUAL -> EDITOR -> vi, so a name set here outranks $EDITOR on every
+    # machine — including the headless ones, where the installer strips every
+    # GUI app and `code --wait` is a binary that can never be there. The rc
+    # files export EDITOR from what is actually installed instead; put
+    # `export EDITOR='code --wait'` in ~/.zshrc.local to have it back.
     pager        = delta
     # preloadindex parallelises index loading for status/checkout.
     # Note: core.fsmonitor is NOT used here — git's built-in fsmonitor daemon

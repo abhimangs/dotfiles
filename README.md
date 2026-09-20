@@ -262,6 +262,29 @@ Everything in `.zshrc` is guarded by `command -v`, so a missing tool means a sil
 
 Anything already ticked is not added twice, and all of these remain selectable on their own if you are not using zsh.
 
+### Local overrides: `~/.zshrc.local` and `~/.bashrc.local`
+
+`~/.zshrc` and `~/.bashrc` are stow symlinks into the checkout, so anything that appends to them — nvm, rustup, conda, pyenv, deno, and about half the CLI installers in the apps tab — writes into the repo and dirties the working tree. The installer fights the ones it knows about off with opt-out flags and a pre-seeded `PATH`, but it cannot stop them all.
+
+Both rc files source a local file last, if it exists:
+
+```bash
+~/.zshrc.local     # sourced at the end of ~/.zshrc
+~/.bashrc.local    # sourced at the end of ~/.bashrc
+```
+
+Neither is tracked by the repo, and being last means anything in them wins. Move stray installer lines there, and put per-machine settings there too — a work proxy, a different `EDITOR`, an API key you would rather not commit.
+
+### The editor
+
+`~/.gitconfig` deliberately sets no `core.editor`. Git resolves `GIT_EDITOR` → `core.editor` → `VISUAL` → `EDITOR` → `vi`, so a name hardcoded there outranks `$EDITOR` on every machine, including the headless ones where the installer strips every GUI app and a graphical editor can never exist.
+
+Instead both rc files export `EDITOR` and `VISUAL` to the first of `micro`, `nvim`, `vim`, `nano`, `vi` that is actually installed. To override:
+
+```bash
+echo "export EDITOR='code --wait'" >> ~/.zshrc.local
+```
+
 ### Exit status
 
 `0` when everything asked for succeeded, `1` when anything landed in the `Failed` list. The summary prints either way. The bootstrap `exec`s the installer, so the status propagates through `curl … | bash` unchanged.
