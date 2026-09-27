@@ -63,8 +63,8 @@ Options:
   --list           Print every config, tool and app this machine can install —
                    the names --configs/--tools/--apps take — and exit. Installs
                    nothing and asks for nothing, not even a password.
-  --porcelain      With --list, print tab-separated records for scripts
-                   instead of the human table. Format is documented in
+  --porcelain      --list as tab-separated records for scripts instead of
+                   the human table; implies --list. Format is documented in
                    list_porcelain() and is meant to stay stable.
   --ascii          Plain ASCII instead of Nerd Font glyphs.
   --no-color       No colour. NO_COLOR is honoured too.
@@ -115,7 +115,9 @@ for _arg in "$@"; do
                     exit 2 ;;
             esac ;;
         --list)         LIST_ONLY=1 ;;
-        --porcelain)    OPT_PORCELAIN=1 ;;
+        # Implies --list. On its own it used to fall through to a full
+        # interactive install — the near miss the error below exists for.
+        --porcelain)    OPT_PORCELAIN=1; LIST_ONLY=1 ;;
         --ascii)        OPT_ASCII=1 ;;
         --no-color)     OPT_NO_COLOR=1 ;;
         --configs=*)    PICK_CONFIGS="${_arg#*=}"; SELECTION_FLAG_GIVEN=1 ;;
@@ -153,7 +155,7 @@ if [ -n "${DOTFILES_BACKUPS:-}" ]; then
     esac
 fi
 [ -n "${DOTFILES_LIST:-}" ]         && LIST_ONLY=1
-[ -n "${DOTFILES_PORCELAIN:-}" ]    && OPT_PORCELAIN=1
+[ -n "${DOTFILES_PORCELAIN:-}" ]    && { OPT_PORCELAIN=1; LIST_ONLY=1; }
 [ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
 [ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
 [ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
@@ -606,15 +608,7 @@ tui_build_items() {
     local k
     for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "$(item_probe dotfiles "$k")"; done
     for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(item_probe tools "$k")"; done
-    for k in "${APPS_LIST[@]}"; do
-        local _p
-        if [[ "$(app_type_resolved "$k")" == "curl" ]]; then
-            _p="${APP_BIN[$k]:-$k}"
-        else
-            _p="$(app_pkg_name "$k")"
-        fi
-        tui_add "$k" "${APP_LABEL[$k]}" "${APP_DESC[$k]:-}" apps "$_p"
-    done
+    for k in "${APPS_LIST[@]}"; do tui_add "$k" "${APP_LABEL[$k]}" "${APP_DESC[$k]:-}" apps "$(item_probe apps "$k")"; done
 }
 
 # ── install state ────────────────────────────────────────────────────────────
@@ -3038,7 +3032,17 @@ CCSTATUSLINE_CMD='bunx -y ccstatusline@latest 2>/dev/null || bunx -y ccstatuslin
 #   * BACKUP_MODE=delete never reaches it — delete mode drops what this repo
 #     installed, and this file was here first
 wire_claude_statusline() {
-    local f="$HOME/.claude/settings.json"
+    local f="$HOME/.claude/settings.json" orig="$HOME/.claude/settings.json.orig"
+
+    # A symlink here is the user's own — nothing in this repo stows into
+    # ~/.claude — usually into a dotfiles checkout of theirs. The mv below
+    # replaced the link with a plain file, which quietly forked their settings
+    # from the copy they actually keep. Write through it instead; .orig stays
+    # beside the link, where doctor.sh looks, not inside their checkout.
+    if [ -L "$f" ]; then
+        f="$(readlink -f "$f")"
+        [ -n "$f" ] || { substep "${C_YELLOW}~/.claude/settings.json is a symlink to nowhere${C_RESET} ${C_DIM}— left untouched${C_RESET}"; return 1; }
+    fi
 
     # No hand-rolled JSON editing. sed-ing someone's settings.json is how the
     # file ends up unparseable, which is the one outcome worth avoiding here.
@@ -3053,8 +3057,9 @@ wire_claude_statusline() {
     # filesystem (often tmpfs), and mv across filesystems is copy-then-unlink —
     # interruptible halfway, which is exactly the truncated settings.json this
     # whole function exists to avoid. Same directory as the target makes the mv
-    # a rename, which is atomic.
-    local tmp; tmp=$(mktemp -p "$HOME/.claude" .settings.json.new_XXXXXX) || return 1
+    # a rename, which is atomic. The target's directory, not ~/.claude, for
+    # the same reason when the file is reached through a symlink.
+    local tmp; tmp=$(mktemp -p "${f%/*}" .settings.json.new_XXXXXX) || return 1
     # Not `local` — _cleanup reads this global to remove the file if we are
     # interrupted before it is consumed below. Cleared once it no longer needs
     # rescuing, further down.
@@ -3141,7 +3146,7 @@ PY
         # Keep one copy of whatever was there before the first edit. Write-once,
         # so re-running never overwrites the pristine copy with an edited one —
         # the same rule the .bashrc snapshot follows.
-        [ -e "$f" ] && [ ! -e "${f}.orig" ] && cp -p "$f" "${f}.orig" 2>/dev/null
+        [ -e "$f" ] && [ ! -e "$orig" ] && cp -p "$f" "$orig" 2>/dev/null
         if mv "$tmp" "$f"; then
             substep "Claude Code statusline ${C_GREEN}wired up${C_RESET}"
             wired=0
@@ -3845,6 +3850,26 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
     done < <(diff -rq "$_pdd_t" "$_pdd_s" 2>/dev/null)
 }
 
+# The rows a tool or app that also carries a config adds under itself in the
+# plan. It reaches stow_config, which in delete mode rm -rf's ~/.config/<name>
+# with no .bak — the plan used to say only "already installed" and then delete
+# it. dir_target_conflicts, not a bare [ -d ]: that follows a symlink, and find
+# -P will not descend into one, so a user's own ~/.config/<name> pointed
+# elsewhere looked empty and was removed anyway. One copy, where the dep-tool
+# and app sections each had their own.
+plan_side_config() {    # plan_side_config <name>
+    has_side_config "$1" || return 0
+    local row="${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET}"
+    if dir_target_conflicts "$XDG_CONFIG/$1"; then
+        if [[ "$BACKUP_MODE" == "delete" ]]; then
+            echo -e "$row ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/$1${C_RESET}"
+        else
+            echo -e "$row ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/$1 → $1.bak${C_RESET}"
+        fi
+    fi
+    echo -e "$row ${C_GREEN}stow → ${XDG_SHOWN}/$1/${C_RESET} ${C_DIM}(theme)${C_RESET}"
+}
+
 # ── Pre-install plan ──────────────────────────────────────────────────────────
 # The four outcomes for one dotfile in $HOME — our symlink, present, present
 # with a .bak to rotate, absent — read identically for .bashrc, .zshrc and
@@ -3880,7 +3905,10 @@ plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
             while IFS= read -r _dl; do
                 _dn=$(( _dn + 1 ))
                 if [ "$_dn" -gt 6 ]; then _steps+=("${C_DIM}…${C_RESET}"); break; fi
-                _steps+=("${C_DIM}${_dl}${C_RESET}")
+                # The rows are printed with echo -e, so a PS1 line's \033[01;32m
+                # — Ubuntu's stock .bashrc has several — would recolour the plan
+                # instead of showing. Escape the file's backslashes first.
+                _steps+=("${C_DIM}${_dl//\\/\\\\}${C_RESET}")
             done < <(diff -u "$_file" "$_src" 2>/dev/null | tail -n +3)
         fi
         if [[ "$BACKUP_MODE" == "delete" ]]; then
@@ -3915,14 +3943,15 @@ show_plan() {
     # Only two generations are kept, so a rotation destroys whatever is in
     # .old.bak. The rows below say "x.bak → x.old.bak" and stop there, which
     # reads like nothing is lost. On a third run something is.
+    # backup_bases, not a hand-written glob: that one named ~/.config outright,
+    # so under XDG_CONFIG_HOME — or for ~/scripts/pvpn — it found nothing.
     if [[ "$BACKUP_MODE" != "delete" ]]; then
         local _o
-        for _o in "$HOME"/.zshrc.old.bak "$HOME"/.bashrc.old.bak \
-                  "$HOME"/.gitconfig.old.bak "$HOME"/.config/*.old.bak; do
-            [ -e "$_o" ] || continue
+        while IFS= read -r _o; do
+            { [ -e "$_o.old.bak" ] || [ -L "$_o.old.bak" ]; } || continue
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
             break
-        done
+        done < <(backup_bases)
     fi
 
     for cfg in "${cfgs[@]}"; do
@@ -4097,34 +4126,13 @@ show_plan() {
     if [ "${#DEPS[@]}" -gt 0 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
-        local _dc _dtarget
         for _d in "${DEPS[@]}"; do
             if pkg_installed_snapshot "${RESOLVED_DEP_PKG[$_d]}"; then
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
             fi
-            # Two of these carry a config as well as a binary, and in delete
-            # mode that means an rm -rf of ~/.config/<tool> with no .bak. The
-            # plan used to say only "already installed" and then delete it.
-            # The loop stows through stow_config, same as any other config —
-            # so the check has to catch a foreign symlink too, not just a real
-            # directory: [ -d ] follows a symlink, and find -P (the default)
-            # will not descend into one, so a user's own ~/.config/<tool>
-            # pointed elsewhere used to look empty here and get removed anyway.
-            for _dc in "${DEP_HAS_CONFIG[@]}"; do
-                [ "$_d" = "$_dc" ] || continue
-                [ -d "$DOTFILES_DIR/$_d" ] || continue
-                _dtarget="$XDG_CONFIG/$_d"
-                if dir_target_conflicts "$_dtarget"; then
-                    if [[ "$BACKUP_MODE" == "delete" ]]; then
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/${_d}${C_RESET}"
-                    else
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/${_d} → ${_d}.bak${C_RESET}"
-                    fi
-                fi
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ${XDG_SHOWN}/${_d}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
-            done
+            plan_side_config "$_d"
         done
     fi
 
@@ -4132,7 +4140,6 @@ show_plan() {
     if [ "${#APPS[@]}" -gt 0 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}applications${C_RESET}"
-        local _atarget
         for _a in "${APPS[@]}"; do
             local _lbl="${APP_LABEL[$_a]}"
             local _type="${RESOLVED_APP_TYPE[$_a]}"
@@ -4164,20 +4171,7 @@ show_plan() {
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET}"
                 fi
             fi
-            # An app that also stows a theme reaches stow_config, which in
-            # delete mode rm -rf's ~/.config/<app> with no .bak. Unannounced,
-            # that is the exact surprise the dep-tool section was fixed for.
-            if has_side_config "$_a"; then
-                _atarget="$XDG_CONFIG/$_a"
-                if dir_target_conflicts "$_atarget"; then
-                    if [[ "$BACKUP_MODE" == "delete" ]]; then
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/${_a}${C_RESET}"
-                    else
-                        echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/${_a} → ${_a}.bak${C_RESET}"
-                    fi
-                fi
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}stow → ${XDG_SHOWN}/${_a}/${C_RESET} ${C_DIM}(theme)${C_RESET}"
-            fi
+            plan_side_config "$_a"
         done
         # Step 5c½ fires on either trigger, so picking Claude Code alone
         # still writes to ~/.claude/settings.json. Only the ccstatusline config
@@ -4277,7 +4271,7 @@ restore_bash() {
     if is_repo_link "$HOME/.zshrc"; then
         zsh_action="unstow"
         steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}~/.zshrc${C_RESET}")
-        [ -e "$HOME/.zshrc.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.zshrc.bak → ~/.zshrc${C_RESET}")
+        { [ -e "$HOME/.zshrc.bak" ] || [ -L "$HOME/.zshrc.bak" ]; } && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.zshrc.bak → ~/.zshrc${C_RESET}")
     elif [ -L "$HOME/.zshrc" ]; then
         steps+=("${C_DIM}leave ~/.zshrc alone — it is your own symlink, not ours${C_RESET}")
     fi
@@ -4288,7 +4282,7 @@ restore_bash() {
     if is_repo_link "$st"; then
         st_action="unstow"
         steps+=("${C_YELLOW}unstow${C_RESET} ${C_DIM}${XDG_SHOWN}/starship.toml${C_RESET}")
-        [ -e "${st}.bak" ] && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}starship.toml.bak → starship.toml${C_RESET}")
+        { [ -e "${st}.bak" ] || [ -L "${st}.bak" ]; } && steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}starship.toml.bak → starship.toml${C_RESET}")
     fi
 
     local shell_action=""
@@ -4388,7 +4382,7 @@ restore_bash() {
         stow --target "$HOME" --dir "$DOTFILES_DIR" -D zsh &>/dev/null 2>&1 || true
         [ -L "$HOME/.zshrc" ] && rm -f "$HOME/.zshrc"
         substep "Unstowed ${C_ACCENT}~/.zshrc${C_RESET}"
-        if [ -e "$HOME/.zshrc.bak" ] && [ ! -e "$HOME/.zshrc" ]; then
+        if { [ -e "$HOME/.zshrc.bak" ] || [ -L "$HOME/.zshrc.bak" ]; } && [ ! -e "$HOME/.zshrc" ]; then
             mv "$HOME/.zshrc.bak" "$HOME/.zshrc" && substep "Restored ${C_ACCENT}~/.zshrc${C_RESET} from .bak"
         fi
     fi
@@ -4397,7 +4391,7 @@ restore_bash() {
         stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" -D starship &>/dev/null 2>&1 || true
         [ -L "$st" ] && rm -f "$st"
         substep "Unstowed ${C_ACCENT}${XDG_SHOWN}/starship.toml${C_RESET}"
-        if [ -e "${st}.bak" ] && [ ! -e "$st" ]; then
+        if { [ -e "${st}.bak" ] || [ -L "${st}.bak" ]; } && [ ! -e "$st" ]; then
             mv "${st}.bak" "$st" && substep "Restored ${C_ACCENT}starship.toml${C_RESET} from .bak"
         fi
     fi
@@ -4510,11 +4504,10 @@ backups_report() {              # backups_report <list|prune>
         success "Dry run — nothing removed"
         return 0
     fi
-    if [ "${UNATTENDED:-0}" -eq 0 ]; then
-        echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Delete every .old.bak above? [y/N]: ${C_RESET}"
-        local ans; read -r ans <"$TTY_IN"
-        [[ "$ans" =~ ^[Yy]$ ]] || { substep "${C_DIM}Left alone${C_RESET}"; success "Nothing removed"; return 0; }
-    fi
+    # Always asked — same reason as uninstall_run's prompt.
+    echo -ne "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}Delete every .old.bak above? [y/N]: ${C_RESET}"
+    local ans; read -r ans <"$TTY_IN"
+    [[ "$ans" =~ ^[Yy]$ ]] || { substep "${C_DIM}Left alone${C_RESET}"; success "Nothing removed"; return 0; }
     while IFS= read -r base; do
         o="${base}.old.bak"
         { [ -e "$o" ] || [ -L "$o" ]; } || continue
@@ -4528,6 +4521,50 @@ backups_report() {              # backups_report <list|prune>
     done < <(backup_bases)
     success "Pruned ${pruned}"
     return 0
+}
+
+# --configs / --tools / --apps: name what you want and no menu is drawn at all.
+# Unknown names are an error rather than a silent omission — a typo in an
+# unattended run would otherwise look like a successful install of nothing.
+# Defined up here, above the run-alone short-circuits: --uninstall=LIST calls
+# it too, and down beside the menus it did not exist yet when that ran —
+# "command not found", then "Already uninstalled", for every named list.
+menu_from_flags() {
+    local -n _out=$1; local -n _pool=$2
+    local raw=$3 what=$4 name found item have sec=$5
+    [ "$raw" = "-" ] && return 0
+    if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
+    # "installed" is what an update run means: take what is already on this
+    # machine and leave the rest alone. The menu has had this as ctrl-u since
+    # it was written; without it here there was no way to say it unattended,
+    # which is the only place an update run actually happens.
+    if [ "$raw" = "installed" ]; then
+        scan_installed_pkgs
+        for item in "${_pool[@]}"; do
+            item_installed "$(item_probe "$sec" "$item")" && _out+=("$item")
+        done
+        return 0
+    fi
+    local IFS=', '
+    for name in $raw; do
+        # A name repeated in the list — `--configs=zsh,zsh`, or a shell that
+        # expanded something twice — used to be installed twice and counted
+        # twice in the summary. Accepted, taken once.
+        have=0
+        for item in "${_out[@]}"; do
+            [ "$item" = "$name" ] && { have=1; break; }
+        done
+        [ "$have" -eq 1 ] && continue
+        found=0
+        for item in "${_pool[@]}"; do
+            [ "$item" = "$name" ] && { _out+=("$name"); found=1; break; }
+        done
+        if [ "$found" -eq 0 ]; then
+            error "Unknown ${what}: ${C_RED}${name}${C_RESET}"
+            substep "${C_DIM}available: ${_pool[*]}${C_RESET}"
+            exit 2
+        fi
+    done
 }
 
 # ── Uninstall: unstow what we stowed, put back what we moved ─────────────────
@@ -4579,13 +4616,16 @@ uninstall_is_ours() {           # uninstall_is_ours <cfg>
 
 uninstall_run() {
     local list=() cfg t dir pkg bak removed=() skipped=() restored=() failed=()
+    # Every config plus the tools and apps that carry one and the wallpapers
+    # directory, which the install loop stows as a side effect of
+    # ghostty/kitty and which nothing else would ever take back out. One pool
+    # for both forms: a bare --uninstall unstowed tmux while --uninstall=tmux
+    # was refused as an unknown config.
+    local pool=("${CONFIGS[@]}" "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}" wallpapers)
     if [ -n "$PICK_UNINSTALL" ]; then
-        menu_from_flags list CONFIGS "$PICK_UNINSTALL" "config" dotfiles
+        menu_from_flags list pool "$PICK_UNINSTALL" "config" dotfiles
     else
-        # Every config plus the two dep tools that carry one and the
-        # wallpapers directory, which the install loop stows as a side effect
-        # of ghostty/kitty and which nothing else would ever take back out.
-        list=("${CONFIGS[@]}" "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}" wallpapers)
+        list=("${pool[@]}")
     fi
 
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Uninstall${C_RESET}"
@@ -4597,7 +4637,7 @@ uninstall_run() {
             plan+=("$cfg")
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}unstow${C_RESET} ${C_DIM}${t/#$HOME/\~}${C_RESET}"
             { [ -e "$bak" ] || [ -L "$bak" ]; } && \
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_GREEN}restore${C_RESET} ${C_DIM}${cfg}.bak → ${cfg}${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_GREEN}restore${C_RESET} ${C_DIM}${t##*/}.bak → ${t##*/}${C_RESET}"
         elif [ -e "$t" ] || [ -L "$t" ]; then
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}leave  ${t/#$HOME/\~} — not ours${C_RESET}"
         fi
@@ -4615,12 +4655,13 @@ uninstall_run() {
         echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
         return 0
     fi
-    if [ "${UNATTENDED:-0}" -eq 0 ]; then
-        echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [y/N]: ${C_RESET}"
-        local ans; read -r ans <"$TTY_IN"
-        [[ "$ans" =~ ^[Yy]$ ]] || { echo ""; substep "${C_DIM}Cancelled${C_RESET}"; return 0; }
-        echo ""
-    fi
+    # Always asked, like --restore-bash. UNATTENDED only ever came from
+    # --configs/--tools/--apps, which this mode announces it ignores — and an
+    # ignored flag was still skipping the one question that defaults to no.
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [y/N]: ${C_RESET}"
+    local ans; read -r ans <"$TTY_IN"
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo ""; substep "${C_DIM}Cancelled${C_RESET}"; return 0; }
+    echo ""
 
     info "Unstowing..."
     for cfg in "${plan[@]}"; do
@@ -4643,7 +4684,7 @@ uninstall_run() {
         if { [ -e "$bak" ] || [ -L "$bak" ]; }; then
             if mv "$bak" "$t"; then
                 restored+=("$cfg")
-                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET}, restored ${C_DIM}${cfg}.bak${C_RESET}"
+                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET}, restored ${C_DIM}${t##*/}.bak${C_RESET}"
             else
                 failed+=("$cfg")
                 substep "${C_YELLOW}Unstowed ${cfg} but could not restore its .bak${C_RESET}"
@@ -4714,9 +4755,7 @@ list_porcelain() {
     done
     for n in "${DEPS_LIST[@]}"; do
         t="-"; f="-"
-        for _dc in "${DEP_HAS_CONFIG[@]}"; do
-            [ "$n" = "$_dc" ] && { t="${XDG_SHOWN}/${n}/"; f="hasconfig"; break; }
-        done
+        has_side_config "$n" && { t="${XDG_SHOWN}/${n}/"; f="hasconfig"; }
         printf 'tool\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f"
     done
     for n in "${APPS_LIST[@]}"; do
@@ -5242,47 +5281,6 @@ menu_numeric() {
     done
 }
 
-# --configs / --tools / --apps: name what you want and no menu is drawn at all.
-# Unknown names are an error rather than a silent omission — a typo in an
-# unattended run would otherwise look like a successful install of nothing.
-menu_from_flags() {
-    local -n _out=$1; local -n _pool=$2
-    local raw=$3 what=$4 name found item have sec=$5
-    [ "$raw" = "-" ] && return 0
-    if [ "$raw" = "all" ]; then _out=("${_pool[@]}"); return 0; fi
-    # "installed" is what an update run means: take what is already on this
-    # machine and leave the rest alone. The menu has had this as ctrl-u since
-    # it was written; without it here there was no way to say it unattended,
-    # which is the only place an update run actually happens.
-    if [ "$raw" = "installed" ]; then
-        scan_installed_pkgs
-        for item in "${_pool[@]}"; do
-            item_installed "$(item_probe "$sec" "$item")" && _out+=("$item")
-        done
-        return 0
-    fi
-    local IFS=', '
-    for name in $raw; do
-        # A name repeated in the list — `--configs=zsh,zsh`, or a shell that
-        # expanded something twice — used to be installed twice and counted
-        # twice in the summary. Accepted, taken once.
-        have=0
-        for item in "${_out[@]}"; do
-            [ "$item" = "$name" ] && { have=1; break; }
-        done
-        [ "$have" -eq 1 ] && continue
-        found=0
-        for item in "${_pool[@]}"; do
-            [ "$item" = "$name" ] && { _out+=("$name"); found=1; break; }
-        done
-        if [ "$found" -eq 0 ]; then
-            error "Unknown ${what}: ${C_RED}${name}${C_RESET}"
-            substep "${C_DIM}available: ${_pool[*]}${C_RESET}"
-            exit 2
-        fi
-    done
-}
-
 if [ -n "$PICK_CONFIGS$PICK_TOOLS$PICK_APPS" ] || [ "$SELECTION_FLAG_GIVEN" = 1 ]; then
     info "Selection given on the command line..."
     menu_from_flags SELECTED CONFIGS   "${PICK_CONFIGS:--}" "config" dotfiles
@@ -5559,20 +5557,12 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         # Stow config for deps that have one. A stow conflict here used to be
         # printed and then forgotten, leaving the tool reported as installed
         # with none of its configuration in place.
-        _dep_cfg_ok=1
-        for _dc in "${DEP_HAS_CONFIG[@]}"; do
-            if [[ "$dep" == "$_dc" ]] && [ -d "$DOTFILES_DIR/$dep" ]; then
-                stow_config "$dep" || _dep_cfg_ok=0
-                break
-            fi
-        done
-        if [ "$_dep_cfg_ok" -eq 0 ]; then
+        if has_side_config "$dep" && ! stow_config "$dep"; then
             FAILED+=("${dep} config")
         fi
 
         INSTALLED+=("$dep")
     done
-    unset _dep_cfg_ok
     success "Dep tools done"
 fi
 

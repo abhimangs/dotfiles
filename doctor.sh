@@ -194,12 +194,14 @@ echo "── curl-installed CLIs ───────────────�
 # not one of these); tailscale is left to the package manager.
 # name and binary both come from install.sh — "interactive" is the flag it
 # puts on an app that has an APP_UPDATE entry, which is the same set that
-# earns the "run it like this" line.
+# earns the "run it like this" line. Matched as one member of the comma set,
+# not the whole field: an app that also carried a config would print
+# "interactive,hasconfig" and silently drop out of this list.
 while IFS=$'\t' read -r app bin; do
     [ -n "$app" ] || continue
     p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$bin")"
     printf "  %-16s %s\n" "$app" "${p:--}"
-done < <(pcl '$1=="app" && $5=="interactive" {print $2 "\t" $3}')
+done < <(pcl '$1=="app" && $5 ~ /(^|,)interactive(,|$)/ {print $2 "\t" $3}')
 echo
 
 echo "── ccstatusline (Claude Code statusLine) ─────────────"

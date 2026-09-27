@@ -1805,6 +1805,37 @@ then note ccsl-again "settings still intact after a second pass"
 else bad  ccsl-again "the second pass damaged settings.json"
 fi
 
+# 6. A settings.json the user symlinked into a checkout of their own is edited
+#    through the link. The mv into place used to replace the link with a plain
+#    file, forking their settings from the copy they actually keep.
+build_root "$WORK/run/ccsl-link" ubuntu
+h="$WORK/run/ccsl-link/home"
+mkdir -p "$h/mydots/claude" "$h/.claude"
+printf '{ "model": "opus" }\n' > "$h/mydots/claude/settings.json"
+ln -s ../mydots/claude/settings.json "$h/.claude/settings.json"
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-link" "$WORK/run/ccsl-link" "$WORK/k-sel"
+check ccsl-link 0
+want  ccsl-link 'statusline wired up' 'wires it up through the link'
+if [ "$(readlink "$h/.claude/settings.json")" = ../mydots/claude/settings.json ]; then
+    note ccsl-link "the user's settings.json symlink is still a symlink"
+else
+    bad  ccsl-link "replaced the user's settings.json symlink with a plain file"
+fi
+if python3 - "$h/mydots/claude/settings.json" <<'PY' 2>/dev/null
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if d["model"] == "opus" and "ccstatusline" in d["statusLine"]["command"] else 1)
+PY
+then note ccsl-link "the file behind the link got the statusLine"
+else bad  ccsl-link "the file behind the link was not updated"
+fi
+if [ -f "$h/.claude/settings.json.orig" ] && [ "$(ls -A "$h/mydots/claude")" = settings.json ]; then
+    note ccsl-link ".orig kept beside the link, nothing left in their checkout"
+else
+    bad  ccsl-link "the .orig or a temp file landed in the user's own checkout"
+fi
+
 echo
 echo "── protonvpn: the symlinks under ~/scripts ──────────────"
 # ~/scripts is a directory plenty of people already have, and pointing it at a
@@ -1912,6 +1943,79 @@ sys.exit(0 if d.get("someUnrelatedKey") == "keep me" else 1)' "$cc" 2>/dev/null;
 else
     bad  ccsl-delete "the unrelated key was lost, or the file is no longer valid JSON"
 fi
+
+echo
+echo "── --uninstall and --backups ────────────────────────────"
+# The undo path, and it had no scenario at all. One home throughout: a
+# hand-written ~/.gitconfig that the install moves to .bak, git and tmux's
+# theme stowed, and an older .old.bak generation already lying around.
+printf 'y\n\n'  > "$WORK/k-yes"      # one [y/N] → yes
+build_root "$WORK/run/uninst" ubuntu
+h="$WORK/run/uninst/home"
+printf '[user]\n\tname = MINE\n' > "$h/.gitconfig"
+cp "$h/.gitconfig" "$WORK/seed/gitconfig"
+printf 'older\n' > "$h/.gitconfig.old.bak"
+install_pass "$WORK/run/uninst" "$WORK/run/uninst" "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" DOTFILES_TOOLS="tmux"
+check uninst 0
+if [ -L "$h/.gitconfig" ] && [ -L "$h/.config/tmux/tmux.conf" ]; then
+    note uninst "git and the tmux theme stowed"
+else
+    bad  uninst "setup did not stow git and tmux — the rest of this section is moot"
+fi
+
+RUN_ARGS="--backups" rerun uninst-list uninst "$WORK/k-none"
+check uninst-list 0
+want  uninst-list '\.gitconfig\.bak'     'lists the .bak the install left'
+want  uninst-list '\.gitconfig\.old\.bak' 'and the older generation'
+
+# --configs is ignored by both run-alone modes, and an ignored flag must not
+# answer their one question either. It did: --configs set UNATTENDED, and
+# UNATTENDED skipped the [y/N] — prune deleted, uninstall unstowed everything,
+# nobody asked.
+RUN_ARGS="--backups=prune --configs=git" rerun uninst-prune uninst "$WORK/k-no"
+check uninst-prune 0
+want  uninst-prune 'Delete every \.old\.bak above' 'prune still asks'
+if [ -e "$h/.gitconfig.old.bak" ]; then
+    note uninst-prune "and a no keeps the .old.bak"
+else
+    bad  uninst-prune "pruned without asking"
+fi
+RUN_ARGS="--uninstall --configs=git" rerun uninst-ignored uninst "$WORK/k-no"
+check uninst-ignored 0
+want  uninst-ignored 'Proceed\? \[y/N\]'  'uninstall still asks'
+want  uninst-ignored 'Cancelled'          'and takes no for an answer'
+if [ -L "$h/.gitconfig" ] && [ -L "$h/.config/tmux/tmux.conf" ]; then
+    note uninst-ignored "nothing was unstowed"
+else
+    bad  uninst-ignored "unstowed with nobody asked"
+fi
+
+# A tool's theme is a name --uninstall takes. The bare form already unstowed
+# tmux; --uninstall=tmux was refused as an unknown config.
+RUN_ARGS="--uninstall=git,tmux" rerun uninst-named uninst "$WORK/k-yes"
+check  uninst-named 0
+nowant uninst-named 'Unknown config'     'tmux is accepted by name'
+want   uninst-named 'Unstowed tmux'      'unstows the tmux theme'
+if [ ! -L "$h/.gitconfig" ] && cmp -s "$WORK/seed/gitconfig" "$h/.gitconfig"; then
+    note uninst-named "the user's own ~/.gitconfig is back from .bak, byte for byte"
+else
+    bad  uninst-named "~/.gitconfig was not restored from its .bak"
+fi
+if [ ! -e "$h/.config/tmux" ]; then
+    note uninst-named "the emptied ~/.config/tmux is gone"
+else
+    bad  uninst-named "~/.config/tmux still there after unstowing its only file"
+fi
+
+# The plan's ".old.bak will be discarded" warning globbed a literal ~/.config,
+# so under XDG_CONFIG_HOME it never fired.
+build_root "$WORK/run/xdg-oldbak" ubuntu
+mkdir -p "$WORK/run/xdg-oldbak/home/xdg/micro.old.bak"
+RUN_ARGS="--dry-run" install_pass "$WORK/run/xdg-oldbak" "$WORK/run/xdg-oldbak" "$WORK/k-sel" \
+    DOTFILES_CONFIGS="micro" XDG_CONFIG_HOME="$WORK/run/xdg-oldbak/home/xdg"
+check xdg-oldbak 0
+want  xdg-oldbak 'two backups are kept' 'warns about an .old.bak under XDG_CONFIG_HOME'
 
 echo
 echo "── distro list parity ───────────────────────────────────"
@@ -2112,6 +2216,14 @@ if grep -q -- '--configs=' "$list_out" && grep -q -- '--tools=' "$list_out" \
     note list-notty "names the flag each section feeds"
 else
     bad  list-notty "a section heading is missing"
+fi
+# --porcelain on its own went past --list into a full interactive install.
+# Here, with no terminal, that would be the guard's refusal instead.
+if bash "$HERE/../install.sh" --porcelain </dev/null 2>/dev/null \
+     | awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{f=1} END{exit !f}'; then
+    note list-notty "--porcelain alone implies --list"
+else
+    bad  list-notty "--porcelain without --list did not list"
 fi
 unset list_out
 
