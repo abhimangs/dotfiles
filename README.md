@@ -155,14 +155,16 @@ One screen, four tabs (**dotfiles · tools · apps · selected**), and only one 
 | `←` `→` | previous / next tab (wraps; `tab` too) |
 | `↑` `↓` `PgUp` `PgDn` | move |
 | `f1`–`f4` | jump straight to a tab (`f4` is **selected**) |
-| `space` or `enter` | tick the row, and move to the next |
+| `space` or `enter` | tick or untick the row; the cursor stays where it is |
 | `ctrl-a` | tick everything in this tab, again to untick |
 | `ctrl-u` | tick every row already installed or updatable, for an update-only pass (only ticks, never unticks) |
 | type | search this tab only; `esc` clears the search |
 | `ctrl-d` | review everything ticked; `ctrl-d` again starts the install |
 | `esc` | cancel the run |
 
-Every row says what will happen to it: `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
+Every row says what will happen to it. On the dotfiles tab that is the config: `linked` (ours is already in place), `yours` (a file of yours is there and will be moved to `.bak`, or deleted in delete mode) or `new`. On the tools and apps tabs it is the package: `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
+
+The apps tab is grouped under headings (browsers, editors, terminals, AI agents and so on); the cursor and the bulk keys skip them, and a search hides a group with nothing left in it. The details pane on the right wraps rather than truncates, and says how the row installs (pacman, the AUR, apt, a vendor repo or `.deb`, or the curl script it fetches, URL included), the package state, where a config lands and anything worth knowing afterwards, such as `run 'hermes setup' after`. The **selected** tab ends with a **private mode** row, the same switch as the privacy question.
 
 It is drawn by the installer rather than by fzf. fzf is still installed (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is remapped to autosuggest-accept) but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
 

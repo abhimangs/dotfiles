@@ -552,12 +552,18 @@ tui_available() {
 # ── item table ───────────────────────────────────────────────────────────────
 # Built once from the same arrays and maps the rest of the script uses, so a new
 # config or app shows up here by being added there.
-declare -a T_KEY=() T_NAME=() T_DESC=() T_SEC=() T_PKG=() T_TICK=()
+declare -a T_KEY=() T_NAME=() T_DESC=() T_SEC=() T_PKG=() T_TICK=() T_NOTE=()
 declare -a T_STATE=() T_CELL=() T_NPAD_ON=() T_NPAD_OFF=()
+# Filled in after the table is built, and sparse: T_CFG is linked/yours/new and
+# T_TGT where it lands, for the rows that stow something; T_HOW is how the row
+# installs; T_GRP is the apps tab's heading. All of it is worked out here, once,
+# because the details pane reads it on every frame and the draw path must not
+# fork — config_target used to be called from there, one subshell per redraw.
+declare -a T_CFG=() T_TGT=() T_HOW=() T_GRP=()
 
-tui_add() {                     # tui_add <key> <name> <desc> <section> <package>
+tui_add() {                     # tui_add <key> <name> <desc> <section> <package> <note>
     T_KEY+=("$1"); T_NAME+=("$2"); T_DESC+=("$3"); T_SEC+=("$4"); T_PKG+=("$5")
-    T_TICK+=(0);   T_STATE+=(new)
+    T_NOTE+=("${6:-}"); T_TICK+=(0); T_STATE+=(new)
 }
 
 # What to ask the package manager (or PATH) about, for one menu entry. The
@@ -604,11 +610,95 @@ config_target() {               # config_target <key>
     esac
 }
 
+# linked / yours / new, for anything this repo stows: every dotfiles entry, and
+# the tools and apps that carry a theme. Built from the same tests the plan and
+# the install loop use (is_repo_link, dir_target_conflicts, uninstall_is_ours),
+# so the menu cannot promise what they will not do. "yours" outranks "linked": a
+# directory holding one of our links and one real file of theirs is moved aside
+# whole.
+config_state() {                # config_state <key> — prints linked, yours or new
+    local t; t="$(uninstall_target "$1")"
+    case "$1" in
+        zsh|bash|git|starship|protonvpn)
+            if [ "$1" = protonvpn ] && [ -L "$HOME/scripts/pvpn" ] && ! is_repo_link "$HOME/scripts/pvpn"; then
+                echo yours
+            elif is_repo_link "$t"; then echo linked
+            elif [ -e "$t" ] || [ -L "$t" ]; then echo yours
+            else echo new
+            fi ;;
+        *)  if dir_target_conflicts "$t"; then echo yours
+            elif uninstall_is_ours "$1"; then echo linked
+            else echo new
+            fi ;;
+    esac
+}
+
+# How one entry gets onto this machine, for the details pane. The mechanism,
+# not the package — the pane has a line of its own for that. On Arch the sync db
+# answers it (scan_sync_repos), because arch_install tries the repos before the
+# AUR and that is the answer that decides; on apt it is whatever ensure_*_deb or
+# app type the entry resolves to.
+item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <probe>
+    local _h="" _t=""
+    [ "$2" = apps ] && _t="$(app_type_resolved "$3")"
+    case "$3:$_t" in
+        *:curl)          curl_app_source "$3"; _h="curl ${_curl_url}" ;;
+        *:chatgpt)       _h="OpenAI's install script, which adds its own pacman repo" ;;
+        *:paru-y)        _h="AUR" ;;
+        bash:*)          _h="nothing, bash is already here" ;;
+        ccstatusline:*)  _h="nothing: bunx runs it, with bun from the apps tab" ;;
+        *)
+            if [[ "$DISTRO" == "arch" ]]; then
+                if [ -n "${PKG_SYNC[$4]:-}" ]; then _h="pacman"; else _h="AUR"; fi
+            else
+                case "$3" in
+                    ghostty)            _h="the ghostty-ubuntu install script" ;;
+                    protonvpn)          _h="ProtonVPN's own apt repo" ;;
+                    fresh|pay-respects) _h="the upstream release .deb" ;;
+                    gh|delta)           _h="apt, else the upstream release .deb" ;;
+                    lazygit)            _h="apt, else the upstream release tarball" ;;
+                    eza)                _h="apt, else the eza apt repo" ;;
+                    starship)           _h="apt, else the starship.rs install script" ;;
+                    alacritty)          _h="apt, else a PPA" ;;
+                    discord-canary)     _h="Discord's own .deb" ;;
+                    fastfetch) if [ "$IS_UBUNTU" -eq 1 ]; then _h="apt, else a PPA"
+                               else _h="apt, else the upstream release .deb"; fi ;;
+                    ulauncher) if [ "$IS_UBUNTU" -eq 1 ]; then _h="a PPA"
+                               else _h="the upstream release .deb"; fi ;;
+                    *) if [ "${_t:-apt}" = apt ]; then _h="apt"; else _h="the vendor's own apt repo"; fi ;;
+                esac
+            fi ;;
+    esac
+    printf -v "$1" '%s' "$_h"
+}
+
+# The heading an app sits under: its APP_GROUP when that is one of
+# APP_GROUP_ORDER, Other when it is not — a missing or misspelt group is a row
+# at the bottom of the tab, never a row that is not there at all.
+app_group() {                   # app_group <var> <key>
+    local _g=${APP_GROUP[$2]:-} _o
+    for _o in "${APP_GROUP_ORDER[@]}"; do
+        [ "$_o" = "$_g" ] && { printf -v "$1" '%s' "$_g"; return; }
+    done
+    printf -v "$1" '%s' Other
+}
+
 tui_build_items() {
-    local k
-    for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "$(item_probe dotfiles "$k")"; done
-    for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(item_probe tools "$k")"; done
-    for k in "${APPS_LIST[@]}"; do tui_add "$k" "${APP_LABEL[$k]}" "${APP_DESC[$k]:-}" apps "$(item_probe apps "$k")"; done
+    local k i
+    for k in "${CONFIGS[@]}";   do tui_add "$k" "$k" "${CONFIG_DESC[$k]}" dotfiles "$(item_probe dotfiles "$k")" "${CONFIG_NOTE[$k]:-}"; done
+    for k in "${DEPS_LIST[@]}"; do tui_add "$k" "$k" "${DEP_DESC[$k]}"    tools    "$(item_probe tools "$k")"    "${DEP_NOTE[$k]:-}"; done
+    for k in "${APPS_LIST[@]}"; do tui_add "$k" "${APP_LABEL[$k]}" "${APP_DESC[$k]:-}" apps "$(item_probe apps "$k")" "${APP_NOTE[$k]:-}"; done
+    scan_sync_repos "${T_PKG[@]}"
+    for i in "${!T_KEY[@]}"; do
+        k=${T_KEY[$i]}
+        item_how "T_HOW[$i]" "${T_SEC[$i]}" "$k" "${T_PKG[$i]}"
+        if [ "${T_SEC[$i]}" = dotfiles ]; then
+            T_TGT[i]=$(config_target "$k"); T_CFG[i]=$(config_state "$k")
+        elif has_side_config "$k"; then
+            T_TGT[i]="${XDG_SHOWN}/${k}/";  T_CFG[i]=$(config_state "$k")
+        fi
+        [ "${T_SEC[$i]}" = apps ] && app_group "T_GRP[$i]" "$k"
+    done
 }
 
 # ── install state ────────────────────────────────────────────────────────────
@@ -638,6 +728,21 @@ scan_installed_pkgs() {
         while read -r name _; do PKG_HAVE[$name]=1; done \
             < <(dpkg-query -W -f '${Package} ${Status}\n' 2>/dev/null | grep ' installed$')
     fi
+}
+
+# Which of these names the Arch sync repos carry — everything else goes to the
+# AUR helper, which is what the details pane and the plan's "bootstrap paru"
+# row both need to know. One `pacman -Si` for the whole list rather than one per
+# name, and read-only: it looks at the local sync db and nothing else. LC_ALL=C
+# because pacman translates the "Name" it prints. A no-op on apt.
+declare -A PKG_SYNC=()
+scan_sync_repos() {             # scan_sync_repos <package>...
+    [[ "$DISTRO" == "arch" ]] || return 0
+    local name want=()
+    for name in "$@"; do [ -n "$name" ] && want+=("$name"); done
+    [ "${#want[@]}" -gt 0 ] || return 0
+    while read -r name; do [ -n "$name" ] && PKG_SYNC[$name]=1; done \
+        < <(LC_ALL=C pacman -Si "${want[@]}" 2>/dev/null | sed -n 's/^Name *: *//p')
 }
 
 tui_scan_installed() {
@@ -693,13 +798,19 @@ tui_pad() {                     # tui_pad <var> <text> <width>
 }
 
 tui_build_cells() {
-    local i c
+    local i c s
     T_CELL=(); T_NPAD_ON=(); T_NPAD_OFF=()
     for i in "${!T_KEY[@]}"; do
-        case "${T_STATE[$i]}" in
-            installed) tui_pad c 'installed' $TUI_STATEW; T_CELL+=("${C_GREEN}${c}${C_RESET}")  ;;
-            update)    tui_pad c 'update'    $TUI_STATEW; T_CELL+=("${C_YELLOW}${c}${C_RESET}") ;;
-            *)         tui_pad c 'new'       $TUI_STATEW; T_CELL+=("${C_DIM}${c}${C_RESET}")    ;;
+        # A dotfiles row is a config, so its column says what happens to the
+        # config: already ours, somebody's file about to be moved aside, or
+        # nothing there yet. "fastfetch installed" said none of that. The
+        # package it needs is in the details pane.
+        s=${T_STATE[$i]}
+        [ "${T_SEC[$i]}" = dotfiles ] && s=${T_CFG[$i]:-new}
+        case "$s" in
+            installed|linked) tui_pad c "$s"  $TUI_STATEW; T_CELL+=("${C_GREEN}${c}${C_RESET}")  ;;
+            update|yours)     tui_pad c "$s"  $TUI_STATEW; T_CELL+=("${C_YELLOW}${c}${C_RESET}") ;;
+            *)                tui_pad c 'new' $TUI_STATEW; T_CELL+=("${C_DIM}${c}${C_RESET}")    ;;
         esac
         tui_pad c "${T_NAME[$i]}" $TUI_NAMEW
         T_NPAD_ON+=("${C_GREEN}${C_BOLD}${c}${C_RESET}")
@@ -709,13 +820,18 @@ tui_build_cells() {
 
 # ── view ─────────────────────────────────────────────────────────────────────
 TUI_TABS=(dotfiles tools apps selected)
-TUI_TAB=0; TUI_CUR=0; TUI_TOP=0; TUI_FILTER=""; TUI_TOTAL=0
+TUI_TAB=0; TUI_CUR=0; TUI_TOP=0; TUI_FILTER=""; TUI_TOTAL=0; TUI_NVIEW=0
+# A view entry is an item index, or one of two things that are not items:
+# "#<text>", a heading nothing can land on or tick, and "@private", the
+# privacy toggle at the foot of the selected tab. Everything that walks the view
+# to tick rows skips both; only the cursor and space know about the toggle.
 declare -a TUI_VIEW=()
 declare -A TUI_CNT=()
 
 tui_build_view() {
     TUI_VIEW=(); TUI_TOTAL=0
-    local sec=${TUI_TABS[$TUI_TAB]} i f=${TUI_FILTER,,} hay
+    local sec=${TUI_TABS[$TUI_TAB]} i f=${TUI_FILTER,,} hay g head
+    local -a hits=()
     for i in "${!T_KEY[@]}"; do
         if [ "$sec" = selected ]; then
             [ "${T_TICK[$i]}" = 1 ] || continue
@@ -727,10 +843,43 @@ tui_build_view() {
             hay="${T_NAME[$i]} ${T_DESC[$i]}"
             [[ "${hay,,}" == *"$f"* ]] || continue
         fi
-        TUI_VIEW+=("$i")
+        hits+=("$i")
     done
+    TUI_NVIEW=${#hits[@]}
+    if [ "$sec" = apps ]; then
+        # A heading for every group with a row left in it after the filter, in
+        # APP_GROUP_ORDER, then Other for whatever is not in one.
+        for g in "${APP_GROUP_ORDER[@]}" Other; do
+            head=1
+            for i in "${hits[@]}"; do
+                [ "${T_GRP[$i]}" = "$g" ] || continue
+                [ "$head" = 1 ] && { TUI_VIEW+=("#$g"); head=0; }
+                TUI_VIEW+=("$i")
+            done
+        done
+    else
+        TUI_VIEW=("${hits[@]}")
+    fi
+    [ "$sec" = selected ] && TUI_VIEW+=("#privacy" "@private")
     (( TUI_CUR >= ${#TUI_VIEW[@]} )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 ))
     (( TUI_CUR < 0 )) && TUI_CUR=0
+    tui_move 0
+}
+
+# Move the cursor by <n> rows and land on something it can act on: past a
+# heading in the direction of travel, and back the other way when that runs off
+# the end — PgUp onto the first heading lands on the row under it.
+tui_move() {                    # tui_move <n>
+    local n=${#TUI_VIEW[@]} c=$(( TUI_CUR + $1 )) d=1 guard=0
+    (( n == 0 )) && { TUI_CUR=0; return; }
+    (( $1 < 0 )) && d=-1
+    (( c < 0 )) && c=0
+    (( c >= n )) && c=$(( n - 1 ))
+    while [[ ${TUI_VIEW[c]} == \#* ]] && (( guard++ < 2 * n )); do
+        c=$(( c + d ))
+        if (( c < 0 || c >= n )); then d=$(( -d )); c=$(( c + d )); fi
+    done
+    TUI_CUR=$c
 }
 
 tui_recount() {
@@ -782,32 +931,84 @@ tui_box_row() {                 # tui_box_row <var> <width> <body> <plain-length
 }
 
 # ── right pane ───────────────────────────────────────────────────────────────
-# Kept as plain text plus a colour so it can be truncated to the pane width
-# without cutting an escape sequence in half.
+# Kept as plain text plus a colour so the frame can pad it by length without
+# counting escape sequences. Wrapped here, at the pane's width, rather than cut
+# at the frame: a pane that exists to show a description used to show
+# "beta c…". A labelled line's continuation hangs under its value.
 declare -a TUI_PTXT=() TUI_PCLR=() TUI_PLBL=()
-tui_pane_add() { TUI_PTXT+=("$1"); TUI_PCLR+=("$2"); TUI_PLBL+=("${3:-0}"); }
+TUI_PW=40
+tui_pane_add() {                # tui_pane_add <text> <colour> [label width]
+    local t=$1 l=${3:-0} w=$TUI_PW chunk cut ind=""
+    (( l > 0 && l < w - 8 )) && printf -v ind '%*s' "$l" ''
+    while (( ${#t} > w )); do
+        chunk=${t:0:w+1}
+        # The last space that still fits, as long as it is past the label;
+        # failing that the last slash, so a URL breaks between its parts.
+        cut=${chunk% *}
+        if [ "$cut" != "$chunk" ] && (( ${#cut} > ${#ind} )); then chunk=$cut
+        else
+            chunk=${t:0:w}; cut=${chunk%/*}
+            [ "$cut" != "$chunk" ] && (( ${#cut} > ${#ind} )) && chunk="$cut/"
+        fi
+        TUI_PTXT+=("$chunk"); TUI_PCLR+=("$2"); TUI_PLBL+=("$l")
+        t=${t:${#chunk}}; t="${ind}${t# }"
+    done
+    TUI_PTXT+=("$t"); TUI_PCLR+=("$2"); TUI_PLBL+=("$l")
+}
 
-tui_pane_build() {              # tui_pane_build <item index or empty>
+# The privacy toggle's own details: what private mode removes, worked out once
+# when the menu opens (tui_pick) so the draw path only reads them.
+TUI_PRIV_DEL=""; TUI_PRIV_SCRUB=""
+
+tui_pane_build() {              # tui_pane_build <view entry or empty>
     local idx=${1:-} i s key
     TUI_PTXT=(); TUI_PCLR=(); TUI_PLBL=()
-    if [ -n "$idx" ]; then
+    if [ "$idx" = @private ]; then
+        tui_pane_add "private mode" "${C_ACCENT}${C_BOLD}"
+        tui_pane_add "leave no sign ~/dotfiles came from a repo, or whose" "$C_DIM"
+        tui_pane_add "" "$C_RESET"
+        if [ "$STRIP_REPO" = 1 ]; then
+            tui_pane_add "state    private, scrubbed at the end of the run" "$C_RED" 9
+        else
+            tui_pane_add "state    keep, a normal checkout" "$C_GREEN" 9
+        fi
+        tui_pane_add "deletes  ${TUI_PRIV_DEL:-nothing left to remove}" "$C_RESET" 9
+        [ -n "$TUI_PRIV_SCRUB" ] && tui_pane_add "scrubs   your name, address and URLs from ${TUI_PRIV_SCRUB}" "$C_RESET" 9
+        tui_pane_add "note     configs keep working and install.sh stays, so it can be re-run" "$C_DIM" 9
+    elif [ -n "$idx" ]; then
         key="${T_KEY[$idx]}"
         tui_pane_add "${T_NAME[$idx]}" "${C_ACCENT}${C_BOLD}"
         [ -n "${T_DESC[$idx]}" ] && tui_pane_add "${T_DESC[$idx]}" "$C_DIM"
         tui_pane_add "" "$C_RESET"
-        tui_pane_add "menu     ${T_SEC[$idx]}" "$C_RESET" 9
-        tui_pane_add "package  ${T_PKG[$idx]}" "$C_RESET" 9
-        if [ "${T_SEC[$idx]}" = dotfiles ]; then
-            local _t; _t="$(config_target "$key")"
-            tui_pane_add "stows    ${_t}" "$C_RESET" 9
-            [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
-            [ "$key" = ccstatusline ] && tui_pane_add "pulls    bun (renders it)" "$C_RESET" 9
+        # The tab already says which menu a row is in, except on this one.
+        [ "${TUI_TABS[$TUI_TAB]}" = selected ] && tui_pane_add "menu     ${T_SEC[$idx]}" "$C_RESET" 9
+        # A curl app has no package: what the installed check looks for is
+        # the binary its installer drops.
+        if [[ ${T_HOW[$idx]:-} == curl* ]]; then
+            tui_pane_add "binary   ${T_PKG[$idx]}" "$C_RESET" 9
+        else
+            tui_pane_add "package  ${T_PKG[$idx]}" "$C_RESET" 9
         fi
         case "${T_STATE[$idx]}" in
             installed) tui_pane_add "state    already installed"         "$C_GREEN"  9 ;;
             update)    tui_pane_add "state    installed, update waiting" "$C_YELLOW" 9 ;;
             *)         tui_pane_add "state    will be installed"         "$C_DIM"    9 ;;
         esac
+        case "${T_CFG[$idx]:-}" in
+            linked) tui_pane_add "config   linked, our symlinks are in place" "$C_GREEN" 9 ;;
+            yours)
+                if [ "$key" = starship ]; then
+                    tui_pane_add "config   yours, kept: ours is not installed over it" "$C_YELLOW" 9
+                else
+                    tui_pane_add "config   yours, moved to .bak first (deleted, in delete mode)" "$C_YELLOW" 9
+                fi ;;
+            new)    tui_pane_add "config   new, nothing there yet" "$C_DIM" 9 ;;
+        esac
+        [ -n "${T_TGT[$idx]:-}" ] && tui_pane_add "stows    ${T_TGT[$idx]}" "$C_RESET" 9
+        [ -n "${T_HOW[$idx]:-}" ] && tui_pane_add "installs ${T_HOW[$idx]}" "$C_RESET" 9
+        [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
+        [ "$key" = ccstatusline ] && tui_pane_add "pulls    bun (renders it)" "$C_RESET" 9
+        [ -n "${T_NOTE[$idx]}" ] && tui_pane_add "note     ${T_NOTE[$idx]}" "$C_RESET" 9
     fi
     tui_pane_add "" "$C_RESET"
     tui_pane_add "TICKED  ${TUI_CNT[selected]}" "${C_GREEN}${C_BOLD}"
@@ -868,9 +1069,13 @@ tui_draw() {
     (( body < 3 )) && body=3
     (( TUI_CUR < TUI_TOP )) && TUI_TOP=$TUI_CUR
     (( TUI_CUR >= TUI_TOP + body )) && TUI_TOP=$(( TUI_CUR - body + 1 ))
+    # Scrolling up onto a group's first row brings its heading into view too.
+    (( TUI_TOP > 0 && TUI_TOP == TUI_CUR )) && [[ ${TUI_VIEW[TUI_TOP-1]} == \#* ]] \
+        && TUI_TOP=$(( TUI_TOP - 1 ))
     (( TUI_TOP < 0 )) && TUI_TOP=0
 
     tui_recount
+    TUI_PW=$riw
     tui_pane_build "${TUI_VIEW[$TUI_CUR]:-}"
 
     local -a LFT=() RGT=()
@@ -882,7 +1087,7 @@ tui_draw() {
     else
         plain="type to search this menu"; printf -v line '%s%s%s' "$C_DIM" "$plain" "$C_RESET"
     fi
-    n="${#TUI_VIEW[@]}/${TUI_TOTAL}"
+    n="${TUI_NVIEW}/${TUI_TOTAL}"
     gap=$(( liw - ${#plain} - ${#n} )); (( gap < 1 )) && gap=1
     tui_rep sp ' ' "$gap"
     tui_box_row t "$lw" "${line}${sp}${C_DIM}${n}${C_RESET}" $(( ${#plain} + gap + ${#n} )); LFT+=("$t")
@@ -895,17 +1100,31 @@ tui_draw() {
 
     tui_box_top t "$lw" "${TUI_TABS[$TUI_TAB]}"; LFT+=("$t")
     for (( i = TUI_TOP; i < TUI_TOP + body; i++ )); do
-        if (( i >= ${#TUI_VIEW[@]} )); then
+        idx=${TUI_VIEW[$i]:-}
+        if [ -z "$idx" ]; then
             tui_box_row t "$lw" "" 0
+        elif [[ $idx == \#* ]]; then
+            # A heading: ASCII, sat in the cursor's column, never a target.
+            tui_box_row t "$lw" "  ${C_TEAL}${C_BOLD}${idx:1}${C_RESET}" $(( 1 + ${#idx} ))
         else
-            idx=${TUI_VIEW[$i]}
-            if [ "${T_TICK[$idx]}" = 1 ]; then
-                mark="${C_GREEN}${C_BOLD}[${G_TICK}]${C_RESET}"; tint="$C_GREEN"; name=${T_NPAD_ON[$idx]}
+            if [ "$idx" = @private ]; then
+                if [ "$STRIP_REPO" = 1 ]; then
+                    mark="${C_GREEN}${C_BOLD}[${G_TICK}]${C_RESET}"; tint="$C_GREEN"
+                    name="${C_GREEN}${C_BOLD}${TUI_PRIV_NAME}${C_RESET}"; cell="${C_RED}${TUI_PRIV_ON}${C_RESET}"
+                else
+                    mark="${C_DIM}[ ]${C_RESET}"; tint="$C_DIM"
+                    name=$TUI_PRIV_NAME; cell="${C_DIM}${TUI_PRIV_OFF}${C_RESET}"
+                fi
+                desc="leave no sign this came from a repo"
             else
-                mark="${C_DIM}[ ]${C_RESET}"; tint="$C_DIM"; name=${T_NPAD_OFF[$idx]}
+                if [ "${T_TICK[$idx]}" = 1 ]; then
+                    mark="${C_GREEN}${C_BOLD}[${G_TICK}]${C_RESET}"; tint="$C_GREEN"; name=${T_NPAD_ON[$idx]}
+                else
+                    mark="${C_DIM}[ ]${C_RESET}"; tint="$C_DIM"; name=${T_NPAD_OFF[$idx]}
+                fi
+                cell=${T_CELL[$idx]}
+                desc=${T_DESC[$idx]}
             fi
-            cell=${T_CELL[$idx]}
-            desc=${T_DESC[$idx]}
             (( ${#desc} > descw )) && desc="${desc:0:descw-1}$G_ELLIPSIS"
             if (( i == TUI_CUR )); then cursor="${C_ACCENT}${G_ARROW}${C_RESET} "; else cursor="  "; fi
             tui_box_row t "$lw" "${cursor}${mark} ${name} ${cell} ${tint}${desc}${C_RESET}" \
@@ -935,7 +1154,12 @@ tui_draw() {
     for (( i = 0; i < ${#LFT[@]}; i++ )); do
         frame+="${LFT[$i]} ${RGT[$i]:-}"$'\033[K\n'
     done
-    frame+="  ${C_DIM}${G_LEFT} ${G_RIGHT} menu   ${G_UP} ${G_DOWN} move   space tick   ctrl-a all   ctrl-u installed   ctrl-d review, then install   esc cancel${C_RESET}"
+    # The full key list is wider than 80 columns, and a footer that wraps puts
+    # a line under the frame on every redraw. Narrower, the keys that are not
+    # self-evident are kept and the arrows go.
+    local foot="${G_LEFT} ${G_RIGHT} menu   ${G_UP} ${G_DOWN} move   space tick   ctrl-a all   ctrl-u installed   ctrl-d review, then install   esc cancel"
+    (( ${#foot} + 2 > TUI_COLS )) && foot="space tick  ctrl-a all  ctrl-u installed  ctrl-d review  esc cancel"
+    frame+="  ${C_DIM}${foot}${C_RESET}"
     frame+=$'\033[K\033[J'
     printf '%s' "$frame"
 }
@@ -976,26 +1200,33 @@ tui_implied_pull() {            # tui_implied_pull <index just ticked>
     esac
 }
 
+# In place: the cursor stays on the row it just toggled. It used to step down
+# after every tick, so "down, space, down" landed one row further than aimed.
 tui_toggle_cur() {
     local idx=${TUI_VIEW[$TUI_CUR]:-}
-    [ -n "$idx" ] || return
+    case "$idx" in
+        ''|\#*)   return 0 ;;
+        @private) STRIP_REPO=$(( 1 - STRIP_REPO )); return 0 ;;
+    esac
     if [ "${T_TICK[$idx]}" = 1 ]; then
         T_TICK[$idx]=0
     else
         T_TICK[$idx]=1
         tui_implied_pull "$idx"
     fi
-    if [ "${TUI_TABS[$TUI_TAB]}" = selected ]; then
-        tui_build_view          # the row just left this list
-    else
-        (( TUI_CUR < ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( TUI_CUR + 1 ))
-    fi
+    # the row just left this list
+    [ "${TUI_TABS[$TUI_TAB]}" = selected ] && tui_build_view
+    return 0
 }
 
 tui_toggle_all() {
     local idx all=1
-    for idx in "${TUI_VIEW[@]}"; do [ "${T_TICK[$idx]}" = 1 ] || { all=0; break; }; done
     for idx in "${TUI_VIEW[@]}"; do
+        [[ $idx == [0-9]* ]] || continue
+        [ "${T_TICK[$idx]}" = 1 ] || { all=0; break; }
+    done
+    for idx in "${TUI_VIEW[@]}"; do
+        [[ $idx == [0-9]* ]] || continue
         if [ "$all" = 1 ]; then T_TICK[$idx]=0
         else T_TICK[$idx]=1; tui_implied_pull "$idx"; fi
     done
@@ -1010,6 +1241,7 @@ tui_toggle_all() {
 tui_tick_installed() {
     local idx
     for idx in "${TUI_VIEW[@]}"; do
+        [[ $idx == [0-9]* ]] || continue
         case "${T_STATE[$idx]}" in
             installed|update)
                 [ "${T_TICK[$idx]}" = 1 ] && continue
@@ -1044,25 +1276,19 @@ tui_loop() {
                 rest=""
                 IFS= read -rsn2 -d '' -t 0.05 rest <"$TTY_IN"
                 case "$rest" in
-                    '[A') (( TUI_CUR > 0 )) && TUI_CUR=$(( TUI_CUR - 1 )) ;;
-                    '[B') (( TUI_CUR < ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( TUI_CUR + 1 )) ;;
+                    '[A') tui_move -1 ;;
+                    '[B') tui_move 1 ;;
                     '[C') tui_switch_tab +1 ;;
                     '[D') tui_switch_tab -1 ;;
                     'OP') tui_switch_tab 0 ;;
                     'OQ') tui_switch_tab 1 ;;
                     'OR') tui_switch_tab 2 ;;
                     'OS') tui_switch_tab 3 ;;
-                    '[5') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
-                          TUI_CUR=$(( TUI_CUR - 10 )); (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
-                    # The floor matters as much as the ceiling: an empty view —
-                    # the selected tab before anything is ticked, or a filter
-                    # matching nothing — makes the ceiling -1, and tui_draw then
-                    # indexes TUI_VIEW[-1] and prints "bad array subscript" over
-                    # the menu. Page-Up has had the 0 floor all along.
-                    '[6') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"
-                          TUI_CUR=$(( TUI_CUR + 10 ))
-                          (( TUI_CUR > ${#TUI_VIEW[@]} - 1 )) && TUI_CUR=$(( ${#TUI_VIEW[@]} - 1 ))
-                          (( TUI_CUR < 0 )) && TUI_CUR=0 ;;
+                    # tui_move keeps both ends: an empty view — a filter
+                    # matching nothing — must land on 0, not -1, or tui_draw
+                    # indexes TUI_VIEW[-1] and prints "bad array subscript".
+                    '[5') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"; tui_move -10 ;;
+                    '[6') IFS= read -rsn1 -d '' -t 0.05 rest <"$TTY_IN"; tui_move 10 ;;
                     # Delete and End send ESC[3~ / ESC[4~ — neither means
                     # anything here, but the trailing ~ has to be read or it
                     # falls through to the default case below and types a
@@ -1072,9 +1298,10 @@ tui_loop() {
                     '')  if [ -n "$TUI_FILTER" ]; then TUI_FILTER=""; TUI_CUR=0; tui_build_view
                          else return 1; fi ;;
                 esac ;;
-            # Space and Enter both tick. Enter arrives as \r or as \n depending
-            # on the terminal's icrnl and ctrl-j is \n either way, so neither
-            # byte can safely mean anything else — confirm gets its own key.
+            # Space and Enter both toggle. Enter arrives as \r or as \n
+            # depending on the terminal's icrnl and ctrl-j is \n either way, so
+            # neither byte can safely mean anything else — confirm gets its own
+            # key.
             ' '|$'\r'|$'\n') tui_toggle_cur ;;
             $'\004')  # ctrl-d: review first, install second
                 if [ "${TUI_TABS[$TUI_TAB]}" = selected ]; then
@@ -1121,13 +1348,27 @@ tui_cleanup() {
     return 0
 }
 
-# Fills SELECTED, DEPS and APPS. Returns 1 if the run was cancelled.
+# Fills SELECTED, DEPS and APPS, and STRIP_REPO from the privacy row. Returns 1
+# if the run was cancelled.
 tui_pick() {
     tui_build_items
     tui_scan_installed
     tui_build_cells
     tui_start_upgrade_scan
     tui_build_view
+
+    # The privacy row. Its details list what private mode would remove from
+    # this checkout — private_preview's list, minus its colours and forks.
+    local _p
+    tui_pad TUI_PRIV_NAME "private mode" "$TUI_NAMEW"
+    tui_pad TUI_PRIV_ON   "private"      "$TUI_STATEW"
+    tui_pad TUI_PRIV_OFF  "keep"         "$TUI_STATEW"
+    for _p in "${PRIVATE_DELETE[@]}"; do
+        { [ -e "$DOTFILES_DIR/$_p" ] || [ -L "$DOTFILES_DIR/$_p" ]; } && TUI_PRIV_DEL+="${TUI_PRIV_DEL:+ }$_p"
+    done
+    for _p in "${PRIVATE_SCRUB_FILES[@]}"; do
+        [ -f "$DOTFILES_DIR/$_p" ] && TUI_PRIV_SCRUB+="${TUI_PRIV_SCRUB:+, }$_p"
+    done
 
     TUI_STTY_SAVE=$(stty -g <"$TTY_IN" 2>/dev/null)
     TUI_ACTIVE=1
@@ -3601,6 +3842,45 @@ APP_CURL_ENV[grok-cli]="SHELL=/bin/sh"
 # dir — UV_INSTALL_DIR or XDG_BIN_HOME moves it out from under that.
 APP_CURL_ENV[mistral-cli]="UV_NO_MODIFY_PATH=1"
 
+# Where each curl app's installer comes from and which shell runs it. One case,
+# read by the apps loop to install and by the menu's details pane to say where
+# an app comes from before anything is fetched.
+curl_app_source() {             # curl_app_source <app> — sets _curl_url and _shell
+    _curl_url=""; _shell="bash"
+    case "$1" in
+        claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
+        antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
+        codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell="sh" ;;
+        cursor-cli)      _curl_url="https://cursor.com/install"                ; _shell=bash ;;
+        opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
+        kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
+        muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
+        hermes)          _curl_url="https://hermes-agent.nousresearch.com/install.sh" ; _shell=bash ;;
+        # ends by launching its interactive setup wizard, with no flag to skip
+        # it — the apps loop's </dev/null is what stops that, and the exit
+        # status it leaves behind is why the check after it looks at the binary
+        # instead.
+        devin)           _curl_url="https://cli.devin.ai/install.sh"                ; _shell=bash ;;
+        grok-cli)        _curl_url="https://x.ai/cli/install.sh"                    ; _shell=bash ;;
+        # a wrapper: it installs uv first when uv is missing, then
+        # `uv tool install mistral-vibe`
+        mistral-cli)     _curl_url="https://mistral.ai/vibe/install.sh"             ; _shell=bash ;;
+        # No opt-out flag either, and its rc write is the codex case: the PATH
+        # block (plus a /usr/local/bin symlink it would ask sudo for) is skipped
+        # entirely once it sees its install dir — ~/.local/bin, its default —
+        # already on PATH, which is what CURL_APP_PATH puts there.
+        ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
+        # installs into /usr/local/bin — its own sudo, already cached
+        postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell="sh" ;;
+        bun)             _curl_url="https://bun.com/install"                   ; _shell=bash ;;
+        # Not a self-contained binary drop like the rest: it picks the distro's
+        # own package manager (pacman here, the vendor apt repo there), so it
+        # needs sudo — already cached — and it enables tailscaled itself. Its
+        # own `| sh`, so sh.
+        tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell="sh" ;;
+    esac
+}
+
 # These CLIs install into their own bin dirs, which are not necessarily on the
 # PATH of whatever shell is running this script — search them explicitly, or an
 # already-installed tool looks missing and gets reinstalled every run.
@@ -3744,37 +4024,50 @@ prepare_install_snapshot() {
 }
 
 # ── Menu descriptions ─────────────────────────────────────────────────────────
+# *_DESC is the menu's description column: one short phrase, nothing after it.
+# Anything else worth knowing — the theme it comes with, what to run after, a
+# second name it installs under — is a *_NOTE, shown in the details pane, where
+# there is room for it. The column used to carry both, glued together with " · "
+# and hand-counted spaces, and every one of them came out cut short.
+# Declared without =(), so a second declaration elsewhere cannot empty them.
 declare -A CONFIG_DESC
+declare -A CONFIG_NOTE
+declare -A APP_DESC
+declare -A APP_NOTE
+declare -A DEP_DESC
+declare -A DEP_NOTE
 CONFIG_DESC[fastfetch]="system info display at login"
-CONFIG_DESC[ghostty]="GPU-accelerated terminal   ${G_DOT}  JetBrains Nerd Font"
-CONFIG_DESC[kitty]="cross-platform terminal    ${G_DOT}  JetBrains Nerd Font"
+CONFIG_DESC[ghostty]="GPU-accelerated terminal"
+CONFIG_DESC[kitty]="cross-platform terminal"
 CONFIG_DESC[zsh]="shell + Zinit plugins"
-CONFIG_DESC[bash]="plain bash rc      ${G_DOT}  aliases, no prompt tooling"
+CONFIG_DESC[bash]="plain bash rc"
 CONFIG_DESC[protonvpn]="ProtonVPN wrapper script"
 CONFIG_DESC[starship]="cross-shell prompt"
-CONFIG_DESC[rofi]="keyboard-driven launcher   ${G_DOT}  JetBrains Nerd Font"
-CONFIG_DESC[git]="git config  ${G_RIGHT}  ~/.gitconfig"
-CONFIG_DESC[micro]="terminal editor            ${G_DOT}  Catppuccin Mocha"
-CONFIG_DESC[fresh]="terminal IDE              ${G_DOT}  AUR / GitHub deb"
-CONFIG_DESC[ccstatusline]="Claude Code statusline  ${G_DOT}  bunx, always latest"
-if [[ "$DISTRO" == "arch" ]]; then
-    CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  AUR"
-else
-    CONFIG_DESC[ulauncher]="app launcher              ${G_DOT}  PPA/deb"
-fi
+CONFIG_DESC[rofi]="keyboard-driven launcher"
+CONFIG_DESC[git]="git config"
+CONFIG_DESC[micro]="terminal editor"
+CONFIG_DESC[fresh]="terminal IDE"
+CONFIG_DESC[ccstatusline]="Claude Code statusline"
+CONFIG_DESC[ulauncher]="app launcher"
 
-# One line each, for the menu's description column. Apps only — configs and
-# dep tools have CONFIG_DESC and DEP_DESC already.
-declare -A APP_DESC
-APP_DESC[brave-beta]="chromium browser, no telemetry  ${G_DOT}  beta channel"
+CONFIG_NOTE[ghostty]="set in JetBrainsMono Nerd Font, which comes with any config"
+CONFIG_NOTE[kitty]="set in JetBrainsMono Nerd Font, which comes with any config"
+CONFIG_NOTE[rofi]="set in JetBrainsMono Nerd Font; launch it with: rofi -show drun"
+CONFIG_NOTE[bash]="aliases and sane defaults, no prompt tooling; undo with --restore-bash"
+CONFIG_NOTE[micro]="Catppuccin Mocha theme"
+CONFIG_NOTE[fresh]="AUR on Arch, the GitHub release .deb on Debian and Ubuntu"
+CONFIG_NOTE[ccstatusline]="runs through bunx, so it is always the latest release"
+CONFIG_NOTE[ulauncher]="AUR on Arch, a PPA on Ubuntu, the GitHub release .deb on Debian; autostarts"
+
+APP_DESC[brave-beta]="chromium browser, no telemetry"
 APP_DESC[brave-stable]="chromium browser, no telemetry"
 APP_DESC[vscode]="the editor"
-APP_DESC[vscode-insiders]="the editor  ${G_DOT}  nightly channel"
+APP_DESC[vscode-insiders]="the editor"
 APP_DESC[neovim]="the editor, in the terminal"
-APP_DESC[alacritty]="GPU-accelerated terminal  ${G_DOT}  Catppuccin Mocha"
-APP_DESC[wezterm]="GPU-accelerated terminal  ${G_DOT}  multiplexer, Catppuccin"
+APP_DESC[alacritty]="GPU-accelerated terminal"
+APP_DESC[wezterm]="GPU-accelerated terminal"
 APP_DESC[antigravity-ide]="agentic IDE"
-APP_DESC[antigravity]="agentic IDE  ${G_DOT}  2.0"
+APP_DESC[antigravity]="agentic IDE"
 APP_DESC[claude-code]="Anthropic's coding agent, in the terminal"
 APP_DESC[antigravity-cli]="the CLI half of Antigravity"
 APP_DESC[codex-cli]="OpenAI's coding agent"
@@ -3782,42 +4075,118 @@ APP_DESC[cursor-cli]="Cursor's coding agent in the terminal"
 APP_DESC[opencode]="open-source coding agent"
 APP_DESC[kimi-code]="Moonshot's coding agent"
 APP_DESC[muse]="terminal agent"
-APP_DESC[hermes]="Nous Research's agent  ${G_DOT}  run 'hermes setup' after"
-APP_DESC[devin]="Cognition's coding agent  ${G_DOT}  run 'devin setup' after"
-APP_DESC[grok-cli]="xAI's coding agent  ${G_DOT}  also installs as 'agent'"
-APP_DESC[mistral-cli]="Mistral's coding agent  ${G_DOT}  run 'vibe --setup' after"
+APP_DESC[hermes]="Nous Research's agent"
+APP_DESC[devin]="Cognition's coding agent"
+APP_DESC[grok-cli]="xAI's coding agent"
+APP_DESC[mistral-cli]="Mistral's coding agent"
 APP_DESC[ori]="OpenRouter's CLI for projects you already have"
-APP_DESC[deepseek-harness]="DeepSeek's agent harness  ${G_DOT}  run 'dsh web' to open"
-APP_DESC[orca]="Stably's agent worktree manager  ${G_DOT}  run 'orca' to open"
+APP_DESC[deepseek-harness]="DeepSeek's agent harness"
+APP_DESC[orca]="Stably's agent worktree manager"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
-APP_DESC[vicinae]="Raycast-style launcher  ${G_DOT}  bind: vicinae toggle"
+APP_DESC[vicinae]="Raycast-style launcher"
 APP_DESC[notion]="notes and workspace"
 APP_DESC[obsidian]="markdown knowledge base"
 APP_DESC[chatgpt]="OpenAI's ChatGPT, as a desktop app"
 APP_DESC[slack]="team chat"
-APP_DESC[discord-canary]="voice and text chat  ${G_DOT}  nightly build"
+APP_DESC[discord-canary]="voice and text chat"
 APP_DESC[claude-desktop]="Claude, as a desktop app"
 APP_DESC[vlc]="plays anything"
-APP_DESC[obs-studio]="screen recording and streaming  ${G_DOT}  virtual camera, Wayland"
+APP_DESC[obs-studio]="screen recording and streaming"
 APP_DESC[zoom]="video calls"
-APP_DESC[flatpak]="sandboxed app runtime  ${G_DOT}  adds flathub"
-APP_DESC[docker]="containers  ${G_DOT}  compose, buildx, group, service"
-APP_DESC[tailscale]="mesh VPN  ${G_DOT}  sudo tailscale up to log in"
+APP_DESC[flatpak]="sandboxed app runtime"
+APP_DESC[docker]="containers"
+APP_DESC[tailscale]="mesh VPN"
 
-declare -A DEP_DESC
-DEP_DESC[bat]="cat with syntax highlighting  ${G_DOT}  Catppuccin theme"
-DEP_DESC[eza]="modern ls  ${G_RIGHT}  ls  ll  lt  la aliases"
-DEP_DESC[fd]="fast find replacement  ${G_RIGHT}  fzf integration"
-DEP_DESC[zoxide]="smart cd  ${G_RIGHT}  z command"
-DEP_DESC[pay-respects]="corrects last command  ${G_RIGHT}  fuck alias"
-DEP_DESC[lazygit]="git TUI  ${G_RIGHT}  lg alias  ${G_DOT}  Catppuccin, delta diffs"
-DEP_DESC[btop]="resource monitor  ${G_DOT}  Catppuccin theme"
+APP_NOTE[brave-beta]="the beta channel"
+APP_NOTE[vscode-insiders]="the nightly channel"
+APP_NOTE[alacritty]="a Catppuccin Mocha theme is stowed with it"
+APP_NOTE[wezterm]="a multiplexer too; a Catppuccin theme and the Nerd Font symbols font come with it"
+APP_NOTE[antigravity]="the 2.0 release"
+APP_NOTE[hermes]="run 'hermes setup' after"
+APP_NOTE[devin]="run 'devin setup' after"
+APP_NOTE[grok-cli]="also installs as 'agent'"
+APP_NOTE[mistral-cli]="run 'vibe --setup' after"
+APP_NOTE[deepseek-harness]="run 'dsh web' to open it"
+APP_NOTE[orca]="run 'orca' to open it"
+APP_NOTE[vicinae]="bind a hotkey to: vicinae toggle"
+APP_NOTE[discord-canary]="the nightly build"
+APP_NOTE[obs-studio]="pulls in v4l2loopback-dkms (virtual camera) and qt6-wayland"
+APP_NOTE[flatpak]="adds the Flathub remote"
+APP_NOTE[docker]="with compose and buildx; adds you to the docker group and starts the service"
+APP_NOTE[tailscale]="log in after with: sudo tailscale up"
+
+DEP_DESC[bat]="cat with syntax highlighting"
+DEP_DESC[eza]="modern ls"
+DEP_DESC[fd]="fast find replacement"
+DEP_DESC[zoxide]="smart cd"
+DEP_DESC[pay-respects]="corrects the last command"
+DEP_DESC[lazygit]="git TUI"
+DEP_DESC[btop]="resource monitor"
 DEP_DESC[tree]="directory tree listing"
-DEP_DESC[gh]="GitHub CLI  ${G_RIGHT}  gh auth login, PRs, issues"
-DEP_DESC[ripgrep]="fast recursive grep  ${G_RIGHT}  rg command"
-DEP_DESC[delta]="side-by-side git diffs  ${G_DOT}  pairs with lazygit"
-DEP_DESC[tmux]="terminal multiplexer      ${G_DOT}  Catppuccin Mocha"
+DEP_DESC[gh]="GitHub CLI"
+DEP_DESC[ripgrep]="fast recursive grep"
+DEP_DESC[delta]="side-by-side git diffs"
+DEP_DESC[tmux]="terminal multiplexer"
+
+DEP_NOTE[bat]="a Catppuccin theme is stowed with it"
+DEP_NOTE[eza]="the ls, ll, lt and la aliases"
+DEP_NOTE[fd]="what fzf lists files with"
+DEP_NOTE[zoxide]="the z command"
+DEP_NOTE[pay-respects]="the fuck alias"
+DEP_NOTE[lazygit]="the lg alias; a Catppuccin theme is stowed with it, diffs go through delta"
+DEP_NOTE[btop]="a Catppuccin theme is stowed with it"
+DEP_NOTE[gh]="gh auth login, then PRs and issues"
+DEP_NOTE[ripgrep]="the rg command"
+DEP_NOTE[delta]="pairs with lazygit"
+DEP_NOTE[tmux]="a Catppuccin Mocha theme is stowed with it"
+
+# ── App groups ───────────────────────────────────────────────────────────────
+# The apps tab is long enough to need headings. Every app names its group here,
+# and the tab and the human --list print them in APP_GROUP_ORDER; an app with
+# no entry (or a misspelt one) still shows, under a trailing "Other", rather
+# than going missing. ASCII only: the menu draws these. tests/run.sh checks
+# every APPS_LIST entry has a known group.
+declare -A APP_GROUP
+APP_GROUP_ORDER=(Browsers Editors Terminals "AI agents" "Chat & notes" Media Utilities "Dev & infra")
+APP_GROUP[brave-beta]="Browsers"
+APP_GROUP[brave-stable]="Browsers"
+APP_GROUP[vscode]="Editors"
+APP_GROUP[vscode-insiders]="Editors"
+APP_GROUP[neovim]="Editors"
+APP_GROUP[antigravity-ide]="Editors"
+APP_GROUP[antigravity]="Editors"
+APP_GROUP[alacritty]="Terminals"
+APP_GROUP[wezterm]="Terminals"
+APP_GROUP[claude-code]="AI agents"
+APP_GROUP[antigravity-cli]="AI agents"
+APP_GROUP[codex-cli]="AI agents"
+APP_GROUP[cursor-cli]="AI agents"
+APP_GROUP[opencode]="AI agents"
+APP_GROUP[kimi-code]="AI agents"
+APP_GROUP[muse]="AI agents"
+APP_GROUP[hermes]="AI agents"
+APP_GROUP[devin]="AI agents"
+APP_GROUP[grok-cli]="AI agents"
+APP_GROUP[mistral-cli]="AI agents"
+APP_GROUP[ori]="AI agents"
+APP_GROUP[deepseek-harness]="AI agents"
+APP_GROUP[orca]="AI agents"
+APP_GROUP[notion]="Chat & notes"
+APP_GROUP[obsidian]="Chat & notes"
+APP_GROUP[chatgpt]="Chat & notes"
+APP_GROUP[claude-desktop]="Chat & notes"
+APP_GROUP[slack]="Chat & notes"
+APP_GROUP[discord-canary]="Chat & notes"
+APP_GROUP[zoom]="Chat & notes"
+APP_GROUP[vlc]="Media"
+APP_GROUP[obs-studio]="Media"
+APP_GROUP[vicinae]="Utilities"
+APP_GROUP[flatpak]="Utilities"
+APP_GROUP[bun]="Dev & infra"
+APP_GROUP[postman-cli]="Dev & infra"
+APP_GROUP[docker]="Dev & infra"
+APP_GROUP[tailscale]="Dev & infra"
 
 # ── Does a directory-shaped config target conflict? ──────────────────────────
 # True when a ~/.config/<name> target is a foreign symlink, or holds a real
@@ -4724,9 +5093,19 @@ list_items() {
     for n in "${DEPS_LIST[@]}"; do
         printf '  %-14s %s\n' "$n" "${DEP_DESC[$n]:-}"
     done
+    # Under the same headings as the menu's apps tab. A heading is indented one
+    # space, not two: a two-space line is a name, which is how the suite (and
+    # anyone grepping this) tells the two apart.
+    local g ng
     printf '\n%s\n' "${C_ACCENT}Apps${C_RESET} ${C_DIM}--apps=${C_RESET}"
-    for n in "${APPS_LIST[@]}"; do
-        printf '  %-16s %-20s %s\n' "$n" "${APP_LABEL[$n]:-}" "${APP_DESC[$n]:-}"
+    for g in "${APP_GROUP_ORDER[@]}" Other; do
+        local head=1
+        for n in "${APPS_LIST[@]}"; do
+            app_group ng "$n"
+            [ "$ng" = "$g" ] || continue
+            [ "$head" = 1 ] && { printf ' %s\n' "${C_DIM}${g}${C_RESET}"; head=0; }
+            printf '  %-16s %-20s %s\n' "$n" "${APP_LABEL[$n]:-}" "${APP_DESC[$n]:-}"
+        done
     done
     printf '\n%s\n' "${C_DIM}${#CONFIGS[@]} configs, ${#DEPS_LIST[@]} tools, ${#APPS_LIST[@]} apps on this machine.${C_RESET}"
     printf '%s\n' "${C_DIM}\"all\" and \"installed\" are accepted in place of a list; --porcelain prints this for scripts.${C_RESET}"
@@ -5968,40 +6347,10 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 [ "$_have" -eq 1 ] && substep "${C_ACCENT}${_lbl}${C_RESET} already installed — its installer is its updater"
                 substep "Downloading installer for ${C_ACCENT}${_lbl}${C_RESET}..."
                 _tmpsh=$(mktemp -p "$RUN_TMPDIR" installer_XXXXXX.sh)
-                case "$app" in
-                    claude-code)     _curl_url="https://claude.ai/install.sh"              ; _shell=bash ;;
-                    antigravity-cli) _curl_url="https://antigravity.google/cli/install.sh" ; _shell=bash ;;
-                    codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell=sh   ;;
-                    cursor-cli)      _curl_url="https://cursor.com/install"                ; _shell=bash ;;
-                    opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
-                    kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
-                    muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
-                    hermes)          _curl_url="https://hermes-agent.nousresearch.com/install.sh" ; _shell=bash ;;
-                    # ends by launching its interactive setup wizard, with no
-                    # flag to skip it — </dev/null below is what stops that,
-                    # and the exit status it leaves behind is why the check
-                    # after it looks at the binary instead.
-                    devin)           _curl_url="https://cli.devin.ai/install.sh"                ; _shell=bash ;;
-                    grok-cli)        _curl_url="https://x.ai/cli/install.sh"                    ; _shell=bash ;;
-                    # a wrapper: it installs uv first when uv is missing, then
-                    # `uv tool install mistral-vibe`
-                    mistral-cli)     _curl_url="https://mistral.ai/vibe/install.sh"             ; _shell=bash ;;
-                    # No opt-out flag either, and its rc write is the codex
-                    # case: the PATH block (plus a /usr/local/bin symlink it
-                    # would ask sudo for) is skipped entirely once it sees its
-                    # install dir — ~/.local/bin, its default — already on
-                    # PATH, which is what CURL_APP_PATH puts there.
-                    ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
-                    # installs into /usr/local/bin — its own sudo, already cached
-                    postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell=sh   ;;
-                    bun)             _curl_url="https://bun.com/install"                   ; _shell=bash
-                                     ensure_unzip ;;
-                    # Not a self-contained binary drop like the rest: it picks
-                    # the distro's own package manager (pacman here, the vendor
-                    # apt repo there), so it needs sudo — already cached — and
-                    # it enables tailscaled itself. Its own `| sh`, so sh.
-                    tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell="sh" ;;
-                esac
+                curl_app_source "$app"
+                # bun's installer unpacks a zip, and unzip is in neither
+                # distro's base install.
+                [ "$app" = bun ] && ensure_unzip
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"

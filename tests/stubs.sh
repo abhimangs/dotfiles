@@ -363,7 +363,16 @@ case "${1:-}" in
               [ -n "$p" ] && echo "$p 1.0-1"
           done < "$st/installed" 2>/dev/null
       fi ;;
-  -Si) have "${2:-}" ;;
+  # Every name it is handed, as real pacman does: an info block for each one a
+  # sync repo carries (the "Name :" line is all install.sh reads), non-zero if
+  # any is missing. arch_install asks about one name for the exit status;
+  # scan_sync_repos asks about the whole menu at once and reads the names.
+  -Si)
+      shift; rc=0
+      for a in "$@"; do
+          if have "$a"; then printf 'Name            : %s\n' "$a"; else rc=1; fi
+      done
+      exit $rc ;;
   -S|-Sy|-Syu)
       rc=0
       for a in "$@"; do

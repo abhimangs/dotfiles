@@ -610,6 +610,7 @@ FEED
 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-search ubuntu "$WORK/k-tui-search.sh"
 check   tui-search 0
 want    tui-search 'Configs: git$'             'search narrowed it to git and ticked that'
+want    tui-search 'installs +apt'             'the details pane says how the row installs'
 
 # The Delete key sends ESC[3~. Unhandled, the trailing ~ falls through to the
 # next loop iteration and types itself into the filter as a normal character —
@@ -630,6 +631,26 @@ FEED
 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-delete ubuntu "$WORK/k-tui-delete.sh"
 check   tui-delete 0
 want    tui-delete 'Configs: git$'             'Delete key did not leak a ~ into the filter'
+
+# Space toggles in place. It used to step the cursor down after every tick, so
+# "space, down, down, space" meant to tick fastfetch and zsh ticked fastfetch
+# and protonvpn instead.
+cat > "$WORK/k-tui-inplace.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+printf '\n\n'
+menu_up
+printf ' '; sleep 0.3                 # fastfetch
+printf '\033[B'; sleep 0.3            # bash
+printf '\033[B'; sleep 0.3            # zsh
+printf ' '; sleep 0.4                 # zsh, starship and the tools with it
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-inplace ubuntu "$WORK/k-tui-inplace.sh"
+check   tui-inplace 0
+want    tui-inplace 'Configs: fastfetch, zsh, starship$' 'space ticked where the cursor was, twice'
+nowant  tui-inplace 'Configs: .*protonvpn'      'and never the row after it'
 
 # ctrl-a takes the whole menu you are looking at, and nothing from the others.
 cat > "$WORK/k-tui-all.sh" <<'FEED'
@@ -672,6 +693,7 @@ STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
     rerun tui-installed tui-grok-base "$WORK/k-tui-installed.sh"
 check   tui-installed 0
 want    tui-installed 'Apps: .*Grok CLI$'      'ctrl-u ticked the already-installed row on its own'
+want    tui-installed 'AI agents'              'under its group heading, which ctrl-u stepped over'
 want    tui-installed 'No configs selected'    'and nothing from the other menus'
 want    tui-installed 'No dep tools selected'  'and nothing from the other menus'
 
@@ -972,7 +994,8 @@ check   list-arch 0
 want    list-arch 'rofi'                     'Arch lists the Arch-only config'
 want    list-arch 'ccstatusline'             'and the newest one'
 want    list-arch 'ORI Harness'              'apps carry their label as well as their key'
-want    list-arch "dsh web"                  'and the run command rides along in the description'
+want    list-arch '^ AI agents'              'apps are listed under their group headings'
+nowant  list-arch "dsh web"                  'and the description column is one phrase, the notes live in the menu'
 nowant  list-arch 'Installation plan'        'nothing was planned'
 nowant  list-arch 'Proceed'                  'and nothing was asked'
 nowant  list-arch 'Authenticated'            'privileges never came up'
@@ -2255,6 +2278,38 @@ else
 fi
 unset upd_keys apps_line upd_bad _m
 
+echo "── every app has a group ────────────────────────────────"
+# The apps tab is grouped under APP_GROUP_ORDER's headings. An app with no
+# APP_GROUP entry, or one naming a group that is not in the order, still shows
+# — under a trailing "Other" — so nothing in any scenario fails; the tab just
+# quietly grows a heading nobody meant to have. The group lines are evaluated
+# as the bash they are, not re-parsed: names like "Chat & notes" have spaces,
+# and the other half of this may be written with any quoting.
+inst_src="$HERE/../install.sh"
+grp_out=$(bash -c '
+    eval "$(grep -E "^(declare -A APP_GROUP$|APP_GROUP_ORDER=|[[:space:]]*APP_GROUP\[)" "$1")"
+    n=0
+    for k in $(sed -nE "s/^[[:space:]]*APPS_LIST\+?=\((.*)\)$/\1/p" "$1"); do
+        n=$((n + 1))
+        g=${APP_GROUP[$k]:-}
+        [ -n "$g" ] || { echo "BAD $k has no APP_GROUP"; continue; }
+        ok=0; for o in "${APP_GROUP_ORDER[@]}"; do [ "$o" = "$g" ] && ok=1; done
+        [ "$ok" = 1 ] || echo "BAD $k is in \"$g\", which is not in APP_GROUP_ORDER"
+    done
+    echo "COUNT $n ${#APP_GROUP_ORDER[@]}"' _ "$inst_src" 2>&1)
+read -r _ grp_n grp_o <<< "$(grep '^COUNT' <<< "$grp_out")"
+if [ "${grp_n:-0}" -ge 20 ] && [ "${grp_o:-0}" -ge 8 ]; then
+    note app-groups "APPS_LIST and APP_GROUP_ORDER extracted ($grp_n apps, $grp_o groups)"
+else
+    bad  app-groups "extraction matched almost nothing — not looking at install.sh"
+fi
+if grep -q '^BAD' <<< "$grp_out"; then
+    while read -r _ _m; do bad app-groups "$_m"; done < <(grep '^BAD' <<< "$grp_out")
+else
+    note app-groups "every app is in a known group"
+fi
+unset grp_out grp_n grp_o _m
+
 echo "── apt cleanup allowlists cover what install.sh writes ──"
 # apt_drop_own_dead_source only ever removes a source this installer added
 # itself — APT_OWN_PPAS matches a PPA's owner prefix, APT_OWN_SOURCES a vendor
@@ -2320,7 +2375,9 @@ echo "── menu column invariants ──────────────�
 # spaces it counts itself, so characters and columns agree and the · and →
 # already in them are fine.
 menu_src="$HERE/../install.sh"
-menu_lines=$(grep -hE '^(CONFIGS|DEPS_LIST|APPS_LIST)(\+?=)\(|^APP_LABEL\[' "$menu_src")
+# The apps tab's group headings are drawn in the list too, so they are held to
+# the same rule.
+menu_lines=$(grep -hE '^(CONFIGS|DEPS_LIST|APPS_LIST|APP_GROUP_ORDER)(\+?=)\(|^APP_LABEL\[' "$menu_src")
 # A grep that matches nothing passes for free, so pin the floor: this is well
 # under today's count and only trips if the extraction itself breaks.
 if [ "$(printf '%s\n' "$menu_lines" | grep -c .)" -ge 20 ]; then
