@@ -695,7 +695,7 @@ tui_build_items() {
         if [ "${T_SEC[$i]}" = dotfiles ]; then
             T_TGT[i]=$(config_target "$k"); T_CFG[i]=$(config_state "$k")
         elif has_side_config "$k"; then
-            T_TGT[i]="${XDG_SHOWN}/${k}/";  T_CFG[i]=$(config_state "$k")
+            T_TGT[i]="${XDG_SHOWN}/$(side_config_dir "$k")/";  T_CFG[i]=$(config_state "$k")
         fi
         [ "${T_SEC[$i]}" = apps ] && app_group "T_GRP[$i]" "$k"
     done
@@ -2366,10 +2366,21 @@ apt_write_source_line() {
 }
 
 # ── eza (Debian/Ubuntu) ───────────────────────────────────────────────────────
+# The archive's eza only when it can read the Catppuccin theme.yml stowed
+# beside it, which takes 0.20+: Debian 13 has 0.21, but Ubuntu 24.04's universe
+# build is 0.18 and would install fine and then ignore the theme without a word.
+# Debian 12 has none. Both of those take eza's own repo instead. sort -V rather
+# than dpkg --compare-versions only to keep the stub dpkg dumb; eza has no epoch.
 ensure_eza_deb() {
     apt_pkg_installed eza && return 0
-    apt_install eza
-    apt_pkg_installed eza && return 0
+    local cand
+    apt_update_once
+    cand=$(apt-cache policy eza 2>/dev/null | sed -n 's/^ *Candidate: *//p')
+    if [ -n "$cand" ] && [ "$cand" != "(none)" ] \
+       && [ "$(printf '%s\n' 0.20 "$cand" | sort -V | head -1)" = 0.20 ]; then
+        apt_install eza
+        apt_pkg_installed eza && return 0
+    fi
 
     ensure_apt_deps
     apt_install_keyring https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
@@ -2535,6 +2546,7 @@ ensure_discord_canary_deb() {
     install_deb_url "https://discord.com/api/download/canary?platform=linux&format=deb"
     apt_pkg_installed discord-canary
 }
+
 
 # ── Docker Engine (Debian/Ubuntu) ─────────────────────────────────────────────
 # docker.io and the old standalone docker-compose ship different binaries at
@@ -3626,7 +3638,7 @@ DEP_PKG_DEB[gh]="gh"
 DEP_PKG_DEB[delta]="git-delta"
 
 # Deps that also have a config to stow into ~/.config
-DEP_HAS_CONFIG=(bat btop tmux lazygit)
+DEP_HAS_CONFIG=(bat btop tmux lazygit eza)
 
 # Apps that carry a config in this repo, the same idea one array up. alacritty
 # and wezterm are terminals the menu offers and then leaves unthemed, which in
@@ -3636,7 +3648,15 @@ DEP_HAS_CONFIG=(bat btop tmux lazygit)
 # (the menu's item table is flat, and tui_tick_key stops at the first match),
 # and moving them would silently break --apps=alacritty for anyone scripting
 # it. Both read ~/.config/<name>/, which is what stow_config already does.
-APP_HAS_CONFIG=(alacritty wezterm)
+APP_HAS_CONFIG=(alacritty wezterm neovim)
+
+# The key is the directory name for every side config but one: the app is
+# `neovim` and Neovim reads ~/.config/nvim, so its repo folder is nvim/. This
+# map and side_config_dir are the only place that knows — stow_config, the
+# plan, --backups, --uninstall, --list --porcelain and through it doctor.sh all
+# ask here, rather than six places each special-casing neovim.
+declare -A SIDE_CONFIG_DIR=([neovim]=nvim)
+side_config_dir() { printf '%s' "${SIDE_CONFIG_DIR[$1]:-$1}"; }
 
 # Is <name> one of the two "also carries a config" lists, and is that config
 # actually in this checkout? Private mode never removes a config folder, but a
@@ -3644,7 +3664,7 @@ APP_HAS_CONFIG=(alacritty wezterm)
 has_side_config() {             # has_side_config <name>
     local n
     for n in "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}"; do
-        [ "$n" = "$1" ] && [ -d "$DOTFILES_DIR/$1" ] && return 0
+        [ "$n" = "$1" ] && [ -d "$DOTFILES_DIR/${SIDE_CONFIG_DIR[$1]:-$1}" ] && return 0
     done
     return 1
 }
@@ -4123,6 +4143,7 @@ APP_DESC[tailscale]="mesh VPN"
 
 APP_NOTE[brave-beta]="the beta channel"
 APP_NOTE[vscode-insiders]="the nightly channel"
+APP_NOTE[neovim]="a Catppuccin Mocha config: lazy.nvim, catppuccin, lualine"
 APP_NOTE[alacritty]="a Catppuccin Mocha theme is stowed with it"
 APP_NOTE[wezterm]="a multiplexer too; a Catppuccin theme and the Nerd Font symbols font come with it"
 APP_NOTE[antigravity]="the 2.0 release"
@@ -4154,7 +4175,7 @@ DEP_DESC[delta]="side-by-side git diffs"
 DEP_DESC[tmux]="terminal multiplexer"
 
 DEP_NOTE[bat]="a Catppuccin theme is stowed with it"
-DEP_NOTE[eza]="the ls, ll, lt and la aliases"
+DEP_NOTE[eza]="the ls, ll, lt and la aliases; a Catppuccin Mocha theme is stowed with it (eza 0.20+)"
 DEP_NOTE[fd]="what fzf lists files with"
 DEP_NOTE[fzf]="Ctrl-F finds files and Alt-C changes directory, in zsh"
 DEP_NOTE[zoxide]="the z command"
@@ -4275,10 +4296,11 @@ plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
 # and app sections each had their own.
 plan_side_config() {    # plan_side_config <name>
     has_side_config "$1" || return 0
-    local row="${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET}" _r
+    local row="${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET}" _r d
     local steps=()
-    dir_target_conflicts "$XDG_CONFIG/$1" && plan_replace_row steps "$XDG_CONFIG/$1"
-    steps+=("${C_GREEN}stow → ${XDG_SHOWN}/$1/${C_RESET} ${C_DIM}(theme)${C_RESET}")
+    d="$(side_config_dir "$1")"
+    dir_target_conflicts "$XDG_CONFIG/$d" && plan_replace_row steps "$XDG_CONFIG/$d"
+    steps+=("${C_GREEN}stow → ${XDG_SHOWN}/$d/${C_RESET} ${C_DIM}(theme)${C_RESET}")
     for _r in "${steps[@]}"; do echo -e "$row $_r"; done
 }
 
@@ -4970,7 +4992,7 @@ backup_bases() {
             *)         printf '%s\n' "$XDG_CONFIG/$n" ;;
         esac
     done
-    for n in "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}"; do printf '%s\n' "$XDG_CONFIG/$n"; done
+    for n in "${DEP_HAS_CONFIG[@]}" "${APP_HAS_CONFIG[@]}"; do printf '%s\n' "$XDG_CONFIG/$(side_config_dir "$n")"; done
     printf '%s\n' "$XDG_CONFIG/wallpapers"
 }
 
@@ -5098,7 +5120,7 @@ uninstall_target() {            # uninstall_target <cfg> — prints the path it 
         git)       printf '%s' "$HOME/.gitconfig" ;;
         starship)  printf '%s' "$XDG_CONFIG/starship.toml" ;;
         protonvpn) printf '%s' "$HOME/scripts/pvpn/pvpn.zsh" ;;
-        *)         printf '%s' "$XDG_CONFIG/$1" ;;
+        *)         printf '%s' "$XDG_CONFIG/$(side_config_dir "$1")" ;;
     esac
 }
 
@@ -5109,7 +5131,8 @@ uninstall_stow_args() {         # uninstall_stow_args <cfg> — prints "<target-
         zsh|bash|git) printf '%s %s' "$HOME" "$1" ;;
         starship)     printf '%s %s' "$XDG_CONFIG" starship ;;
         protonvpn)    printf '%s %s' "$HOME/scripts/pvpn" proton-vpn ;;
-        *)            printf '%s %s' "$XDG_CONFIG/$1" "$1" ;;
+        *)            local d; d="$(side_config_dir "$1")"
+                      printf '%s %s' "$XDG_CONFIG/$d" "$d" ;;
     esac
 }
 
@@ -5256,39 +5279,47 @@ list_items() {
 }
 
 # The same three lists, for something that is not a person. One record per
-# line, tab-separated, five fields, never coloured and never padded:
+# line, tab-separated, six fields, never coloured and never padded:
 #
-#   <section>  <name>  <probe>  <where-or-type>  <flags>
+#   <section>  <name>  <probe>  <where-or-type>  <flags>  <config-dir>
 #
-#   config  kitty        kitty          ~/.config/kitty/  -
-#   tool    fd           fd-find        -                 -
-#   tool    bat          bat            ~/.config/bat/    hasconfig
-#   app     claude-code  claude         curl              interactive
-#   var     CURL_APP_PATH  <value>      -                 -
+#   config  kitty        kitty          ~/.config/kitty/  -            kitty
+#   config  zsh          zsh            ~/.zshrc          -            -
+#   tool    fd           fd-find        -                 -            -
+#   tool    bat          bat            ~/.config/bat/    hasconfig    bat
+#   app     neovim       neovim         pacman            hasconfig    nvim
+#   app     claude-code  claude         curl              interactive  -
+#   var     CURL_APP_PATH  <value>      -                 -            -
 #
 # <probe> is what item_probe would ask about — a package name, or a binary for
-# the curl CLIs. <flags> is a comma-separated set, "-" when empty. The lists
-# are already distro- and headless-filtered, so this describes the machine it
-# runs on, which is the whole reason doctor.sh reads it rather than keeping
-# its own copy.
+# the curl CLIs. <flags> is a comma-separated set, "-" when empty.
+# <config-dir> is the directory under $XDG_CONFIG_HOME the entry stows into,
+# by name, "-" when it stows none there. It is the sixth field rather than a
+# change to the fourth because an app's fourth is its install type, and
+# because the name is not always the key: neovim's is nvim.
+# The lists are already distro- and headless-filtered, so this describes the
+# machine it runs on, which is the whole reason doctor.sh reads it rather than
+# keeping its own copy.
 list_porcelain() {
-    local n t f
+    local n t f c
     for n in "${CONFIGS[@]}"; do
-        printf 'config\t%s\t%s\t%s\t-\n' "$n" "$(item_probe dotfiles "$n")" "$(config_target "$n")"
+        t="$(config_target "$n")"
+        c="-"; [[ "$t" == */ ]] && c="$n"
+        printf 'config\t%s\t%s\t%s\t-\t%s\n' "$n" "$(item_probe dotfiles "$n")" "$t" "$c"
     done
     for n in "${DEPS_LIST[@]}"; do
-        t="-"; f="-"
-        has_side_config "$n" && { t="${XDG_SHOWN}/${n}/"; f="hasconfig"; }
-        printf 'tool\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f"
+        t="-"; f="-"; c="-"
+        has_side_config "$n" && { c="$(side_config_dir "$n")"; t="${XDG_SHOWN}/${c}/"; f="hasconfig"; }
+        printf 'tool\t%s\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f" "$c"
     done
     for n in "${APPS_LIST[@]}"; do
-        f=""
+        f=""; c="-"
         [ -n "${APP_UPDATE[$n]+x}" ] && f="interactive"
-        has_side_config "$n" && f="${f:+$f,}hasconfig"
+        has_side_config "$n" && { f="${f:+$f,}hasconfig"; c="$(side_config_dir "$n")"; }
         f="${f:--}"
-        printf 'app\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe apps "$n")" "$(app_type_resolved "$n")" "$f"
+        printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe apps "$n")" "$(app_type_resolved "$n")" "$f" "$c"
     done
-    printf 'var\tCURL_APP_PATH\t%s\t-\t-\n' "$CURL_APP_PATH"
+    printf 'var\tCURL_APP_PATH\t%s\t-\t-\t-\n' "$CURL_APP_PATH"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5995,7 +6026,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         # Stow config for deps that have one. A stow conflict here used to be
         # printed and then forgotten, leaving the tool reported as installed
         # with none of its configuration in place.
-        if has_side_config "$dep" && ! stow_config "$dep"; then
+        if has_side_config "$dep" && ! stow_config "$(side_config_dir "$dep")"; then
             FAILED+=("${dep} config")
         fi
 
@@ -6521,8 +6552,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 # it. Same call the configs loop and the dep tools make, so the
                 # backup and delete rules are the same ones too.
                 if has_side_config "$app"; then
-                    if stow_config "$app"; then
-                        substep "${C_DIM}Config stowed → ${XDG_SHOWN}/${app}/${C_RESET}"
+                    _cdir="$(side_config_dir "$app")"
+                    if stow_config "$_cdir"; then
+                        substep "${C_DIM}Config stowed → ${XDG_SHOWN}/${_cdir}/${C_RESET}"
                     else
                         FAILED+=("${_lbl} config")
                     fi
@@ -6536,7 +6568,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             fi
         fi
     done
-    unset app _lbl _type _pkg _bin _app_was_installed
+    unset app _lbl _type _pkg _bin _cdir _app_was_installed
 fi
 
 # ── Step 5c½: point Claude Code at the statusline ────────────────────────────

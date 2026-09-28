@@ -198,8 +198,15 @@ case "${1:-}" in
 esac
 EOF
 
-w apt-cache            <<< '#!/bin/sh
-exit 0'
+# Only `policy`, and only its Candidate line, which is all ensure_eza_deb reads
+# to decide whether the archive's eza is new enough. Unset means what a
+# Debian 12 box says for eza: nothing to install.
+w apt-cache <<'EOF'
+#!/bin/sh
+[ "${1:-}" = policy ] && [ -n "${STUB_APT_CANDIDATE:-}" ] && {
+    printf '%s:\n  Installed: (none)\n  Candidate: %s\n' "${2:-}" "$STUB_APT_CANDIDATE"; }
+exit 0
+EOF
 w add-apt-repository   <<< '#!/bin/sh
 exit 0'
 # Logged, not merely swallowed: `systemctl --user enable …` runs unprivileged,
@@ -817,11 +824,13 @@ EOF
 # tailscale is here for the same reason and one more: it is the only curl app
 # whose installer puts the binary in a *system* bin, so an author who has it on
 # the machine would see "already installed" and never run the install path at
-# all — passing here and testing something else on CI.
+# all — passing here and testing something else on CI. eza is a PKG_BIN
+# entry, which a host binary satisfies the same way: with eza installed,
+# ensure_eza_deb's version check was skipped on this laptop and run on CI.
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|stow|paru|yay|unzip|tailscale) continue ;; esac
+    case "$b" in fzf|stow|paru|yay|unzip|tailscale|eza) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done

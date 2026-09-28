@@ -120,17 +120,15 @@ for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \
         printf "  %-26s %s\n" "${t#"$HOME"/}" "(absent)"
     fi
 done
-# Every entry that stows into a directory under $XDG_CONFIG — configs whose
-# target ends in "/", plus the dep tools and apps flagged "hasconfig"
-# (bat, btop, tmux, lazygit; alacritty, wezterm).
+# Every entry that stows into a directory under $XDG_CONFIG — configs, dep
+# tools and apps alike — is a record whose sixth field names that directory.
+# By its directory, not its menu name: the neovim app stows into nvim, and
+# asking about ~/.config/neovim would report a working config as absent.
 # wallpapers is the one name that is in no array: the installer stows it as a
 # side effect of ghostty/kitty, so it is named here and nowhere else. Not "d"
 # as the loop variable: that is the checkout dir set above, and reusing it
 # destroyed it for everything below.
-for cfg in $(pcl '$1=="config" && $4 ~ /\/$/ {print $2}') \
-           $(pcl '$1=="tool" && $5 ~ /hasconfig/ {print $2}') \
-           $(pcl '$1=="app"  && $5 ~ /hasconfig/ {print $2}') \
-           wallpapers; do
+for cfg in $(pcl '$1!="var" && $6!="-" && $6!="" {print $6}') wallpapers; do
     t="$XDG_CONFIG/$cfg"
     # Absent, not skipped. The single-file loop above says "(absent)" and this
     # one silently printed nothing, so a config that never got stowed looked

@@ -181,6 +181,7 @@ gh
 ripgrep
 git-delta
 tmux
+neovim
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the

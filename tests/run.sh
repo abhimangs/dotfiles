@@ -144,6 +144,15 @@ want    ubuntu-headless 'zsh needs these for its aliases' 'zsh pulls the toolcha
 want    ubuntu-headless 'adding starship'                 'zsh pulls starship'
 want    ubuntu-headless 'ssh -O exit'                     'SSH multiplexing hint'
 nowant  ubuntu-headless 'Failed \([1-9]'                  'nothing failed'
+d="$WORK/run/ubuntu-headless"
+# eza came in with zsh, and its theme with it. The stub apt-cache reports no
+# candidate — Debian 12's answer — so the archive is skipped for eza's repo.
+[ -L "$d/home/.config/eza/theme.yml" ] \
+    && note ubuntu-headless "eza's Catppuccin theme stowed" \
+    || bad  ubuntu-headless "no ~/.config/eza/theme.yml symlink"
+[ -s "$d/etc/apt/sources.list.d/gierens.list" ] \
+    && note ubuntu-headless "no eza in the archive, so eza's own repo" \
+    || bad  ubuntu-headless "eza's repo was never added"
 
 # 2. Same box, logged in as root, with no sudo at all.
 run ubuntu-root ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" STUB_FAKE_ROOT=1
@@ -612,6 +621,22 @@ if grep -rqs 'STUB PATH BLOCK (uv)' "$d"; then
 else
     note mistral "no rc file was touched"
 fi
+
+# 15m. eza reads the Catppuccin theme.yml from 0.20 on. Debian 13's archive has
+#      0.21, Ubuntu 24.04's has 0.18 — which installs fine and then ignores the
+#      theme without a word. The archive's candidate decides which it gets.
+run     eza-archive ubuntu "$WORK/k-sel" DOTFILES_TOOLS="eza" STUB_APT_CANDIDATE="0.21.0-1+b1"
+check   eza-archive 0
+[ -e "$WORK/run/eza-archive/etc/apt/sources.list.d/gierens.list" ] \
+    && bad  eza-archive "added eza's repo although the archive's 0.21 is new enough" \
+    || note eza-archive "a new-enough archive eza is taken as it is"
+[ -L "$WORK/run/eza-archive/home/.config/eza/theme.yml" ] \
+    && note eza-archive "and its theme stowed" || bad eza-archive "no theme.yml symlink"
+run     eza-old ubuntu "$WORK/k-sel" DOTFILES_TOOLS="eza" STUB_APT_CANDIDATE="0.18.2-1"
+check   eza-old 0
+grep -qs 'deb.gierens.de' "$WORK/run/eza-old/etc/apt/sources.list.d/gierens.list" \
+    && note eza-old "Ubuntu 24.04's 0.18 is passed over for eza's own repo" \
+    || bad  eza-old "an eza too old for the theme came from the archive"
 
 echo
 echo "── the menu ─────────────────────────────────────────────"
@@ -2172,6 +2197,30 @@ else
     bad  uninst-named "~/.config/tmux still there after unstowing its only file"
 fi
 
+# The one side config whose directory is not its key: the app is `neovim`,
+# Neovim reads ~/.config/nvim. Install, plan, --backups and --uninstall all go
+# through side_config_dir, and a ~/.config/neovim appearing anywhere is the
+# sign one of them went round it.
+run     nvim-cfg ubuntu "$WORK/k-sel" DOTFILES_APPS="neovim"
+check   nvim-cfg 0
+want    nvim-cfg 'stow → ~/.config/nvim/'   'the plan names the directory Neovim reads'
+want    nvim-cfg 'Config stowed → ~/.config/nvim/' 'and the install says the same'
+h="$WORK/run/nvim-cfg/home"
+if [ -L "$h/.config/nvim/init.lua" ] \
+   && [ "$(readlink -f "$h/.config/nvim/init.lua")" = "$(readlink -f "$h/dotfiles/nvim/init.lua")" ]; then
+    note nvim-cfg "init.lua stowed into ~/.config/nvim from the repo's nvim/"
+else
+    bad  nvim-cfg "no ~/.config/nvim/init.lua symlink into the checkout"
+fi
+[ -e "$h/.config/neovim" ] && bad nvim-cfg "a ~/.config/neovim was created" \
+                           || note nvim-cfg "and nothing at ~/.config/neovim"
+RUN_ARGS="--uninstall=neovim" rerun nvim-uninst nvim-cfg "$WORK/k-yes"
+check   nvim-uninst 0
+want    nvim-uninst 'unstow ~/.config/nvim'  'uninstall finds it by its directory'
+want    nvim-uninst 'Unstowed neovim'        'and unstows it'
+[ -e "$h/.config/nvim" ] && bad nvim-uninst "the emptied .config/nvim is still there after unstowing" \
+                         || note nvim-uninst "the emptied ~/.config/nvim is gone"
+
 # The plan's ".old.bak will be discarded" warning globbed a literal ~/.config,
 # so under XDG_CONFIG_HOME it never fired. It only fires on a plan that backs
 # something up, so a real micro config of the user's is what it backs up.
@@ -2247,10 +2296,18 @@ fi
 
 # doctor.sh's pcl() is a bare `awk -F'\t'` over this output — a row missing a
 # field is silently misread, not rejected, so the field count is the contract.
-bad_lines=$(awk -F'\t' 'NF != 5' "$porcelain_out" | wc -l)
+bad_lines=$(awk -F'\t' 'NF != 6' "$porcelain_out" | wc -l)
 [ "$bad_lines" -eq 0 ] \
-    && note list-porcelain "every line has exactly 5 tab-separated fields" \
-    || bad  list-porcelain "$bad_lines line(s) do not have 5 fields"
+    && note list-porcelain "every line has exactly 6 tab-separated fields" \
+    || bad  list-porcelain "$bad_lines line(s) do not have 6 fields"
+# The sixth field is the directory, which is not always the key: the neovim
+# app stows into nvim. Asserted on the record itself, since doctor.sh and every
+# other reader trust it rather than re-deriving it.
+if awk -F'\t' '$1=="app" && $2=="neovim" && $6=="nvim"{f=1} END{exit !f}' "$porcelain_out"; then
+    note list-porcelain "neovim's config directory is nvim, not its menu key"
+else
+    bad  list-porcelain "neovim's record does not name nvim as its config directory"
+fi
 
 # One of each record type, or a whole section went missing silently — an empty
 # CONFIGS/DEPS_LIST/APPS_LIST loop and a typo'd section literal both exit 0
@@ -2308,14 +2365,14 @@ done
     || bad  doctor-tools "missing from the tools section: ${doc_missing[*]}"
 
 # The stowed-symlinks section. Three kinds of thing land in a directory under
-# $XDG_CONFIG and doctor.sh reports all three: configs whose porcelain target
-# ends in "/", dep tools flagged hasconfig (bat, btop, tmux, lazygit) and apps
-# flagged hasconfig (alacritty, wezterm). Same filters doctor.sh applies to
-# the records itself — checking only the first kind is how the other two would
-# drop out of a bug report with nothing noticing.
+# $XDG_CONFIG and doctor.sh reports all three: configs, dep tools with a theme
+# (bat, btop, tmux, lazygit, eza) and apps with one (alacritty, wezterm,
+# neovim). Every one is a record with a directory in its sixth field, and that
+# directory — nvim, not neovim — is what the section has to name. Checking
+# the key instead is how a config reported as absent would look fine here.
 cfg_section=$(sed -n '/── stowed symlinks ───/,/── tools ───/p' "$doctor_out")
 doc_missing=()
-for n in $(awk -F'\t' '($1=="config" && $4 ~ /\/$/) || ($1!="var" && $5 ~ /hasconfig/){print $2}' "$porcelain_out"); do
+for n in $(awk -F'\t' '$1!="var" && $6!="-"{print $6}' "$porcelain_out"); do
     grep -qE "/${n}[[:space:]]" <<< "$cfg_section" || doc_missing+=("$n")
 done
 [ "${#doc_missing[@]}" -eq 0 ] \

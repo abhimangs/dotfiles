@@ -29,9 +29,9 @@ bash install.sh
 | `--dry-run` | Walks the menus and prints the full plan, then exits. A true no-op: nothing is installed, nothing is written and no password is asked for, because everything that changes the machine, the AUR helper bootstrap, the apt refresh and `stow` included, waits for *Proceed* and is listed in the plan instead |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
 | `--restore-bash` | Undoes the zsh setup (rc files, the `.bashrc` hand-off hook, and the login shell). Runs alone, skipping every menu |
-| `--uninstall[=LIST]` | Unstows the configs this repo installed and moves any `.bak` back into place. `LIST` is comma-separated — any config, or a tool or app that carries one (`tmux`, `alacritty`) — or all of them when left out. Runs alone, prints its plan first, and defaults to *no*. **Removes no packages** — that is a separate decision it does not make for you, and the login shell stays where it is (`--restore-bash` owns that) |
+| `--uninstall[=LIST]` | Unstows the configs this repo installed and moves any `.bak` back into place. `LIST` is comma-separated — any config, or a tool or app that carries one (`tmux`, `alacritty`, `neovim`) — or all of them when left out. Runs alone, prints its plan first, and defaults to *no*. **Removes no packages** — that is a separate decision it does not make for you, and the login shell stays where it is (`--restore-bash` owns that) |
 | `--backups[=M]` | `list` (the default) shows every `.bak` and `.old.bak` the installer has left behind, with sizes. `prune` deletes the older `.old.bak` generation of each, keeping `.bak`. The pristine copies (`.bashrc.orig`, `settings.json.orig`) are never pruned |
-| `--porcelain` | `--list` as tab-separated records instead of the human table (implies `--list`) — five fields, `<section> <name> <probe> <where-or-type> <flags>`. `doctor.sh` reads this rather than keeping its own copy of the lists |
+| `--porcelain` | `--list` as tab-separated records instead of the human table (implies `--list`) — six fields, `<section> <name> <probe> <where-or-type> <flags> <config-dir>`, the last being the directory under `~/.config` the entry stows into (`nvim` for `neovim`), or `-`. `doctor.sh` reads this rather than keeping its own copy of the lists |
 | `--list` | Prints every config, tool and app *this machine* can install (the names the three flags below take) and exits. Installs nothing, asks nothing, and needs no terminal, so it pipes: `bash install.sh --list \| grep ori` |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
@@ -82,8 +82,10 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |
 | `tmux/` | `~/.config/tmux/` | `tmux` *(dep)* | apt — needs tmux 3.1+, older builds read only `~/.tmux.conf` |
 | `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` |
+| `eza/` | `~/.config/eza/theme.yml` | `eza` *(dep)* | apt when it is 0.20+ (Debian 13), else eza's own repo (Debian 12, Ubuntu 24.04's 0.18 cannot read the theme) |
 | `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
 | `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |
+| `nvim/` | `~/.config/nvim/` | `neovim` *(app)* | apt — lazy.nvim + catppuccin + lualine on 0.8+; Debian 12's 0.7.2 gets the plain options only |
 | `wallpapers/` | `~/.config/wallpapers/` | - | - |
 | `bash/` | `~/.bashrc` | `bash` | apt (plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash)) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
@@ -384,7 +386,7 @@ amd64 and arm64 are fully supported on all three distros; 32-bit ARM (`armhf`/`a
 
 ## Theme
 
-[Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop.
+[Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop, eza, Neovim.
 
 Fonts are installed on every run that installs a config, whatever you select: the configs reference them by name, so picking only zsh or starship used to leave a terminal with no font to render. They are skipped where they cannot do anything: no display server, WSL, or a run that skipped the config menu entirely. ghostty uses JetBrainsMono Nerd Font, kitty uses Maple Mono:
 
@@ -407,6 +409,8 @@ stow --target ~/.config/bat        bat
 stow --target ~/.config/btop       btop
 stow --target ~/.config/wallpapers wallpapers
 stow --target ~/.config/ulauncher  ulauncher
+stow --target ~/.config/eza        eza
+stow --target ~/.config/nvim       nvim
 
 # starship is a single file: stows directly into ~/.config/
 stow --target ~/.config starship
