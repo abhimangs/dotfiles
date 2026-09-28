@@ -1183,14 +1183,17 @@ tui_tick_key() {                # tui_tick_key <key> <0|1>
 }
 # Ticking zsh ticks what zsh cannot work without, in the menu, where it can be
 # seen and undone — rather than silently after it closes. starship draws the
-# whole prompt and the tools are what its aliases call.
+# whole prompt and ZSH_TOOLS are what its aliases call. Tools-tab rows only, so
+# a ZSH_TOOLS name that is not in DEPS_LIST (fzf) is simply not found.
 tui_implied_pull() {            # tui_implied_pull <index just ticked>
-    local i
+    local i t
     case "${T_KEY[$1]}" in
       zsh)
         tui_tick_key starship 1
-        for i in "${!T_KEY[@]}"; do
-            [ "${T_SEC[$i]}" = tools ] && T_TICK[$i]=1
+        for t in "${ZSH_TOOLS[@]}"; do
+            for i in "${!T_KEY[@]}"; do
+                [ "${T_SEC[$i]}" = tools ] && [ "${T_KEY[$i]}" = "$t" ] && T_TICK[$i]=1
+            done
         done
         ;;
       # The statusline is rendered by `bunx`, so without bun the config installs
@@ -1463,6 +1466,10 @@ PKG_BIN[pay-respects]="pay-respects"
 PKG_BIN[github-cli]="gh"
 PKG_BIN[ripgrep]="rg"
 PKG_BIN[git-delta]="delta"
+# Release tarballs on Debian/Ubuntu (install_release_bin), so dpkg never hears
+# of them — the binary is the only way a re-run can tell they are there.
+PKG_BIN[lazydocker]="lazydocker"
+PKG_BIN[atuin]="atuin"
 
 pkg_installed() {
     local pkg="$1"
@@ -2074,14 +2081,17 @@ github_latest_asset_url() {
 # per-repo map. A 404 therefore has to stay a normal install: making it fatal
 # would break three working tools for a check that cannot be performed. A
 # checksum that *is* published and does not match is refused, and said out loud.
+#   install_release_deb <repo> <asset-pattern> [extra apt-get args...]
 install_release_deb() {
-    install_deb_url "$(github_latest_asset_url "$1" "$2")"
+    install_deb_url "$(github_latest_asset_url "$1" "$2")" "${@:3}"
 }
 
 # The half of the above that is not GitHub-specific: fetch a .deb, check any
 # published checksum, hand it to apt. Split out for the vendors that publish a
 # "latest" URL instead of a release feed (Discord), so there is one download-
-# and-verify path rather than a second copy of it.
+# and-verify path rather than a second copy of it. Anything after the URL goes
+# to apt-get as-is — yazi's .deb recommends a gigabyte of preview tools.
+#   install_deb_url <url> [extra apt-get args...]
 install_deb_url() {
     local url=$1 tmp want got rc
     [ -n "$url" ] || return 1
@@ -2118,7 +2128,7 @@ install_deb_url() {
         fi
     fi
 
-    apt_get install -y "$tmp" &>/dev/null 2>&1; rc=$?
+    apt_get install -y "${@:2}" "$tmp" &>/dev/null 2>&1; rc=$?
     rm -f "$tmp"
     return "$rc"
 }
@@ -2256,6 +2266,39 @@ ensure_delta_deb() {
     apt_pkg_installed git-delta
 }
 
+# ── One binary out of a GitHub release tarball (Debian/Ubuntu) ──────────────
+# lazygit, lazydocker and atuin publish no .deb: a tarball per architecture and
+# a checksum beside it. Where the checksum lives is the per-project part —
+# jesseduffield ships one checksums.txt per release, atuin a .sha256 per asset —
+# so both are tried, and the same verify-before-a-root-install rule as
+# install_deb_url applies: a published hash that does not match is refused,
+# none at all installs. The binary is found wherever the tarball keeps it
+# (lazygit's is at the top, atuin's one directory down) and lands in
+# /usr/local/bin, outside dpkg — which is why each caller has a PKG_BIN entry.
+#   install_release_bin <repo> <asset-pattern> <binary>
+install_release_bin() {
+    local url tmp want got f
+    url=$(github_latest_asset_url "$1" "$2")
+    [ -n "$url" ] || return 1
+    tmp=$(mktemp -d -p "$RUN_TMPDIR" "${3}_XXXXXX")
+    curl -fsSL "$url" -o "$tmp/release.tar.gz" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+    want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
+    [ -n "$want" ] || want=$(curl -fsSL "${url%/*}/checksums.txt" 2>/dev/null \
+        | grep -F "${url##*/}" | grep -oiE '^[0-9a-f]{64}' | head -1)
+    got=$(sha256sum "$tmp/release.tar.gz" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$want" ] && [ "$got" != "$want" ]; then
+        substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
+        substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
+        error "Refusing to install it — that binary would go in as root"
+        rm -rf "$tmp"; return 1
+    fi
+    tar -xzf "$tmp/release.tar.gz" -C "$tmp" 2>/dev/null
+    f=$(find "$tmp" -type f -name "$3" | head -1)
+    [ -n "$f" ] && sudo install -m755 "$f" "/usr/local/bin/$3"
+    rm -rf "$tmp"
+    command -v "$3" &>/dev/null
+}
+
 # ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
 ensure_lazygit_deb() {
     apt_pkg_installed lazygit && return 0
@@ -2266,7 +2309,7 @@ ensure_lazygit_deb() {
     # hirsute in 2021 — on any supported release it adds a source with no
     # Release file, which then breaks every apt-get update on the machine.
     # The upstream release binary is the only working path.
-    local apat url tmp want got
+    local apat
     case "$(deb_arch)" in
         amd64)        apat='x86_64' ;;
         arm64)        apat='arm64' ;;
@@ -2274,27 +2317,62 @@ ensure_lazygit_deb() {
         i386)         apat='32-bit' ;;
         *)            apat="$(uname -m)" ;;
     esac
-    url=$(github_latest_asset_url "jesseduffield/lazygit" "Linux_${apat}\.tar\.gz$")
-    if [ -n "$url" ]; then
-        tmp=$(mktemp -d -p "$RUN_TMPDIR" lazygit_XXXXXX)
-        if curl -fsSL "$url" -o "$tmp/lazygit.tar.gz" 2>/dev/null; then
-            # lazygit publishes one checksums.txt per release rather than the
-            # per-asset .deb.sha256 install_release_deb looks for, so the same
-            # verify-before-a-root-install rule is repeated here by hand.
-            want=$(curl -fsSL "${url%/*}/checksums.txt" 2>/dev/null \
-                | grep -F "${url##*/}" | grep -oiE '^[0-9a-f]{64}' | head -1)
-            got=$(sha256sum "$tmp/lazygit.tar.gz" 2>/dev/null | cut -d' ' -f1)
-            if [ -n "$want" ] && [ "$got" != "$want" ]; then
-                substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
-                substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
-                error "Refusing to install it — that binary would go in as root"
-            elif tar -xzf "$tmp/lazygit.tar.gz" -C "$tmp" lazygit 2>/dev/null; then
-                sudo install -m755 "$tmp/lazygit" /usr/local/bin/lazygit
-            fi
-        fi
-        rm -rf "$tmp"
-    fi
-    command -v lazygit &>/dev/null
+    install_release_bin jesseduffield/lazygit "Linux_${apat}\.tar\.gz$" lazygit
+}
+
+# ── lazydocker (Debian/Ubuntu) ───────────────────────────────────────────────
+# lazygit's sibling, same author and the same release shape, but in no apt
+# archive at all — not even Debian sid — so there is no apt attempt to make.
+# The \.tar anchor keeps Linux_x86 from matching Linux_x86_64's prefix.
+ensure_lazydocker_deb() {
+    local apat
+    case "$(deb_arch)" in
+        amd64) apat='x86_64' ;;
+        arm64) apat='arm64' ;;
+        armhf) apat='armv7' ;;
+        armel) apat='armv6' ;;
+        i386)  apat='x86' ;;
+        *)     apat="$(uname -m)" ;;
+    esac
+    install_release_bin jesseduffield/lazydocker "_Linux_${apat}\.tar\.gz$" lazydocker
+}
+
+# ── atuin (Debian/Ubuntu) ────────────────────────────────────────────────────
+# Debian 13 packages it; Debian 12 and Ubuntu 24.04 do not. The fallback is the
+# musl tarball, which is static and so has no glibc floor to trip over. Not the
+# vendor's setup.atuin.sh: that installs into ~/.atuin and appends its own init
+# to the rc files, and ~/.zshrc here is a stow symlink into the checkout. The
+# leading / keeps the atuin-server-* assets from matching.
+ensure_atuin_deb() {
+    apt_pkg_installed atuin && return 0
+    apt_install atuin
+    apt_pkg_installed atuin && return 0
+    local a
+    case "$(deb_arch)" in
+        amd64) a='x86_64' ;;
+        arm64) a='aarch64' ;;
+        *)     return 1 ;;
+    esac
+    install_release_bin atuinsh/atuin "/atuin-${a}-unknown-linux-musl\.tar\.gz$" atuin
+}
+
+# ── yazi (Debian/Ubuntu) ─────────────────────────────────────────────────────
+# In no Debian or Ubuntu archive; upstream attaches a .deb to every release.
+# The musl one, not gnu: the gnu .deb Depends on libc6 >= 2.39, which Ubuntu
+# 24.04 has and Debian 12 (2.36) does not, and the musl one depends on `file`
+# alone. --no-install-recommends like every apt_install here — the .deb
+# recommends ffmpeg, imagemagick, poppler and 7zip for its previews, which is
+# most of a gigabyte on a VPS that wanted a file manager.
+ensure_yazi_deb() {
+    apt_pkg_installed yazi && return 0
+    local a
+    case "$(deb_arch)" in
+        amd64) a='x86_64' ;;
+        arm64) a='aarch64' ;;
+        *)     return 1 ;;
+    esac
+    install_release_deb sxyazi/yazi "yazi-${a}-unknown-linux-musl\.deb$" --no-install-recommends
+    apt_pkg_installed yazi
 }
 
 # ── starship (Debian/Ubuntu) ──────────────────────────────────────────────────
@@ -3627,7 +3705,26 @@ DEP_PKG[tmux]="tmux"
 # zsh/.zshrc is the only thing that uses fzf now — the menu stopped shelling out
 # to it — so it is a tool like the rest rather than something every run installs.
 DEP_PKG[fzf]="fzf"
-DEPS_LIST=(bat eza fd fzf zoxide pay-respects lazygit btop tree gh ripgrep delta tmux)
+DEP_PKG[jq]="jq"
+DEP_PKG[yazi]="yazi"
+DEP_PKG[atuin]="atuin"
+DEP_PKG[lazydocker]="lazydocker"
+# ncdu over dust: the same package name in Arch extra, Debian 12 and 13 and
+# Ubuntu 24.04, so a plain install everywhere. dust is in neither Debian 12
+# nor Ubuntu 24.04 and would need a GitHub .deb on both.
+DEP_PKG[ncdu]="ncdu"
+DEPS_LIST=(bat eza fd fzf zoxide pay-respects lazygit btop tree gh ripgrep delta tmux jq yazi atuin lazydocker ncdu)
+
+# What zsh/.zshrc actually calls, and so what ticking zsh pulls in: the
+# cat/ls/lg/fuck aliases, z, y, and fzf's key bindings. It used to be every
+# tool, which made sense while every tool was one of those — btop, gh, jq,
+# lazydocker and the rest are fine picks on their own, but nothing in the rc
+# file reaches for them. atuin is left out on purpose: .zshrc wires it up when
+# it is there, but it takes ctrl-r and starts with an empty history, which is
+# a choice to make rather than a side effect of picking a shell. Both
+# consumers skip names DEPS_LIST does not have, which a Debian or headless
+# strip can make true.
+ZSH_TOOLS=(bat eza fd zoxide pay-respects lazygit fzf yazi)
 
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
@@ -4173,6 +4270,11 @@ DEP_DESC[gh]="GitHub CLI"
 DEP_DESC[ripgrep]="fast recursive grep"
 DEP_DESC[delta]="side-by-side git diffs"
 DEP_DESC[tmux]="terminal multiplexer"
+DEP_DESC[jq]="JSON processor"
+DEP_DESC[yazi]="terminal file manager"
+DEP_DESC[atuin]="searchable shell history"
+DEP_DESC[lazydocker]="Docker TUI"
+DEP_DESC[ncdu]="disk usage browser"
 
 DEP_NOTE[bat]="a Catppuccin theme is stowed with it"
 DEP_NOTE[eza]="the ls, ll, lt and la aliases; a Catppuccin Mocha theme is stowed with it (eza 0.20+)"
@@ -4186,6 +4288,9 @@ DEP_NOTE[gh]="gh auth login, then PRs and issues"
 DEP_NOTE[ripgrep]="the rg command"
 DEP_NOTE[delta]="pairs with lazygit"
 DEP_NOTE[tmux]="a Catppuccin Mocha theme is stowed with it"
+DEP_NOTE[yazi]="y opens it and leaves you where you quit"
+DEP_NOTE[atuin]="takes ctrl-r from fzf, up arrow untouched; 'atuin import auto' brings old history in"
+DEP_NOTE[lazydocker]="pairs with the Docker app"
 
 # ── App groups ───────────────────────────────────────────────────────────────
 # The apps tab is long enough to need headings. Every app names its group here,
@@ -5654,8 +5759,9 @@ if printf '%s\n' "${SELECTED[@]}" | grep -qx zsh \
 fi
 
 # Everything .zshrc reaches for is guarded by `command -v`, so without the tools
-# the shell comes up looking half-installed: no ls/cat/z/lg aliases, no fzf key
-# bindings. This lived twice, character for character, inside menu_numeric and
+# the shell comes up looking half-installed: no ls/cat/z/lg/y aliases, no fzf
+# key bindings. ZSH_TOOLS is that list, and the TUI's pull reads the same one.
+# This lived twice, character for character, inside menu_numeric and
 # the --configs= path — the shape that lets a rule get fixed in one copy only.
 # Last of the three blocks, because it is the only one that writes DEPS and
 # nothing else reads DEPS, while the block above is still adding to SELECTED:
@@ -5665,7 +5771,9 @@ fi
 # would contradict the screen that was just confirmed.
 if [ "$TUI_CONFIRMED" != 1 ] && printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
     _dep_added=()
-    for _d in "${DEPS_LIST[@]}"; do
+    for _d in "${ZSH_TOOLS[@]}"; do
+        # fzf today: step 2 installs it for every run, it is no tools-tab entry
+        printf '%s\n' "${DEPS_LIST[@]}" | grep -qx "$_d" || continue
         printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
         DEPS+=("$_d"); _dep_added+=("$_d")
     done
@@ -5948,7 +6056,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         _batch_apt=()
         for _dep in "${DEPS[@]}"; do
             case "$_dep" in
-                eza|gh|delta|lazygit|pay-respects) ;;
+                eza|gh|delta|lazygit|pay-respects|yazi|atuin|lazydocker) ;;
                 *)
                     if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
                         _batch_apt+=("${RESOLVED_DEP_PKG[$_dep]}")
@@ -6001,6 +6109,9 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
                     delta)        ensure_delta_deb        || _dep_ok=0 ;;
                     lazygit)      ensure_lazygit_deb      || _dep_ok=0 ;;
                     pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
+                    yazi)         ensure_yazi_deb         || _dep_ok=0 ;;
+                    atuin)        ensure_atuin_deb        || _dep_ok=0 ;;
+                    lazydocker)   ensure_lazydocker_deb   || _dep_ok=0 ;;
                     *)            apt_install "$dep_pkg"  || _dep_ok=0 ;;
                 esac
             fi

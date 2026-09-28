@@ -144,7 +144,16 @@ want    ubuntu-headless 'zsh needs these for its aliases' 'zsh pulls the toolcha
 want    ubuntu-headless 'adding starship'                 'zsh pulls starship'
 want    ubuntu-headless 'ssh -O exit'                     'SSH multiplexing hint'
 nowant  ubuntu-headless 'Failed \([1-9]'                  'nothing failed'
+# ZSH_TOOLS, not every tool: exactly what .zshrc calls, in that order, and fzf
+# skipped because step 2 already installed it and it has no tools-tab row.
+want    ubuntu-headless 'adding bat eza fd zoxide pay-respects lazygit yazi$' \
+                                                          'zsh pulls ZSH_TOOLS, in order'
+nowant  ubuntu-headless 'Dep tools: .*(btop|lazydocker|jq|atuin|tmux)' \
+                                                          'and nothing .zshrc never calls'
 d="$WORK/run/ubuntu-headless"
+grep -qxF yazi "$d/state/installed" \
+    && note ubuntu-headless "yazi installed from its release .deb" \
+    || bad  ubuntu-headless "yazi never reached apt"
 # eza came in with zsh, and its theme with it. The stub apt-cache reports no
 # candidate — Debian 12's answer — so the archive is skipped for eza's repo.
 [ -L "$d/home/.config/eza/theme.yml" ] \
@@ -638,6 +647,33 @@ grep -qs 'deb.gierens.de' "$WORK/run/eza-old/etc/apt/sources.list.d/gierens.list
     && note eza-old "Ubuntu 24.04's 0.18 is passed over for eza's own repo" \
     || bad  eza-old "an eza too old for the theme came from the archive"
 
+# 15n. The new tools with no .deb anywhere: lazydocker and atuin are release
+#      tarballs (atuin only where the archive lacks it, as on Ubuntu 24.04 —
+#      hence the sed), unpacked into /usr/local/bin, which the harness points
+#      at this scenario's own bin. yazi is a release .deb; jq and ncdu are the
+#      plain archive packages they are everywhere.
+build_root "$WORK/run/deb-newtools" ubuntu
+sed -i '/^atuin$/d' "$WORK/run/deb-newtools/state/available"
+RUN_ARGS="--tools=jq,yazi,atuin,lazydocker,ncdu" install_pass \
+    "$WORK/run/deb-newtools" "$WORK/run/deb-newtools" "$WORK/k-sel"
+check   deb-newtools 0
+nowant  deb-newtools 'Failed \('  'every new tool installed'
+d="$WORK/run/deb-newtools"
+for b in lazydocker atuin; do
+    [ -x "$d/bin/$b" ] && note deb-newtools "$b unpacked from its release tarball into /usr/local/bin" \
+                       || bad  deb-newtools "no $b binary after the tarball install"
+done
+for p in jq ncdu yazi; do
+    grep -qxF "$p" "$d/state/installed" && note deb-newtools "$p installed" \
+                                         || bad  deb-newtools "$p missing"
+done
+# A second run finds the tarball binaries through PKG_BIN rather than
+# downloading them again — dpkg has never heard of either.
+rerun   deb-newtools-again deb-newtools "$WORK/k-sel" DOTFILES_TOOLS="lazydocker,atuin"
+check   deb-newtools-again 0
+want    deb-newtools-again 'lazydocker already installed' 'lazydocker found outside dpkg'
+want    deb-newtools-again 'atuin already installed'      'and so is atuin'
+
 echo
 echo "── the menu ─────────────────────────────────────────────"
 # The menu draws itself, so these drive it by keystroke on a real pty. TERM has
@@ -661,6 +697,8 @@ check   tui-zsh 0
 want    tui-zsh 'Configs: .*zsh'               'cursor moved to zsh and ticked it'
 want    tui-zsh 'Configs: .*starship'          'starship came with it'
 want    tui-zsh 'Dep tools: .*bat.*eza'        'the toolchain came with it'
+want    tui-zsh 'Dep tools: .*yazi'            'and yazi, for the y wrapper'
+nowant  tui-zsh 'Dep tools: .*(btop|lazydocker|jq|atuin)' 'and only what .zshrc calls'
 nowant  tui-zsh 'zsh needs these for its aliases' 'ticked in the menu, not bolted on after'
 
 # esc is a cancel, not a skip: nothing installed, nothing asked afterwards.
@@ -2416,6 +2454,38 @@ else
     fi
 fi
 unset delta_pat picked
+
+# Three more projects whose release pages carry a decoy for the pattern, taken
+# from install.sh and run against the real asset names the same way. yazi's gnu
+# .deb needs glibc 2.39, which Debian 12 lacks; atuin's server tarball shares
+# the client's suffix; lazydocker ships an x86 build beside x86_64.
+asset_pick() {          # asset_pick <label> <sed-extracting-the-pattern> <var> <value> <want> <asset...>
+    local label=$1 expr=$2 var=$3 val=$4 want=$5 pat got; shift 5
+    pat=$(sed -n "$expr" "$inst_src" | head -1)
+    pat=${pat//\$\{$var\}/$val}
+    if [ -z "$pat" ]; then bad "$label" "no pattern found in install.sh"; return; fi
+    got=$(printf '%s\n' "$@" | sed 's#^#https://github.com/o/r/releases/download/v1/#' \
+        | grep -Ei "$pat" | head -1)
+    if [ "${got##*/}" = "$want" ]; then
+        note "$label" "the pattern picks $want"
+    else
+        bad  "$label" "pattern picks ${got##*/}, not $want"
+    fi
+}
+asset_pick yazi-asset 's|.*install_release_deb sxyazi/yazi "\([^"]*\)".*|\1|p' a x86_64 \
+    yazi-x86_64-unknown-linux-musl.deb \
+    yazi-aarch64-unknown-linux-gnu.deb yazi-x86_64-unknown-linux-gnu.deb yazi-x86_64-unknown-linux-musl.deb
+asset_pick atuin-asset 's|.*install_release_bin atuinsh/atuin "\([^"]*\)".*|\1|p' a x86_64 \
+    atuin-x86_64-unknown-linux-musl.tar.gz \
+    atuin-server-x86_64-unknown-linux-musl.tar.gz atuin-server-x86_64-unknown-linux-musl.tar.gz.sha256 \
+    atuin-x86_64-unknown-linux-gnu.tar.gz atuin-x86_64-unknown-linux-musl.tar.gz
+asset_pick lazydocker-asset 's|.*install_release_bin jesseduffield/lazydocker "\([^"]*\)".*|\1|p' apat x86_64 \
+    lazydocker_0.25.2_Linux_x86_64.tar.gz \
+    checksums.txt lazydocker_0.25.2_Linux_x86.tar.gz lazydocker_0.25.2_Linux_x86_64.tar.gz
+asset_pick lazydocker-x86 's|.*install_release_bin jesseduffield/lazydocker "\([^"]*\)".*|\1|p' apat x86 \
+    lazydocker_0.25.2_Linux_x86.tar.gz \
+    checksums.txt lazydocker_0.25.2_Linux_x86_64.tar.gz lazydocker_0.25.2_Linux_x86.tar.gz
+unset -f asset_pick
 
 echo "── --list without a terminal ────────────────────────────"
 # Every scenario above runs under script(1), so all of them have a tty and none

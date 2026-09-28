@@ -5,6 +5,8 @@
 # The copy under test has its absolute system paths (/etc/os-release,
 # /etc/apt/…, /etc/shells, /usr/share/xsessions) rewritten to point inside the
 # sandbox, so the distro, the apt sources and headlessness can be dictated.
+# /usr/local/bin becomes the scenario's own stub bin, which is on its PATH: a
+# release tarball's binary lands where `command -v` will look for it.
 # Only path literals change; every branch under test is the shipped one.
 #
 # Sourced by run.sh — not run directly.
@@ -24,6 +26,7 @@ sandbox_repo() {        # sandbox_repo <root>
         -e "s#/usr/share/xsessions#$share/xsessions#g" \
         -e "s#/usr/share/wayland-sessions#$share/wayland-sessions#g" \
         -e "s#/run/systemd/system#$run/systemd/system#g" \
+        -e "s#/usr/local/bin#$root/bin#g" \
         "$f"
     # The replacement paths end in /etc/… themselves, so verify by counting the
     # sandboxed form rather than by absence of the original.
@@ -182,6 +185,11 @@ ripgrep
 git-delta
 tmux
 neovim
+jq
+ncdu
+yazi
+atuin
+lazydocker
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the

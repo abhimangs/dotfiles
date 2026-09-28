@@ -134,8 +134,28 @@ bindkey "^[[3;5~" kill-word
 bindkey '^T' ''
 (( ${+functions[fzf-file-widget]} )) && bindkey '^F' fzf-file-widget
 
+# ── atuin ─────────────────────────────────────────────────────
+# After fzf on purpose: both bind ctrl-r, the later one wins, and having atuin
+# installed at all is the choice to hand it ctrl-r — zsh does not pull it in.
+# --disable-up-arrow keeps the prefix search bound to ^[[A above. Its database
+# starts empty; `atuin import auto` brings the existing zsh history in.
+command -v atuin &>/dev/null && eval "$(atuin init zsh --disable-up-arrow)"
+
 # ── zoxide ────────────────────────────────────────────────────
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
+
+# ── yazi ──────────────────────────────────────────────────────
+# `y`, not `yazi`: a child process cannot move its parent shell, so yazi writes
+# where it was on quit and this cds there. Upstream's own wrapper.
+if command -v yazi &>/dev/null; then
+    function y() {
+        local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+        command yazi "$@" --cwd-file="$tmp"
+        IFS= read -r -d '' cwd < "$tmp"
+        [ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
+        rm -f -- "$tmp"
+    }
+fi
 
 # ── pay-respects ──────────────────────────────────────────────
 # Replaces thefuck, which apt still ships as the unpatched 3.32: it imports

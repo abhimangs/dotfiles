@@ -445,8 +445,15 @@ if [ -n "$out" ]; then
             : > "$out"
             # Vendor .deb: the -o path is a mktemp name that says nothing, but the
             # URL is the real <pkg>_<ver>_<arch>.deb. Hand the name to the apt stub,
-            # which only sees the temp file.
-            b=${url##*/}; printf '%s\n' "${b%%_*}" > "${STUB_STATE:?}/deb_pkg"
+            # which only sees the temp file. yazi does not name its .deb that way
+            # (yazi-x86_64-unknown-linux-musl.deb), so for it the package is the
+            # one its control file really says.
+            b=${url##*/}
+            case "$url" in
+                */sxyazi/yazi/*)          p=yazi ;;
+                *)                        p=${b%%_*} ;;
+            esac
+            printf '%s\n' "$p" > "${STUB_STATE:?}/deb_pkg"
             # ... and hash whatever was just written, so the .sha256 served
             # below is by construction the right one for this file. A literal
             # constant here would be the hash of an empty file, and would go
@@ -461,6 +468,17 @@ if [ -n "$out" ]; then
                 *)        printf 'discord\n' ;;
             esac > "${STUB_STATE:?}/deb_pkg"
             sha256sum "$out" | cut -d' ' -f1 > "${STUB_STATE:?}/deb_sha" ;;
+        */releases/download/*.tar.gz)
+            # A GitHub release tarball holding one binary, named after the repo
+            # (lazygit, lazydocker, atuin), one directory down — atuin's real
+            # layout, and the harder of the two for the caller to find.
+            n=${url#*github.com/*/}; n=${n%%/*}
+            t=$(mktemp -d -p "${STUB_STATE:?}")
+            mkdir -p "$t/$n-release"
+            printf '#!/bin/sh\necho "%s stub $*"\n' "$n" > "$t/$n-release/$n"
+            chmod +x "$t/$n-release/$n"
+            tar -czf "$out" -C "$t" "$n-release"
+            rm -rf "$t" ;;
         *nousresearch.com*)
             # The one vendor installer served for real, because Hermes is the
             # one with an argument that matters: without --skip-setup it ends
@@ -719,6 +737,31 @@ case "$url" in
             dandavison/delta) pkg=git-delta ;;
             *)             pkg=${repo#*/} ;;
         esac
+        # Projects that do not name assets <pkg>_<ver>_<arch>.deb, served
+        # the way their real release pages list them, decoys first: yazi's gnu
+        # .deb needs a newer glibc than Debian 12 has, atuin's server shares
+        # the client's suffix, and lazydocker ships an x86 beside its x86_64.
+        dl="https://github.com/$repo/releases/download/v1.0"
+        case "$repo" in
+            sxyazi/yazi)
+                printf '"browser_download_url": "%s/%s"\n' \
+                    "$dl" yazi-x86_64-unknown-linux-gnu.deb "$dl" yazi-x86_64-unknown-linux-musl.deb \
+                    "$dl" yazi-aarch64-unknown-linux-musl.deb
+                exit 0 ;;
+            atuinsh/atuin)
+                printf '"browser_download_url": "%s/%s"\n' \
+                    "$dl" atuin-server-x86_64-unknown-linux-musl.tar.gz \
+                    "$dl" atuin-x86_64-unknown-linux-gnu.tar.gz \
+                    "$dl" atuin-x86_64-unknown-linux-musl.tar.gz \
+                    "$dl" atuin-aarch64-unknown-linux-musl.tar.gz
+                exit 0 ;;
+            jesseduffield/lazygit|jesseduffield/lazydocker)
+                printf '"browser_download_url": "%s/%s"\n' "$dl" checksums.txt
+                for a in arm64 x86 x86_64; do
+                    printf '"browser_download_url": "%s/%s_1.0_Linux_%s.tar.gz"\n' "$dl" "${repo#*/}" "$a"
+                done
+                exit 0 ;;
+        esac
         # delta really does publish two assets whose names both end in
         # _<arch>.deb, with the musl one listed first — which is what makes
         # "first match wins" pick the wrong package. Served in that order.
@@ -824,13 +867,14 @@ EOF
 # tailscale is here for the same reason and one more: it is the only curl app
 # whose installer puts the binary in a *system* bin, so an author who has it on
 # the machine would see "already installed" and never run the install path at
-# all — passing here and testing something else on CI. eza is a PKG_BIN
-# entry, which a host binary satisfies the same way: with eza installed,
-# ensure_eza_deb's version check was skipped on this laptop and run on CI.
+# all — passing here and testing something else on CI. eza, lazydocker and
+# atuin are PKG_BIN entries, which a host binary satisfies the same way: with
+# any of them installed, ensure_eza_deb's version check and the
+# release-tarball path were skipped on this laptop and run on CI.
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|stow|paru|yay|unzip|tailscale|eza) continue ;; esac
+    case "$b" in fzf|stow|paru|yay|unzip|tailscale|eza|lazydocker|atuin) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done
