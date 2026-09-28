@@ -1000,7 +1000,7 @@ tui_pane_build() {              # tui_pane_build <view entry or empty>
                 if [ "$key" = starship ]; then
                     tui_pane_add "config   yours, kept: ours is not installed over it" "$C_YELLOW" 9
                 else
-                    tui_pane_add "config   yours, moved to .bak first (deleted, in delete mode)" "$C_YELLOW" 9
+                    tui_pane_add "config   yours, backed up or deleted as you choose at the plan" "$C_YELLOW" 9
                 fi ;;
             new)    tui_pane_add "config   new, nothing there yet" "$C_DIM" 9 ;;
         esac
@@ -1937,14 +1937,20 @@ apt_install() {
     return 1
 }
 
-# Bootstraps utilities repo-add steps commonly need
+# The utilities repo-add steps commonly need, as the ones still missing — one
+# per line, so the plan can name them before ensure_apt_deps installs them.
+apt_deps_missing() {
+    command -v curl &>/dev/null || echo curl
+    command -v gpg  &>/dev/null || echo gnupg
+    if [ "$IS_UBUNTU" -eq 1 ] && ! command -v add-apt-repository &>/dev/null; then
+        echo software-properties-common
+    fi
+    return 0
+}
+
 ensure_apt_deps() {
     local need=()
-    command -v curl &>/dev/null || need+=(curl)
-    command -v gpg  &>/dev/null || need+=(gnupg)
-    if [ "$IS_UBUNTU" -eq 1 ] && ! command -v add-apt-repository &>/dev/null; then
-        need+=(software-properties-common)
-    fi
+    mapfile -t need < <(apt_deps_missing)
     if [ "${#need[@]}" -gt 0 ]; then
         apt_update_once
         apt_get install -y "${need[@]}" &>/dev/null 2>&1
@@ -3606,7 +3612,10 @@ DEP_PKG[ripgrep]="ripgrep"
 # Arch calls it git-delta; the binary is delta.
 DEP_PKG[delta]="git-delta"
 DEP_PKG[tmux]="tmux"
-DEPS_LIST=(bat eza fd zoxide pay-respects lazygit btop tree gh ripgrep delta tmux)
+# zsh/.zshrc is the only thing that uses fzf now — the menu stopped shelling out
+# to it — so it is a tool like the rest rather than something every run installs.
+DEP_PKG[fzf]="fzf"
+DEPS_LIST=(bat eza fd fzf zoxide pay-respects lazygit btop tree gh ripgrep delta tmux)
 
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
@@ -4015,12 +4024,26 @@ app_type_resolved() {
 declare -A RESOLVED_DEP_PKG=() RESOLVED_APP_PKG=() RESOLVED_APP_TYPE=()
 prepare_install_snapshot() {
     scan_installed_pkgs
-    local _d _a
+    local _d _a _c
     for _d in "${DEPS[@]}"; do RESOLVED_DEP_PKG[$_d]="$(dep_pkg_name "$_d")"; done
     for _a in "${APPS[@]}"; do
         RESOLVED_APP_PKG[$_a]="$(app_pkg_name "$_a")"
         RESOLVED_APP_TYPE[$_a]="$(app_type_resolved "$_a")"
     done
+    [[ "$DISTRO" == "arch" ]] || return 0
+    # Which AUR helper this machine already has, if any — looked up, not
+    # installed: that waits for Proceed, and only happens when the plan needs
+    # one. Either helper does everything this script asks of one, so an
+    # existing install wins over a new one; no reason to build paru on a yay
+    # machine.
+    for _a in paru yay; do
+        command -v "$_a" &>/dev/null && { AUR_HELPER="$_a"; break; }
+    done
+    local _names=("$FONT_PKG" "$MAPLE_FONT_PKG" "$SYMBOLS_FONT_PKG")
+    for _c in "${SELECTED[@]}"; do _names+=("${PKG_MAP[$_c]}"); done
+    for _d in "${DEPS[@]}"; do _names+=("${RESOLVED_DEP_PKG[$_d]}"); done
+    for _a in "${APPS[@]}"; do _names+=("${RESOLVED_APP_PKG[$_a]}"); done
+    scan_sync_repos "${_names[@]}"
 }
 
 # ── Menu descriptions ─────────────────────────────────────────────────────────
@@ -4119,6 +4142,7 @@ APP_NOTE[tailscale]="log in after with: sudo tailscale up"
 DEP_DESC[bat]="cat with syntax highlighting"
 DEP_DESC[eza]="modern ls"
 DEP_DESC[fd]="fast find replacement"
+DEP_DESC[fzf]="fuzzy finder"
 DEP_DESC[zoxide]="smart cd"
 DEP_DESC[pay-respects]="corrects the last command"
 DEP_DESC[lazygit]="git TUI"
@@ -4132,6 +4156,7 @@ DEP_DESC[tmux]="terminal multiplexer"
 DEP_NOTE[bat]="a Catppuccin theme is stowed with it"
 DEP_NOTE[eza]="the ls, ll, lt and la aliases"
 DEP_NOTE[fd]="what fzf lists files with"
+DEP_NOTE[fzf]="Ctrl-F finds files and Alt-C changes directory, in zsh"
 DEP_NOTE[zoxide]="the z command"
 DEP_NOTE[pay-respects]="the fuck alias"
 DEP_NOTE[lazygit]="the lg alias; a Catppuccin theme is stowed with it, diffs go through delta"
@@ -4219,6 +4244,28 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
     done < <(diff -rq "$_pdd_t" "$_pdd_s" 2>/dev/null)
 }
 
+# The row for something of the user's that is in the way of a stow, worded for
+# the mode this run is in, with the .old.bak rotation when there is one. It is
+# also the one place that knows the plan is about to replace something of
+# theirs: PLAN_REPLACES collects every path it is handed, and that list is what
+# decides whether the backup/delete question is asked at all. So the question
+# comes up exactly when the plan has an answer to show, and never for a run
+# that replaces nothing. Five hand-written copies of this if/else lived in the
+# plan before, each worded a little differently.
+PLAN_REPLACES=()
+plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
+    local -n _prr="$1"
+    local _p="$2" _n="${2##*/}" _s="${2/#$HOME/\~}"
+    PLAN_REPLACES+=("$_s")
+    if [[ "$BACKUP_MODE" == "delete" ]]; then
+        _prr+=("${C_RED}delete${C_RESET} ${C_DIM}${_s}${C_RESET}${3:-}")
+    else
+        { [ -e "$_p.bak" ] || [ -L "$_p.bak" ]; } && \
+            _prr+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_n}.bak → ${_n}.old.bak${C_RESET}")
+        _prr+=("${C_YELLOW}backup${C_RESET} ${C_DIM}${_s} → ${_n}.bak${C_RESET}")
+    fi
+}
+
 # The rows a tool or app that also carries a config adds under itself in the
 # plan. It reaches stow_config, which in delete mode rm -rf's ~/.config/<name>
 # with no .bak — the plan used to say only "already installed" and then delete
@@ -4228,15 +4275,84 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
 # and app sections each had their own.
 plan_side_config() {    # plan_side_config <name>
     has_side_config "$1" || return 0
-    local row="${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET}"
-    if dir_target_conflicts "$XDG_CONFIG/$1"; then
-        if [[ "$BACKUP_MODE" == "delete" ]]; then
-            echo -e "$row ${C_RED}delete${C_RESET} ${C_DIM}${XDG_SHOWN}/$1${C_RESET}"
-        else
-            echo -e "$row ${C_YELLOW}backup${C_RESET} ${C_DIM}${XDG_SHOWN}/$1 → $1.bak${C_RESET}"
+    local row="${C_MAIN}${C_BOLD} ${G_MID}      ${C_DIM}${G_DOT}${C_RESET}" _r
+    local steps=()
+    dir_target_conflicts "$XDG_CONFIG/$1" && plan_replace_row steps "$XDG_CONFIG/$1"
+    steps+=("${C_GREEN}stow → ${XDG_SHOWN}/$1/${C_RESET} ${C_DIM}(theme)${C_RESET}")
+    for _r in "${steps[@]}"; do echo -e "$row $_r"; done
+}
+
+# What has to be on the machine before any of the installs can run. Worked out
+# for the plan, and done only after Proceed — none of it used to wait that long:
+# paru was bootstrapped, apt refreshed and stow and fzf installed before the
+# menu was even drawn, so esc at the menu, or a --dry-run, had already changed
+# the machine.
+stow_wanted() {         # true when this run will stow anything at all
+    [ "${#SELECTED[@]}" -gt 0 ] && return 0
+    local k
+    for k in "${DEPS[@]}" "${APPS[@]}"; do has_side_config "$k" && return 0; done
+    return 1
+}
+
+# True when this run will hand something to an AUR helper: a package the sync
+# repos do not carry (arch_install's fallback), or a paru-y app, which goes to
+# the helper directly. An app already installed still counts — it is updated
+# through the same path it was installed by.
+aur_wanted() {
+    [[ "$DISTRO" == "arch" ]] || return 1
+    local k p
+    local -a want=()
+    for k in "${SELECTED[@]}"; do
+        case "$k" in bash|ccstatusline) ;; *) want+=("${PKG_MAP[$k]}") ;; esac
+    done
+    for k in "${DEPS[@]}"; do want+=("${RESOLVED_DEP_PKG[$k]}"); done
+    # The fonts step installs these on any run with a config, where it can
+    # render them — the same three conditions it tests.
+    [ "${#SELECTED[@]}" -gt 0 ] && [ "$IS_WSL" -eq 0 ] && [ "$IS_HEADLESS" -eq 0 ] \
+        && want+=("$FONT_PKG" "$MAPLE_FONT_PKG")
+    for p in "${want[@]}"; do
+        pkg_installed_snapshot "$p" || [ -n "${PKG_SYNC[$p]:-}" ] || return 0
+    done
+    for k in "${APPS[@]}"; do
+        case "${RESOLVED_APP_TYPE[$k]}" in
+            paru-y)      return 0 ;;
+            pacman|paru) [ -n "${PKG_SYNC[${RESOLVED_APP_PKG[$k]}]:-}" ] || return 0 ;;
+        esac
+        [ "$k" = wezterm ] && ! pkg_installed_snapshot "$SYMBOLS_FONT_PKG" \
+            && [ -z "${PKG_SYNC[$SYMBOLS_FONT_PKG]:-}" ] && return 0
+    done
+    return 1
+}
+
+plan_prereqs() {
+    local pre=() _r _need
+    if [[ "$DISTRO" == "arch" ]]; then
+        if [ -n "$AUR_HELPER" ]; then
+            pre+=("${C_DIM}${AUR_HELPER} already installed${C_RESET}")
+        elif aur_wanted; then
+            if [ "${IS_ROOT:-0}" -eq 1 ]; then
+                pre+=("${C_YELLOW}no AUR helper${C_RESET} ${C_DIM}— makepkg will not build as root, so the AUR items below will fail${C_RESET}")
+            else
+                pre+=("${C_YELLOW}bootstrap paru${C_RESET} ${C_DIM}(base-devel and git, then paru-bin from the AUR)${C_RESET}")
+            fi
+        fi
+    else
+        pre+=("${C_YELLOW}refresh the package index${C_RESET}")
+        mapfile -t _need < <(apt_deps_missing)
+        [ "${#_need[@]}" -gt 0 ] && \
+            pre+=("${C_YELLOW}install $(join_list "${_need[@]}")${C_RESET} ${C_DIM}(what adding a vendor repo needs)${C_RESET}")
+    fi
+    if stow_wanted; then
+        if command -v stow &>/dev/null; then pre+=("${C_DIM}stow already installed${C_RESET}")
+        else pre+=("${C_YELLOW}install stow${C_RESET}")
         fi
     fi
-    echo -e "$row ${C_GREEN}stow → ${XDG_SHOWN}/$1/${C_RESET} ${C_DIM}(theme)${C_RESET}"
+    [ "${#pre[@]}" -gt 0 ] || return 0
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}first${C_RESET}"
+    for _r in "${pre[@]}"; do
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${_r}"
+    done
 }
 
 # ── Pre-install plan ──────────────────────────────────────────────────────────
@@ -4280,41 +4396,71 @@ plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
                 _steps+=("${C_DIM}${_dl//\\/\\\\}${C_RESET}")
             done < <(diff -u "$_file" "$_src" 2>/dev/null | tail -n +3)
         fi
-        if [[ "$BACKUP_MODE" == "delete" ]]; then
-            _steps+=("${C_RED}delete${C_RESET} ${C_DIM}${_name}${C_RESET}${_note}")
-        else
-            { [ -e "${_file}.bak" ] || [ -L "${_file}.bak" ]; } && \
-                _steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_name}.bak → ${_name}.old.bak${C_RESET}")
-            _steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}${_name} → ${_name}.bak${C_RESET}")
-        fi
+        plan_replace_row "$1" "$_file" "$_note"
         _steps+=("${C_GREEN}stow ~/${_name}${C_RESET}")
     else
         _steps+=("${C_GREEN}stow ~/${_name}${C_RESET} ${C_DIM}(fresh)${C_RESET}")
     fi
 }
 
-show_plan() {
-    local cfgs=("$@")
-    local wallpaper_stowed=0
-    # Every loop variable below, declared. cfg and step were missed once
-    # already; _d and _a were missed the same way and leaked into the global
-    # scope, where the install loop's own `for dep in "${DEPS[@]}"` and the
-    # apps loop run afterwards with names close enough to be worth not
-    # gambling on.
-    local cfg step _d _a
+# What happens to the configs of the user's that are in the way. Asked here, at
+# the plan, and only when there is something: it used to be the second question
+# of every run, before anything had been picked, so a run that installed one
+# app over nothing of theirs still had to answer it. The paths come from
+# plan_replace_row, so the list is the plan's own.
+#
+# Deleting someone's configs is never assumed — only --backup-mode=delete
+# reaches it without asking, never the unattended default.
+plan_ask_backup_mode() {
+    local _yours; _yours="$(join_list "${PLAN_REPLACES[@]}")"
+    if [ -n "$OPT_BACKUP_MODE" ] || [ "$UNATTENDED" -eq 1 ]; then
+        info "Existing configs"
+        substep "${C_DIM}yours, in the way: ${_yours}${C_RESET}"
+        if [ -n "$OPT_BACKUP_MODE" ]; then
+            substep "${C_DIM}--backup-mode=${BACKUP_MODE}${C_RESET}"
+        else
+            substep "${C_DIM}not asked — no one at the keyboard, so the reversible answer${C_RESET}"
+        fi
+        if [[ "$BACKUP_MODE" == "delete" ]]; then success "${C_RED}delete${C_RESET}"; else success "backup"; fi
+        return 0
+    fi
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}yours, in the way: ${_yours}${C_RESET}"
+    pick2 "backup" "move to .bak, safe and reversible" "$C_GREEN" \
+          "delete" "wipe cleanly, no backup kept"      "$C_RED"
+    if [ "$PICK2" -eq 1 ]; then
+        BACKUP_MODE="delete"
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
+    else
+        BACKUP_MODE="backup"
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
+    fi
+}
 
-    local _mode_label
-    [[ "$BACKUP_MODE" == "delete" ]] \
-        && _mode_label="${C_RED}delete${C_RESET}" \
-        || _mode_label="${C_YELLOW}backup${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Installation plan ${C_DIM}(existing configs: ${_mode_label}${C_DIM})${C_RESET}"
+show_plan() {
+    # Nobody has been asked yet: until they are, the reversible answer.
+    BACKUP_MODE="${OPT_BACKUP_MODE:-backup}"
+    # A pass with its output thrown away first. The rows it would have printed
+    # are what decide whether anything of the user's is in the way — so the
+    # question below is asked exactly when the plan has a backup or delete row
+    # to show, and the rows printed after it are worded for the answer.
+    plan_body "$@" >/dev/null
+    [ "${#PLAN_REPLACES[@]}" -gt 0 ] && plan_ask_backup_mode
+
+    local _mode_label=""
+    if [ "${#PLAN_REPLACES[@]}" -gt 0 ]; then
+        [[ "$BACKUP_MODE" == "delete" ]] \
+            && _mode_label=" ${C_DIM}(existing configs: ${C_RED}delete${C_DIM})" \
+            || _mode_label=" ${C_DIM}(existing configs: ${C_YELLOW}backup${C_DIM})"
+    fi
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Installation plan${_mode_label}${C_RESET}"
 
     # Only two generations are kept, so a rotation destroys whatever is in
     # .old.bak. The rows below say "x.bak → x.old.bak" and stop there, which
     # reads like nothing is lost. On a third run something is.
     # backup_bases, not a hand-written glob: that one named ~/.config outright,
     # so under XDG_CONFIG_HOME — or for ~/scripts/pvpn — it found nothing.
-    if [[ "$BACKUP_MODE" != "delete" ]]; then
+    if [ "${#PLAN_REPLACES[@]}" -gt 0 ] && [[ "$BACKUP_MODE" != "delete" ]]; then
         local _o
         while IFS= read -r _o; do
             { [ -e "$_o.old.bak" ] || [ -L "$_o.old.bak" ]; } || continue
@@ -4323,10 +4469,49 @@ show_plan() {
         done < <(backup_bases)
     fi
 
+    plan_body "$@"
+
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
+        exit 0
+    fi
+    # The last prompt an unattended run had left in it. The two single-key
+    # questions already answer themselves when a selection was named, but
+    # this one still waited for Enter — and on the documented path
+    # (`DOTFILES_CONFIGS=… curl … | bash`) TTY_IN is a real terminal, so it
+    # waited for a keyboard that is not there. Naming what to install is the
+    # confirmation; asking again is asking nobody.
+    if [ "${UNATTENDED:-0}" -eq 1 ]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceeding${C_RESET} ${C_DIM}— not asked, no one at the keyboard${C_RESET}\n"
+        return 0
+    fi
+    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
+    read -r CONFIRM <"$TTY_IN"
+    [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
+    echo ""
+}
+
+# Every row of the plan, between its header and the Proceed prompt. Run twice by
+# show_plan — the first time only to fill PLAN_REPLACES — so it prints and
+# writes nothing else, and asks nothing.
+plan_body() {
+    local cfgs=("$@")
+    local wallpaper_stowed=0
+    # Every loop variable below, declared. cfg and step were missed once
+    # already; _d and _a were missed the same way and leaked into the global
+    # scope, where the install loop's own `for dep in "${DEPS[@]}"` and the
+    # apps loop run afterwards with names close enough to be worth not
+    # gambling on.
+    local cfg step _d _a
+    PLAN_REPLACES=()
+
+    plan_prereqs
+
     for cfg in "${cfgs[@]}"; do
         local pkg="${PKG_MAP[$cfg]}"
         local steps=()
-        local target bak
+        local target
 
         # ccstatusline has no package on either distro — it is fetched per
         # render by `bunx …@latest`. bun arrives through the curl installer,
@@ -4349,19 +4534,13 @@ show_plan() {
           # One arm for all eight: same target shape (~/.config/<name>/), same
           # backup rules. The ones that differ do so by a line or two at the end.
           fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline|ulauncher)
-            target="$XDG_CONFIG/$cfg"; bak="${target}.bak"
+            target="$XDG_CONFIG/$cfg"
             # The symlink test comes first for the same reason it does in
             # stow_config: -d follows the link, and what gets moved aside is
             # the link, not whatever it happens to point at.
             if dir_target_conflicts "$target"; then
                 plan_dir_diff steps "$target" "$DOTFILES_DIR/$cfg"
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}${cfg}${C_RESET}")
-                else
-                    { [ -e "$bak" ] || [ -L "$bak" ]; } && \
-                        steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}$cfg.bak → $cfg.old.bak${C_RESET}")
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}$cfg → $cfg.bak${C_RESET}")
-                fi
+                plan_replace_row steps "$target"
                 steps+=("${C_GREEN}stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
             elif [ -e "$target" ]; then
                 steps+=("${C_GREEN}re-stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
@@ -4378,15 +4557,9 @@ show_plan() {
             # used to be reported as "already in place" and then deleted or
             # backed up without a word of warning.
             if needs_wallpaper "$cfg" && [ "$wallpaper_stowed" -eq 0 ]; then
-                target="$XDG_CONFIG/wallpapers"; bak="${target}.bak"
+                target="$XDG_CONFIG/wallpapers"
                 if dir_target_conflicts "$target"; then
-                    if [[ "$BACKUP_MODE" == "delete" ]]; then
-                        steps+=("${C_RED}delete${C_RESET} ${C_DIM}wallpapers${C_RESET}")
-                    else
-                        { [ -e "$bak" ] || [ -L "$bak" ]; } && \
-                            steps+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}wallpapers.bak → wallpapers.old.bak${C_RESET}")
-                        steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}wallpapers → wallpapers.bak${C_RESET}")
-                    fi
+                    plan_replace_row steps "$target"
                     steps+=("${C_GREEN}stow → ${XDG_SHOWN}/wallpapers/${C_RESET}")
                 elif [ -e "$target" ]; then
                     steps+=("${C_DIM}wallpaper already in place${C_RESET}")
@@ -4426,21 +4599,13 @@ show_plan() {
             # row below only ever spoke for pvpn.zsh.
             if [ -L "$HOME/scripts/pvpn" ] && ! is_repo_link "$HOME/scripts/pvpn"; then
                 steps+=("${C_DIM}~/scripts/pvpn is your own symlink, not ours${C_RESET}")
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}~/scripts/pvpn${C_RESET}")
-                else
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}~/scripts/pvpn → pvpn.bak${C_RESET}")
-                fi
+                plan_replace_row steps "$HOME/scripts/pvpn"
             fi
             # Anything here that is not ours, symlink or not — backup_file
             # moves a foreign link aside now, and a plan that skipped the row
             # for one promised a backup would not happen.
             if { [ -e "$script" ] || [ -L "$script" ]; } && ! is_repo_link "$script"; then
-                if [[ "$BACKUP_MODE" == "delete" ]]; then
-                    steps+=("${C_RED}delete${C_RESET} ${C_DIM}pvpn.zsh${C_RESET}")
-                else
-                    steps+=("${C_YELLOW}backup${C_RESET} ${C_DIM}pvpn.zsh → pvpn.zsh.bak${C_RESET}")
-                fi
+                plan_replace_row steps "$script"
             fi
             steps+=("${C_GREEN}stow ~/scripts/pvpn/pvpn.zsh${C_RESET}")
             ;;
@@ -4558,28 +4723,7 @@ show_plan() {
         private_preview
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}runs last; configs keep working and install.sh stays${C_RESET}"
     fi
-
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
-    if [ "$DRY_RUN" -eq 1 ]; then
-        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}[dry run] No changes made.${C_RESET}\n"
-        exit 0
-    fi
-    # The last prompt an unattended run had left in it. The two single-key
-    # questions above already answer themselves when a selection was named, but
-    # this one still waited for Enter — and on the documented path
-    # (`DOTFILES_CONFIGS=… curl … | bash`) TTY_IN is a real terminal, so it
-    # waited for a keyboard that is not there. Naming what to install is the
-    # confirmation; asking again is asking nobody.
-    if [ "${UNATTENDED:-0}" -eq 1 ]; then
-        echo -e "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceeding${C_RESET} ${C_DIM}— not asked, no one at the keyboard${C_RESET}\n"
-        return 0
-    fi
-    echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
-    read -r CONFIRM <"$TTY_IN"
-    [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
-    echo ""
 }
-
 
 # ── Restore bash ─────────────────────────────────────────────────────────────
 # Undoes what selecting zsh did: the hand-off hook, the stowed rc files, and
@@ -5196,12 +5340,11 @@ elif ! command -v sudo &>/dev/null; then
     error "sudo is not installed and you are not root."
     substep "Install sudo, or re-run this script as root."
     exit 1
-elif { [ "$RESTORE_BASH" -eq 1 ] && [ "$DRY_RUN" -eq 1 ]; } \
-     || [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; then
-    # A --restore-bash dry run prints its plan and returns without running a
-    # single privileged command. The ad-hoc 'sudo -v' this branch used to do for
-    # itself skipped DRY_RUN for that reason; hoisting must not turn a mode whose
-    # contract is "no writes" into a password prompt.
+elif [ "$DRY_RUN" -eq 1 ] || [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; then
+    # A dry run — of the install or of --restore-bash — prints its plan and
+    # exits without running a single privileged command: everything up to the
+    # plan is read-only, and the bootstrap waits for Proceed. A mode whose
+    # contract is "no writes" has no business asking for a root password.
     #
     # --uninstall and --backups are here for a stronger reason: everything they
     # touch is under $HOME and owned by the user already, so asking for a root
@@ -5255,93 +5398,20 @@ if [ "$UNINSTALL" -eq 1 ]; then
     exit $?
 fi
 
-# ── Backup mode ───────────────────────────────────────────────────────────────
-# What happens to existing configs (backup / delete) and whether to strip the
-# repo traces are two unrelated decisions, so the second is a toggle rather than
-# a third mode — you can keep your backups and still leave no trace of the repo.
-# ── Privacy ───────────────────────────────────────────────────────────────────
-# Asked first and on its own, because it is a decision about this machine, not
-# about what happens to existing configs. The exact list is printed before the
-# choice — nothing here should be a surprise afterwards.
-STRIP_REPO=0
-
-# A selection given on the command line, or a dry run, means nobody is at the
-# keyboard — and both prompts below are `read -n 1`, which under `curl … | bash`
-# reads the download stream and under cloud-init waits forever. So they are not
-# asked at all on that path: --private / --backup-mode= answer them, and
-# without either they take the answers Enter would have given.
-# Not --dry-run: that still walks the menu, and a run that is about to ask for
-# arrow keys has no business claiming nobody is at the keyboard. A dry run with
-# a selection is covered like any other.
-# UNATTENDED itself is set near the top, beside the DOTFILES_* twins — the apt
-# bootstrap prompts long before this point and needs the answer already.
-
-if [ -n "$OPT_PRIVATE" ] || [ "$UNATTENDED" -eq 1 ]; then
-    STRIP_REPO="${OPT_PRIVATE:-0}"
-    info "Privacy"
-    if [ "$STRIP_REPO" -eq 1 ]; then
-        substep "${C_DIM}--private given — traces removed at the end of the run${C_RESET}"
-        success "${C_RED}private${C_RESET}"
-    else
-        substep "${C_DIM}not asked — no one at the keyboard, and --private was not given${C_RESET}"
-        success "keep"
-    fi
-else
-
-echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Privacy${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ~/dotfiles came from a repo, or whose:${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
-private_preview
-echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Configs keep working and install.sh stays, so it can be re-run.${C_RESET}"
-echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
-
-pick2 "keep"    "leave it as a normal checkout"      "$C_GREEN" \
-      "private" "remove and scrub everything above"  "$C_RED"
-STRIP_REPO=$PICK2
-
-if [ "$STRIP_REPO" -eq 1 ]; then
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private — traces removed at the end of the run\n"
-else
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} keep\n"
-fi
-
-fi
-
-# ── Existing configs: backup or delete ───────────────────────────────────────
-# Stays here, before the menus, even though it only matters once a config is
-# selected: both single-key prompts have to be asked back to back at the very
-# start. A `read -n 1` puts the terminal in raw mode, which discards whatever is
-# already sitting in the input queue — harmless for a human typing, fatal for
-# anything feeding keystrokes from a file (see tests/harness.sh).
-if [ -n "$OPT_BACKUP_MODE" ] || [ "$UNATTENDED" -eq 1 ]; then
-    # Deleting someone's configs is never assumed — only --backup-mode=delete
-    # gets there, never the unattended default.
-    BACKUP_MODE="${OPT_BACKUP_MODE:-backup}"
-    info "Existing configs"
-    if [ -n "$OPT_BACKUP_MODE" ]; then
-        substep "${C_DIM}--backup-mode=${BACKUP_MODE}${C_RESET}"
-    else
-        substep "${C_DIM}not asked — no one at the keyboard, so the reversible answer${C_RESET}"
-    fi
-    if [[ "$BACKUP_MODE" == "delete" ]]; then
-        success "${C_RED}delete${C_RESET}"
-    else
-        success "backup"
-    fi
-else
-echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Existing configs  ${C_DIM}↑↓ navigate  ${G_DOT}  Enter confirm${C_RESET}"
-pick2 "backup" "move to .bak, safe and reversible" "$C_GREEN" \
-      "delete" "wipe cleanly, no backup kept"      "$C_RED"
-
-if [ "$PICK2" -eq 1 ]; then
-    BACKUP_MODE="delete"
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} delete\n"
-else
-    BACKUP_MODE="backup"
-    echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} backup\n"
-fi
-fi
+# ── Privacy, and what happens to existing configs ────────────────────────────
+# Neither is asked up here any more. Both used to be the first two questions of
+# every run, before anything had been picked — backup/delete even for a run
+# with nothing of the user's in its way — only because the test harness fed
+# keys from a file, and a `read -n 1` asked any later dropped what was typed
+# ahead. The harness waits for each prompt now. Privacy is settled once the
+# selection is known: a toggle on the menu's selected tab, or its own question
+# after the numbered lists. Backup/delete is asked at the plan, and only when
+# the plan has something of the user's to replace (plan_ask_backup_mode).
+#
+# On an unattended run neither is asked: --private / --backup-mode= answer
+# them, and without either they take the answers Enter would have given.
+# UNATTENDED is set near the top, beside the DOTFILES_* twins.
+STRIP_REPO="${OPT_PRIVATE:-0}"
 
 # "No internet" and "no curl" are different facts, and reading the second as
 # the first is how a minimal Debian or Ubuntu install — neither ships curl —
@@ -5368,157 +5438,10 @@ net_reachable() {       # <host> [host...] — false only if a probe ran and fai
     return 1
 }
 
-# ── Step 1: AUR helper (Arch) / apt bootstrap (Debian/Ubuntu) ───────────────
-if [[ "$DISTRO" == "arch" ]]; then
-    info "Checking AUR helper..."
-    # Either helper does everything this script asks of one, so an existing
-    # install wins over a new one — no reason to build paru on a yay machine.
-    for _h in paru yay; do
-        command -v "$_h" &>/dev/null && { AUR_HELPER="$_h"; break; }
-    done
-    unset _h
-    if [ -n "$AUR_HELPER" ]; then
-        substep "${AUR_HELPER} already installed"
-        success "AUR helper ready"
-    else
-        if [ "$IS_ROOT" -eq 1 ]; then
-            # makepkg hard-refuses to build as root, so paru cannot be
-            # bootstrapped here. Repo packages still install fine; only
-            # AUR-only items are affected, and they report as failed.
-            substep "${C_YELLOW}Running as root — makepkg refuses to build as root,${C_RESET}"
-            substep "${C_YELLOW}so paru cannot be installed. Repo packages will work;${C_RESET}"
-            substep "${C_YELLOW}AUR-only ones will be skipped.${C_RESET}"
-            substep "${C_DIM}To get AUR support: create a normal user with sudo rights${C_RESET}"
-            substep "${C_DIM}and re-run this script as that user.${C_RESET}"
-            success "Continuing without an AUR helper"
-        else
-        substep "No AUR helper found — installing paru..."
-        if [ "$DRY_RUN" -eq 1 ]; then
-            # show_plan is still ahead of us and has its own DRY_RUN exit, but
-            # that runs after this step — without this guard a "dry run"
-            # already built and installed paru for real by the time it got
-            # there.
-            substep "${C_DIM}[dry run] would install base-devel/git and bootstrap paru${C_RESET}"
-            success "Dry run — nothing installed"
-        else
-        substep "Checking internet connection..."
-        if ! net_reachable archlinux.org; then
-            error "No internet connection — paru requires internet to install."
-            exit 1
-        fi
-        substep "Installing build dependencies..."
-        if ! sudo pacman -S --needed --noconfirm base-devel git; then
-            error "Failed to install base-devel/git. Check your internet or sudo access."
-            exit 1
-        fi
-
-        # Under RUN_TMPDIR, like every other temp artifact: a predictable
-        # /tmp/paru-build is shared across users, and the EXIT trap cleans this
-        # up if the build is interrupted between the two rm -rf calls.
-        _paru_build="$RUN_TMPDIR/paru-build"
-
-        # paru-bin is the same paru, prebuilt. Building from source drags in the
-        # whole rust toolchain — 300+ MB and 2–4 minutes of compiling — for an
-        # identical binary, so that is the fallback, not the default.
-        for _src in paru-bin paru; do
-            substep "Cloning ${C_ACCENT}${_src}${C_RESET} from AUR..."
-            rm -rf "$_paru_build"
-            if ! git clone "https://aur.archlinux.org/${_src}.git" "$_paru_build" &>/dev/null 2>&1; then
-                substep "${C_YELLOW}Could not clone ${_src}${C_RESET}"
-                continue
-            fi
-            if [[ "$_src" == "paru" ]]; then
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru from source — output below (takes 2–4 min)${C_RESET}\n"
-                (cd "$_paru_build" && makepkg -si --noconfirm) || true
-                echo ""
-            else
-                substep "Installing prebuilt paru..."
-                (cd "$_paru_build" && makepkg -si --noconfirm) &>/dev/null 2>&1 || true
-            fi
-            command -v paru &>/dev/null && break
-            substep "${C_YELLOW}${_src} did not install${C_RESET}"
-        done
-
-        rm -rf "$_paru_build"
-        unset _paru_build _src
-
-        if ! command -v paru &>/dev/null; then
-            error "paru installation failed — binary not found after build."
-            exit 1
-        fi
-        AUR_HELPER="paru"
-        success "paru installed"
-        fi
-        fi
-    fi
-else
-    info "Preparing apt..."
-    substep "Checking internet connection..."
-    if ! net_reachable deb.debian.org archive.ubuntu.com; then
-        error "No internet connection — apt requires internet to install packages."
-        exit 1
-    fi
-    if [ "$DRY_RUN" -eq 1 ]; then
-        # Same reasoning as the paru branch above: show_plan's own DRY_RUN exit
-        # is still several steps away, and apt_update_once/ensure_apt_deps
-        # write to the system for real.
-        substep "${C_DIM}[dry run] would refresh the package index and install apt prerequisites${C_RESET}"
-        success "Dry run — nothing installed"
-    else
-    substep "Updating package index..."
-    if apt_update_once; then
-        ensure_apt_deps
-        success "apt ready"
-    else
-        # Not fatal: one dead source fails the whole refresh even though every
-        # other list updated and installs still work. Say so plainly here
-        # instead of printing "apt ready" and letting the next step look like
-        # the thing that broke.
-        substep "${C_YELLOW}Package index did not refresh cleanly${C_RESET}"
-        apt_index_report
-        substep "${C_DIM}Continuing — installs usually still work when one source is broken${C_RESET}"
-        ensure_apt_deps
-        success "apt ready (index refreshed with errors)"
-    fi
-    fi
-fi
-
-# ── Step 2: tools (stow + fzf) ───────────────────────────────────────────────
-info "Checking tools..."
-TOOLS_TO_INSTALL=()
-TOOLS_TO_UPDATE=()
-for tool in stow fzf; do
-    if ! command -v "$tool" &>/dev/null; then
-        TOOLS_TO_INSTALL+=("$tool")
-    else
-        TOOLS_TO_UPDATE+=("$tool")
-    fi
-done
-
-[ "${#TOOLS_TO_INSTALL[@]}" -gt 0 ] && substep "Installing:         ${C_ACCENT}${TOOLS_TO_INSTALL[*]}${C_RESET}"
-[ "${#TOOLS_TO_UPDATE[@]}"  -gt 0 ] && substep "Updating to latest: ${C_ACCENT}${TOOLS_TO_UPDATE[*]}${C_RESET}"
-
-if [ "$DRY_RUN" -eq 1 ]; then
-    substep "${C_DIM}[dry run] would install/update: stow fzf${C_RESET}"
-    success "Dry run — nothing installed"
-else
-if [[ "$DISTRO" == "arch" ]]; then
-    if ! pacman_install stow fzf; then
-        error "Failed to install/update stow and fzf."
-        install_error_tail
-        exit 1
-    fi
-else
-    if ! apt_install stow fzf; then
-        error "Failed to install/update stow and fzf."
-        install_error_tail
-        exit 1
-    fi
-fi
-success "Tools verified"
-fi
-
-# ── Step 3: the menu ─────────────────────────────────────────────────────────
+# ── Step 1: the menu ─────────────────────────────────────────────────────────
+# Nothing before this point has changed the machine, and nothing up to the
+# Proceed prompt will: the AUR helper, the apt refresh and stow all wait for the
+# plan to be accepted (step 4). Esc here leaves the machine as it was.
 declare -a SELECTED=() DEPS=() APPS=()
 
 # The numbered lists this script shipped with, kept for terminals that cannot
@@ -5750,9 +5673,145 @@ if [ "${#SELECTED[@]}" -eq 0 ] && [ "${#DEPS[@]}" -eq 0 ] && [ "${#APPS[@]}" -eq
     exit 0
 fi
 
-# ── Step 4: plan + confirm ────────────────────────────────────────────────────
+# ── Step 2: privacy ───────────────────────────────────────────────────────────
+# A decision about this machine, not about any one config — so it is its own
+# question, and the exact list is printed before the choice. Asked here, once
+# there is a selection to go with it: the menu already had it as the toggle at
+# the foot of its selected tab, so only the numbered lists ask it now.
+if [ "$UNATTENDED" -eq 1 ] || { [ -n "$OPT_PRIVATE" ] && [ "$TUI_CONFIRMED" != 1 ]; }; then
+    info "Privacy"
+    if [ "$STRIP_REPO" -eq 1 ]; then
+        substep "${C_DIM}--private given — traces removed at the end of the run${C_RESET}"
+        success "${C_RED}private${C_RESET}"
+    else
+        substep "${C_DIM}not asked — no one at the keyboard, and --private was not given${C_RESET}"
+        success "keep"
+    fi
+elif [ "$TUI_CONFIRMED" = 1 ]; then
+    info "Privacy"
+    substep "${C_DIM}set on the selected tab${C_RESET}"
+    if [ "$STRIP_REPO" -eq 1 ]; then success "${C_RED}private${C_RESET}"; else success "keep"; fi
+else
+    echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Privacy${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ~/dotfiles came from a repo, or whose:${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    private_preview
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Configs keep working and install.sh stays, so it can be re-run.${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+    pick2 "keep"    "leave it as a normal checkout"      "$C_GREEN" \
+          "private" "remove and scrub everything above"  "$C_RED"
+    STRIP_REPO=$PICK2
+    if [ "$STRIP_REPO" -eq 1 ]; then
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_RED}${G_OK}${C_RESET} private — traces removed at the end of the run\n"
+    else
+        echo -e " ${C_MAIN}${C_BOLD}${G_END} ${C_GREEN}${G_OK}${C_RESET} keep\n"
+    fi
+fi
+
+# ── Step 3: plan + confirm ────────────────────────────────────────────────────
+# Read-only up to its Proceed prompt, and a --dry-run exits there: everything
+# this run is about to do to the machine is in the plan, and none of it has
+# happened yet.
 prepare_install_snapshot
 show_plan "${SELECTED[@]}"
+
+# ── Step 4: what the installs need first ─────────────────────────────────────
+# All of this used to run before the menu was drawn, so esc at the menu — or a
+# --dry-run — had already bootstrapped paru, refreshed apt and installed stow
+# and fzf. It waits for Proceed now, and each part runs only when the plan said
+# it would: paru only when something is headed for the AUR and there is no
+# helper, stow only when something will be stowed and it is missing.
+if [[ "$DISTRO" == "arch" ]]; then
+    if [ -z "$AUR_HELPER" ] && [ "$IS_ROOT" -eq 0 ] && aur_wanted; then
+        info "Installing an AUR helper..."
+        substep "Checking internet connection..."
+        if ! net_reachable archlinux.org; then
+            error "No internet connection — paru requires internet to install."
+            exit 1
+        fi
+        substep "Installing build dependencies..."
+        if ! sudo pacman -S --needed --noconfirm base-devel git; then
+            error "Failed to install base-devel/git. Check your internet or sudo access."
+            exit 1
+        fi
+
+        # Under RUN_TMPDIR, like every other temp artifact: a predictable
+        # /tmp/paru-build is shared across users, and the EXIT trap cleans this
+        # up if the build is interrupted between the two rm -rf calls.
+        _paru_build="$RUN_TMPDIR/paru-build"
+
+        # paru-bin is the same paru, prebuilt. Building from source drags in the
+        # whole rust toolchain — 300+ MB and 2–4 minutes of compiling — for an
+        # identical binary, so that is the fallback, not the default.
+        for _src in paru-bin paru; do
+            substep "Cloning ${C_ACCENT}${_src}${C_RESET} from AUR..."
+            rm -rf "$_paru_build"
+            if ! git clone "https://aur.archlinux.org/${_src}.git" "$_paru_build" &>/dev/null 2>&1; then
+                substep "${C_YELLOW}Could not clone ${_src}${C_RESET}"
+                continue
+            fi
+            if [[ "$_src" == "paru" ]]; then
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru from source — output below (takes 2–4 min)${C_RESET}\n"
+                (cd "$_paru_build" && makepkg -si --noconfirm) || true
+                echo ""
+            else
+                substep "Installing prebuilt paru..."
+                (cd "$_paru_build" && makepkg -si --noconfirm) &>/dev/null 2>&1 || true
+            fi
+            command -v paru &>/dev/null && break
+            substep "${C_YELLOW}${_src} did not install${C_RESET}"
+        done
+
+        rm -rf "$_paru_build"
+        unset _paru_build _src
+
+        if ! command -v paru &>/dev/null; then
+            error "paru installation failed — binary not found after build."
+            exit 1
+        fi
+        AUR_HELPER="paru"
+        success "paru installed"
+    fi
+else
+    # Always, on apt: every vendor repo and PPA below needs a fresh index, and
+    # a broken one is worth reporting before the first install trips on it.
+    info "Preparing apt..."
+    substep "Checking internet connection..."
+    if ! net_reachable deb.debian.org archive.ubuntu.com; then
+        error "No internet connection — apt requires internet to install packages."
+        exit 1
+    fi
+    substep "Updating package index..."
+    if apt_update_once; then
+        ensure_apt_deps
+        success "apt ready"
+    else
+        # Not fatal: one dead source fails the whole refresh even though every
+        # other list updated and installs still work. Say so plainly here
+        # instead of printing "apt ready" and letting the next step look like
+        # the thing that broke.
+        substep "${C_YELLOW}Package index did not refresh cleanly${C_RESET}"
+        apt_index_report
+        substep "${C_DIM}Continuing — installs usually still work when one source is broken${C_RESET}"
+        ensure_apt_deps
+        success "apt ready (index refreshed with errors)"
+    fi
+fi
+
+if stow_wanted && ! command -v stow &>/dev/null; then
+    info "Installing stow..."
+    if [[ "$DISTRO" == "arch" ]]; then _stow_ok=0; pacman_install stow && _stow_ok=1
+    else _stow_ok=0; apt_install stow && _stow_ok=1
+    fi
+    if [ "$_stow_ok" -eq 0 ]; then
+        error "Failed to install stow — nothing can be linked into place without it."
+        install_error_tail
+        exit 1
+    fi
+    unset _stow_ok
+    success "stow installed"
+fi
 
 # ── Step 5a: install dep tools ───────────────────────────────────────────────
 STOWED_WALLPAPER=0

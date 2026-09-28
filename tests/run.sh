@@ -30,19 +30,22 @@ source "$HERE/harness.sh"
 echo "work dir: $WORK"
 echo
 
-# Keystroke scripts. Prompt order:
-#   privacy (1 key) · existing configs (1 key) · [menus] · Proceed?
+# Keystroke scripts. Prompt order, for a run that reaches them all:
+#   [menus] · privacy (1 key, numbered lists only) ·
+#   existing configs (1 key, only with something of yours in the way) · Proceed?
 #
-# Both single-key prompts come first for a reason: `read -n 1` switches the tty
-# to raw mode and the pending input queue is dropped with it, so a keystroke
-# written minutes earlier is gone by the time a later pick2 asks for it.
+# A plain file of bytes is enough only where every prompt is a line read:
+# `read -n 1` switches the tty to raw mode and the pending input queue is
+# dropped with it, so anything typed ahead of a pick2 is gone by the time it
+# asks. The two single-key prompts used to be the first thing every run asked
+# for exactly that reason; they come after the selection now, so any run that
+# can reach one is driven by a script that waits for it (answer, below).
 # Trailing Enters are padding: `script` delivers EOF to exactly one read and
 # blocks every one after it, so a file that runs out one prompt early hangs for
 # the full timeout instead of failing an assertion. Every prompt past the last
 # meaningful key defaults to yes on Enter.
 printf '\n\n\n\n\n'        > "$WORK/k-sel"      # selection came from --configs/--tools/--apps
 printf ''                  > "$WORK/k-none"     # nothing at all — for runs that must not read a key
-printf '\n\n2\n\n\n\n\n'   > "$WORK/k-num"      # numbered menus: config 2, skip, skip
 printf 'n\n'              > "$WORK/k-no"       # one "no" nobody is allowed to read — see the unattended Proceed
 # k-private is gone: a run whose selection comes from the environment is not
 # asked about privacy at all, it is told — DOTFILES_PRIVATE=1 / --private.
@@ -58,13 +61,28 @@ wait_for() {            # wait_for <text> — until it shows up in the transcrip
     done
     return 1
 }
+# Wait for a prompt, give the read behind it a moment to start, then type.
+answer()    { wait_for "$1"; sleep 0.3; printf "$2"; sleep 0.3; }
 menu_up()   { wait_for 'ctrl-d review'; sleep 0.3; }
-confirm()   { wait_for 'Proceed'; printf '\n'; sleep 1; }
+# A dry run ends at the plan instead of asking; either one ends the script.
+confirm()   { wait_for 'Proceed\|dry run'; printf '\n'; sleep 1; }
+FEED
+
+# The numbered lists: config 2, no tools, no apps. On every box these run on
+# that is bash, and the seeded ~/.bashrc is the user's — so after the privacy
+# question comes the existing-configs one, and both take Enter.
+cat > "$WORK/k-num.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+answer 'Choice (e.g. 1 4' '2\n'
+answer 'Choice (e.g. 1 2' '\n'
+answer 'Choice (e.g. 1 3' '\n'
+answer 'remove and scrub everything above' '\n'    # privacy → keep
+answer 'wipe cleanly, no backup kept' '\n'         # ~/.bashrc is yours → backup
+confirm
 FEED
 
 cat > "$WORK/k-tui.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'                       # privacy, existing configs
 menu_up
 printf ' '; sleep 0.3                # tick the row under the cursor
 printf '\004'; sleep 0.4             # ctrl-d → review
@@ -74,7 +92,6 @@ FEED
 
 cat > "$WORK/k-tui-zsh.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf '\033[B'; sleep 0.3            # down to bash
 printf '\033[B'; sleep 0.3            # down to zsh
@@ -86,13 +103,13 @@ FEED
 
 cat > "$WORK/k-tui-esc.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf ' '; sleep 0.3
 printf '\033'; sleep 1               # esc — cancels the whole run
 FEED
-printf 'y\n\n\n\n'         > "$WORK/k-lock-yes" # "yes, stop the updater"
-printf 'n\n\n\n\n'         > "$WORK/k-lock-no"  # "no, leave it"
+# Attended, but every prompt a line read: the numbered lists pick git, then
+# Proceed, then "no" to stopping the updater that holds the apt lock.
+printf '6\n\n\n\nn\n\n\n\n' > "$WORK/k-lock-no"
 # --restore-bash skips every prompt above it and asks exactly one question.
 printf '\n\n'          > "$WORK/k-restore"    # Proceed? → yes
 printf 'n\n'           > "$WORK/k-restore-no" # Proceed? → no
@@ -122,7 +139,7 @@ echo "── scenarios ───────────────────
 run ubuntu-headless ubuntu "$WORK/k-sel" \
     DOTFILES_CONFIGS="zsh,git" SSH_CONNECTION="10.0.0.2 22 10.0.0.1 22"
 check   ubuntu-headless 0
-want    ubuntu-headless 'Tools verified'                  'stow+fzf installed'
+want    ubuntu-headless 'Dep tools: .*fzf'                'fzf comes with zsh, as a tool'
 want    ubuntu-headless 'zsh needs these for its aliases' 'zsh pulls the toolchain'
 want    ubuntu-headless 'adding starship'                 'zsh pulls starship'
 want    ubuntu-headless 'ssh -O exit'                     'SSH multiplexing hint'
@@ -132,15 +149,15 @@ nowant  ubuntu-headless 'Failed \([1-9]'                  'nothing failed'
 run ubuntu-root ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" STUB_FAKE_ROOT=1
 check   ubuntu-root 0
 want    ubuntu-root 'Running as root'                     'root path taken'
-want    ubuntu-root 'Tools verified'                      'installs work as root'
+want    ubuntu-root 'Installed \('                        'installs work as root'
 
 # 3. Debian 12 on a terminal that cannot draw the menu (TERM=dumb, which is the
 #    harness default) — the numbered lists have to carry the whole selection.
-STUB_NO_FZF=1 run debian-nofzf debian "$WORK/k-num" STUB_NO_FZF=1
+STUB_NO_FZF=1 run debian-nofzf debian "$WORK/k-num.sh" STUB_NO_FZF=1
 check   debian-nofzf 0
 want    debian-nofzf 'cannot draw the menu'               'fallback taken'
 want    debian-nofzf 'Choice \(e.g. 1 4'                  'numbered list drawn'
-want    debian-nofzf 'Tools verified'                     'installs work'
+want    debian-nofzf 'Installed \('                       'installs work'
 
 # 4. A third-party repo is broken, so every apt-get update exits non-zero.
 STUB_BROKEN_REPO=1 run ubuntu-badrepo ubuntu "$WORK/k-sel" \
@@ -158,15 +175,45 @@ nowant  ubuntu-badrepo '\[ok\] apt ready$'                        'no bare succe
 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run arch-desktop arch "$WORK/k-sel" \
     DOTFILES_CONFIGS="zsh,git"
 check   arch-desktop 0
-want    arch-desktop 'Tools verified'                     'pacman path works'
+want    arch-desktop 'Installed \('                       'pacman path works'
 
 # 5b. Arch box that already has yay: it is used as-is, no paru is built.
 STUB_YAY_ONLY=1 run arch-yay arch "$WORK/k-sel" \
     DOTFILES_CONFIGS="git" STUB_YAY_ONLY=1
 check   arch-yay 0
 want    arch-yay 'yay already installed'          'existing helper reused'
-nowant  arch-yay 'installing paru'                'no bootstrap'
+nowant  arch-yay 'bootstrap paru'                 'no bootstrap'
 nowant  arch-yay 'Cloning'                        'nothing cloned from the AUR'
+
+# 5c. No helper at all. Bootstrapping paru used to happen before the menu, on
+#     every Arch run, whatever was picked — so it is planned now, and only for
+#     a run with something headed for the AUR. orca is AUR-only, git is not.
+#     Dry runs: the plan is the assertion, and nothing may be built for real.
+STUB_NO_AUR=1 RUN_ARGS="--dry-run --apps=orca" run arch-noaur arch "$WORK/k-sel"
+check   arch-noaur 0
+want    arch-noaur 'bootstrap paru'               'an AUR package puts paru in the plan'
+nowant  arch-noaur 'Cloning'                      'and a dry run builds nothing'
+STUB_NO_AUR=1 RUN_ARGS="--dry-run --configs=git" run arch-noaur-repo arch "$WORK/k-sel"
+check   arch-noaur-repo 0
+nowant  arch-noaur-repo 'bootstrap paru'          'a repo-only run needs no AUR helper'
+
+# 5d. No stow. It is only needed to link something, so it is installed after
+#     Proceed and only then: a config run gets it, an apps-only run does not.
+#     The host's own stow is kept out of the sandbox for exactly this.
+STUB_NO_STOW=1 run nostow-config ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="git"
+check   nostow-config 0
+want    nostow-config 'install stow'              'the plan lists it'
+want    nostow-config 'stow installed'            'and it is installed after Proceed'
+grep -qxF stow "$WORK/run/nostow-config/state/installed" \
+    && note nostow-config "stow came from apt" || bad nostow-config "stow was never installed"
+[ -L "$WORK/run/nostow-config/home/.gitconfig" ] \
+    && note nostow-config "and git was stowed with it" || bad nostow-config "~/.gitconfig not stowed"
+STUB_NO_STOW=1 run nostow-apps ubuntu "$WORK/k-sel" DOTFILES_APPS="hermes"
+check   nostow-apps 0
+nowant  nostow-apps 'stow'                        'an apps-only run never mentions stow'
+grep -qxF stow "$WORK/run/nostow-apps/state/installed" \
+    && bad nostow-apps "stow installed for a run that links nothing" \
+    || note nostow-apps "stow left uninstalled"
 
 # 6. WSL: real Ubuntu userland, no Linux-side fonts worth installing.
 run ubuntu-wsl ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" WSL_DISTRO_NAME=Ubuntu
@@ -202,13 +249,14 @@ check   ubuntu-locked-yes 0
 want    ubuntu-locked-yes 'Still locked by unattended-upgr'  'names the holder'
 want    ubuntu-locked-yes 'not asked, no one at the keyboard' 'stopped without asking'
 want    ubuntu-locked-yes 'Lock released'                    'holder stopped'
-want    ubuntu-locked-yes 'Tools verified'                   'install proceeds'
+want    ubuntu-locked-yes 'Installed \('                     'install proceeds'
 
 # 11. Genuinely attended (no DOTFILES_CONFIGS/TOOLS/APPS, so UNATTENDED stays
 # 0) and the user declines — must fail cleanly, not thrash. The privacy and
-# backup-mode prompts are answered by their own flags so the only interactive
-# question left is the lock one; the decline exits at the stow/fzf install in
-# step 2, before the menu in step 3 is ever reached, so no menu keys needed.
+# backup-mode prompts are answered by their own flags so every question left
+# is a line read: the numbered lists pick git, Proceed, and then the lock,
+# which the apt refresh only meets after Proceed now. The declined lock is
+# what fails git's install, and with it the run.
 STUB_LOCKED=1 run ubuntu-locked-no ubuntu "$WORK/k-lock-no" \
     STUB_LOCKED=1 DOTFILES_PRIVATE=1 DOTFILES_BACKUP_MODE=backup
 check   ubuntu-locked-no 1
@@ -221,7 +269,7 @@ STUB_DPKG_INTERRUPTED=1 run ubuntu-dpkg-broken ubuntu "$WORK/k-sel" \
     DOTFILES_CONFIGS="git" STUB_DPKG_INTERRUPTED=1
 check   ubuntu-dpkg-broken 0
 want    ubuntu-dpkg-broken 'dpkg was left half-configured'   'detected'
-want    ubuntu-dpkg-broken 'Tools verified'                  'repaired and continued'
+want    ubuntu-dpkg-broken 'Installed \('                    'repaired and continued'
 
 # 13. Picking bash stows the rc and keeps a pristine copy of the original.
 run ubuntu-bash ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="bash"
@@ -576,6 +624,10 @@ want    tui-tick 'Choose what to install'      'the menu ran'
 want    tui-tick 'Configs: .*fastfetch'        'space ticked the row under the cursor'
 nowant  tui-tick 'Choice \(e.g.'               'the numbered list was not used'
 nowant  tui-tick 'Cancelled'                   'ctrl-d twice accepted'
+# Nothing of the user's is in fastfetch's way here, so the one question that
+# used to open every run is not asked at all.
+nowant  tui-tick 'wipe cleanly'                'no backup question with nothing of yours in the way'
+want    tui-tick 'set on the selected tab'     'privacy came from the menu, not a prompt'
 
 # Ticking zsh has to pull starship and the tools in the menu itself, not in a
 # message after it closes.
@@ -599,7 +651,6 @@ d="$WORK/run/tui-esc/home"
 # Typing filters the menu you are in, and ticking works on what is left.
 cat > "$WORK/k-tui-search.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf 'git'; sleep 0.5               # filter down to one row
 printf ' '; sleep 0.4                 # tick it
@@ -618,7 +669,6 @@ want    tui-search 'installs +apt'             'the details pane says how the ro
 # of "git", matching nothing.
 cat > "$WORK/k-tui-delete.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf 'gi'; sleep 0.3
 printf '\033[3~'; sleep 0.3           # Delete
@@ -637,7 +687,6 @@ want    tui-delete 'Configs: git$'             'Delete key did not leak a ~ into
 # and protonvpn instead.
 cat > "$WORK/k-tui-inplace.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf ' '; sleep 0.3                 # fastfetch
 printf '\033[B'; sleep 0.3            # bash
@@ -652,10 +701,63 @@ check   tui-inplace 0
 want    tui-inplace 'Configs: fastfetch, zsh, starship$' 'space ticked where the cursor was, twice'
 nowant  tui-inplace 'Configs: .*protonvpn'      'and never the row after it'
 
+# Privacy is the row at the foot of the selected tab now, not a question asked
+# before the menu. ctrl-d lands on the tab, down steps over its heading onto
+# the toggle, space flips it.
+cat > "$WORK/k-tui-private.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+menu_up
+printf ' '; sleep 0.3                 # fastfetch
+printf '\004'; sleep 0.4              # ctrl-d → the selected tab
+printf '\033[B'; sleep 0.3            # past the heading, onto private mode
+printf ' '; sleep 0.4                 # on
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-private ubuntu "$WORK/k-tui-private.sh"
+check   tui-private 0
+want    tui-private 'private mode'             'the toggle is on the selected tab'
+want    tui-private 'repo traces'              'the plan shows what private removes'
+want    tui-private 'Stripping repo traces'    'and it ran at the end'
+nowant  tui-private 'remove and scrub everything above' 'no separate privacy question after the menu'
+[ -e "$WORK/run/tui-private/home/dotfiles/.git" ] \
+    && bad  tui-private ".git survived private mode" \
+    || note tui-private ".git is gone"
+
+# The dotfiles column says what happens to the config, and a config of the
+# user's in the way is what — and the only thing — that brings up the
+# backup/delete question, at the plan rather than before the menu. Answered
+# delete here, so the plan and the run both have to say delete.
+build_root "$WORK/run/tui-yours" ubuntu
+printf '[user]\n\tname = MINE\n' > "$WORK/run/tui-yours/home/.gitconfig"
+cat > "$WORK/k-tui-yours.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+menu_up
+printf 'git'; sleep 0.5
+printf ' '; sleep 0.4
+printf '\004'; sleep 0.4
+printf '\004'
+answer 'wipe cleanly, no backup kept' '\033[B'     # → delete
+printf '\n'; sleep 0.5
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
+    install_pass "$WORK/run/tui-yours" "$WORK/run/tui-yours" "$WORK/k-tui-yours.sh"
+check   tui-yours 0
+want    tui-yours 'git +yours'                 'the row said the config in the way is theirs'
+want    tui-yours 'yours, in the way: ~/.gitconfig' 'the question names what it is about'
+want    tui-yours 'delete ~/.gitconfig'        'the plan is worded for the answer'
+want    tui-yours 'Deleted ~/.gitconfig'       'and the run did what the plan said'
+h="$WORK/run/tui-yours/home"
+if [ -L "$h/.gitconfig" ] && [ ! -e "$h/.gitconfig.bak" ]; then
+    note tui-yours "ours is stowed, and no .bak was kept"
+else
+    bad  tui-yours "delete mode was not what ran"
+fi
+
 # ctrl-a takes the whole menu you are looking at, and nothing from the others.
 cat > "$WORK/k-tui-all.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf '\033[C'; sleep 0.5            # right → tools
 printf '\001'; sleep 0.5             # ctrl-a → all of them
@@ -679,7 +781,6 @@ run tui-grok-base ubuntu "$WORK/k-sel" DOTFILES_APPS="grok-cli"
 check tui-grok-base 0
 cat > "$WORK/k-tui-installed.sh" <<'FEED'
 . "$WORK/k-lib.sh"
-printf '\n\n'
 menu_up
 printf '\033[C'; sleep 0.3            # right → tools
 printf '\033[C'; sleep 0.3            # right → apps
@@ -714,13 +815,13 @@ want    tui-narrow 'Configs: .*fastfetch'      'usable on a small terminal'
 # actually needs (73, from NAMEW+STATEW+the description column's own floor) —
 # it used to draw and overflow its own box instead of falling back.
 STUB_TTY_ROWS=24 STUB_TTY_COLS=68 STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
-    run tui-toonarrow ubuntu "$WORK/k-num"
+    run tui-toonarrow ubuntu "$WORK/k-num.sh"
 check   tui-toonarrow 0
 want    tui-toonarrow 'cannot draw the menu'   'declined to draw at 68 columns'
 want    tui-toonarrow 'Choice \(e.g. 1 4'      'numbered list instead'
 
 # A pty with no size at all must fall back rather than draw a broken frame.
-STUB_NO_SIZE=1 STUB_TERM=xterm-256color run tui-nosize ubuntu "$WORK/k-num" STUB_NO_SIZE=1
+STUB_NO_SIZE=1 STUB_TERM=xterm-256color run tui-nosize ubuntu "$WORK/k-num.sh" STUB_NO_SIZE=1
 check   tui-nosize 0
 want    tui-nosize 'cannot draw the menu'      'declined to draw'
 want    tui-nosize 'Choice \(e.g. 1 4'         'numbered list instead'
@@ -869,7 +970,7 @@ else
 fi
 
 # ...and an attended run must still ask, or the confirmation is gone for good.
-run     attended-proceed ubuntu "$WORK/k-num"
+run     attended-proceed ubuntu "$WORK/k-num.sh"
 check   attended-proceed 0
 want    attended-proceed 'Proceed\? \[Y/n\]' 'a menu-driven run is still asked'
 nowant  attended-proceed 'Proceeding'  'and is not told it was not asked'
@@ -958,19 +1059,38 @@ nowant  flags-empty 'Choice \(e.g.'               'no menu drawn'
 # The two single-key prompts are the thing that made a truly unattended run
 # impossible: `read -n 1` under `curl … | bash` reads the download stream, and
 # under cloud-init it waits for a keyboard that is not there. A named selection
-# now answers both without asking, and says which answer it took.
-RUN_ARGS="--configs=git" run flags-noprompt ubuntu "$WORK/k-none"
+# now answers both without asking, and says which answer it took. A
+# ~/.gitconfig of the user's is seeded, or the backup question would not come
+# up at all — it is only ever about something in the way.
+build_root "$WORK/run/flags-noprompt" ubuntu
+printf '[user]\n\tname = MINE\n' > "$WORK/run/flags-noprompt/home/.gitconfig"
+RUN_ARGS="--configs=git" install_pass "$WORK/run/flags-noprompt" "$WORK/run/flags-noprompt" "$WORK/k-none"
 check   flags-noprompt 0
 want    flags-noprompt 'not asked — no one at the keyboard' 'the prompts are skipped, not defaulted silently'
 want    flags-noprompt 'the reversible answer'  'and backups are what it assumed'
 nowant  flags-noprompt 'navigate'               'neither pick2 was drawn'
+[ -e "$WORK/run/flags-noprompt/home/.gitconfig.bak" ] \
+    && note flags-noprompt "their ~/.gitconfig went to .bak" \
+    || bad  flags-noprompt "no .bak for the ~/.gitconfig in the way"
 
 # ... and the flags that answer them explicitly, including the one that is
 # never assumed: delete.
-RUN_ARGS="--configs=git --private --backup-mode=delete" run flags-answers ubuntu "$WORK/k-none"
+build_root "$WORK/run/flags-answers" ubuntu
+printf '[user]\n\tname = MINE\n' > "$WORK/run/flags-answers/home/.gitconfig"
+RUN_ARGS="--configs=git --private --backup-mode=delete" \
+    install_pass "$WORK/run/flags-answers" "$WORK/run/flags-answers" "$WORK/k-none"
 check   flags-answers 0
 want    flags-answers 'private given'          'privacy answered by flag'
 want    flags-answers 'backup-mode=delete'     'and the destructive mode named'
+[ -e "$WORK/run/flags-answers/home/.gitconfig.bak" ] \
+    && bad  flags-answers "a .bak was kept — delete mode did not run" \
+    || note flags-answers "delete mode kept no .bak"
+
+# Nothing of the user's in the way: the question has nothing to be about, so it
+# is not put, not even as a "not asked" line.
+RUN_ARGS="--configs=git" run flags-noconflict ubuntu "$WORK/k-none"
+check   flags-noconflict 0
+nowant  flags-noconflict 'Existing configs'     'no backup question with nothing in the way'
 
 # A bad mode is a stop, not a silent fallback to backup — the value decides
 # whether someone's config is moved or deleted.
@@ -1021,30 +1141,51 @@ nowant  list-headless 'ghostty'               'the terminal emulators do not'
 # A bare --dry-run still walks the menus, so it is NOT an unattended run: it
 # must ask the two questions rather than announce that nobody is there and then
 # wait for arrow keys.
-RUN_ARGS="--dry-run" run dry-bare ubuntu "$WORK/k-num"
+#
+# And it is a true no-op now. The apt refresh, the paru bootstrap and stow used
+# to run before the menu, so a dry run had installed things by the time it
+# printed "No changes made"; they wait for Proceed now and are rows in the plan.
+# So: no package installed, no privileged command run at all (sudo.log is the
+# stub's record of every one, and `sudo -v` is not asked for either), and a
+# checksum manifest of HOME that has not moved.
+dry_mf() { manifest "$WORK/run/$1/home"; }
+build_root "$WORK/run/dry-bare" ubuntu
+dry_mf dry-bare > "$WORK/mf-drybare-before"
+RUN_ARGS="--dry-run" install_pass "$WORK/run/dry-bare" "$WORK/run/dry-bare" "$WORK/k-num.sh"
 check   dry-bare 0
 nowant  dry-bare 'no one at the keyboard'  'a run that draws a menu does not claim otherwise'
 want    dry-bare 'dry run'                 'and still stops at the plan'
-# Steps 1-2 run real apt/pacman calls before show_plan's own DRY_RUN exit is
-# ever reached — these prove they were skipped rather than just the word "dry"
-# showing up somewhere in the transcript.
-want    dry-bare 'would refresh the package index'  'step 1 (apt bootstrap) did not run for real'
-want    dry-bare 'would install/update: stow fzf'   'step 2 (stow+fzf) did not run for real'
+want    dry-bare 'refresh the package index'  'the apt refresh is a plan row'
+nowant  dry-bare 'Updating package index'  'and did not happen'
+want    dry-bare 'Nothing here needs root' 'no password asked for'
 [ -s "$WORK/run/dry-bare/state/installed" ] && bad  dry-bare "a dry run installed a package for real" \
                                              || note dry-bare "nothing was installed"
+[ -e "$WORK/run/dry-bare/state/sudo.log" ] && bad  dry-bare "a dry run ran a privileged command" \
+                                            || note dry-bare "no privileged command ran"
+dry_mf dry-bare > "$WORK/mf-drybare-after"
+cmp -s "$WORK/mf-drybare-before" "$WORK/mf-drybare-after" \
+    && note dry-bare "HOME is byte-identical afterwards" \
+    || bad  dry-bare "a dry run wrote to HOME"
 
 # --dry-run with a named selection: the whole plan, nothing written.
-RUN_ARGS="--dry-run --configs=zsh --apps=docker" run flags-dry ubuntu "$WORK/k-sel"
+build_root "$WORK/run/flags-dry" ubuntu
+dry_mf flags-dry > "$WORK/mf-flagsdry-before"
+RUN_ARGS="--dry-run --configs=zsh --apps=docker" \
+    install_pass "$WORK/run/flags-dry" "$WORK/run/flags-dry" "$WORK/k-sel"
 check   flags-dry 0
 want    flags-dry 'Installation plan'          'the plan was printed'
 want    flags-dry 'dry run'                    'and stopped there'
-want    flags-dry 'would refresh the package index'  'step 1 (apt bootstrap) did not run for real'
-want    flags-dry 'would install/update: stow fzf'   'step 2 (stow+fzf) did not run for real'
-d="$WORK/run/flags-dry/home"
-[ -e "$d/.zshrc" ] && bad flags-dry "a dry run stowed something" \
-                   || note flags-dry "nothing written"
+want    flags-dry 'refresh the package index'  'the apt refresh is a plan row'
+nowant  flags-dry 'Updating package index'     'and did not happen'
 [ -s "$WORK/run/flags-dry/state/installed" ] && bad  flags-dry "a dry run installed a package for real" \
                                               || note flags-dry "nothing was installed"
+[ -e "$WORK/run/flags-dry/state/sudo.log" ] && bad  flags-dry "a dry run ran a privileged command" \
+                                             || note flags-dry "no privileged command ran"
+dry_mf flags-dry > "$WORK/mf-flagsdry-after"
+cmp -s "$WORK/mf-flagsdry-before" "$WORK/mf-flagsdry-after" \
+    && note flags-dry "HOME is byte-identical afterwards" \
+    || bad  flags-dry "a dry run wrote to HOME"
+unset -f dry_mf
 
 # "all" is the shorthand the numbered list has always had.
 run flags-all ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="all"
@@ -1393,7 +1534,7 @@ cmp -s "$WORK/mf-dry-before" "$WORK/mf-dry-after" \
 RUN_ARGS=--restore-bash rerun restore-undo restore-zsh "$WORK/k-restore"
 check   restore-undo 0
 want    restore-undo 'bash restored'                'reports success'
-nowant  restore-undo 'Tools verified'               'short-circuits before the installer'
+nowant  restore-undo 'Installation plan'             'short-circuits before the installer'
 cmp -s "$SEED_BASHRC" "$rb_zsh/.bashrc" \
     && note restore-undo "~/.bashrc is byte-identical to the original" \
     || bad  restore-undo "~/.bashrc came back changed"
@@ -1446,7 +1587,7 @@ cmp -s "$WORK/mf-decline-before" "$WORK/mf-decline-after" \
 rerun   restore-envvar restore-env "$WORK/k-restore" DOTFILES_RESTORE_BASH=1
 check   restore-envvar 0
 want    restore-envvar 'Restore bash'               'env var takes the restore path'
-nowant  restore-envvar 'Tools verified'             'short-circuits before the installer'
+nowant  restore-envvar 'Installation plan'           'short-circuits before the installer'
 cmp -s "$SEED_BASHRC" "$rb_env/.bashrc" \
     && note restore-envvar "~/.bashrc is byte-identical to the original" \
     || bad  restore-envvar "env var path restored something else"
@@ -1581,7 +1722,7 @@ if grep -q 'Interrupted' "$ipt/out.txt"; then note interrupt "says so"; else bad
 ipt2="$WORK/run/interrupt-menu"
 build_root "$ipt2" ubuntu
 mkfifo "$ipt2/keys"
-( exec 3>"$ipt2/keys"; printf '\n\n' >&3; sleep 8; printf '\003' >&3; sleep 15; exec 3>&- ) &
+( exec 3>"$ipt2/keys"; sleep 8; printf '\003' >&3; sleep 15; exec 3>&- ) &
 holder2=$!
 irc2=0
 ( cd "$ipt2/home/dotfiles" && env -i ${ENV_SIGDFL[@]+"${ENV_SIGDFL[@]}"} \
@@ -2032,9 +2173,11 @@ else
 fi
 
 # The plan's ".old.bak will be discarded" warning globbed a literal ~/.config,
-# so under XDG_CONFIG_HOME it never fired.
+# so under XDG_CONFIG_HOME it never fired. It only fires on a plan that backs
+# something up, so a real micro config of the user's is what it backs up.
 build_root "$WORK/run/xdg-oldbak" ubuntu
-mkdir -p "$WORK/run/xdg-oldbak/home/xdg/micro.old.bak"
+mkdir -p "$WORK/run/xdg-oldbak/home/xdg/micro.old.bak" "$WORK/run/xdg-oldbak/home/xdg/micro"
+echo '{}' > "$WORK/run/xdg-oldbak/home/xdg/micro/settings.json"
 RUN_ARGS="--dry-run" install_pass "$WORK/run/xdg-oldbak" "$WORK/run/xdg-oldbak" "$WORK/k-sel" \
     DOTFILES_CONFIGS="micro" XDG_CONFIG_HOME="$WORK/run/xdg-oldbak/home/xdg"
 check xdg-oldbak 0

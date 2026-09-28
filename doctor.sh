@@ -167,9 +167,14 @@ declare -A ALT_BIN=([bat]=batcat [fd]=fdfind [ripgrep]=rg)
 declare -A ALT_SHIM=([bat]=1 [fd]=1)
 # The dep tools come from install.sh; the handful before them are this
 # script's own choice — what the installer itself needs to work at all, plus
-# the two editors and the runtime the statusline renders through.
+# the two editors and the runtime the statusline renders through. Each name is
+# printed once: fzf is on both lists now it is a tool, and so could anything
+# else that becomes one.
+declare -A _seen=()
 for c in stow fzf git zsh starship fastfetch micro fresh bun \
          $(pcl '$1=="tool" {print $2}'); do
+    [ -n "${_seen[$c]:-}" ] && continue
+    _seen[$c]=1
     p="$(PATH="$CURL_APP_PATH:$PATH" command -v "$c")"
     if [ -z "$p" ] && [ -n "${ALT_BIN[$c]:-}" ]; then
         p="$(PATH="$CURL_APP_PATH:$PATH" command -v "${ALT_BIN[$c]}")"

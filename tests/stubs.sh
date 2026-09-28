@@ -336,6 +336,9 @@ for p in "${pkgs[@]}"; do
 done
 exit $rc
 EOF
+# The same stub, as the thing a package manager installs — so a scenario that
+# starts with no stow (STUB_NO_STOW) gets a working one back from apt/pacman.
+cp "$BIN/stow" "$TPL/stow"
 
 # ── Arch side ────────────────────────────────────────────────────────────────
 w pacman <<'EOF'
@@ -807,10 +810,10 @@ wt git <<'EOF'
 exec /usr/bin/git "$@"
 EOF
 
-# ── a system bin mirror without fzf, the AUR helpers, unzip or tailscale ─────
+# ── a system bin mirror without fzf, stow, the AUR helpers, unzip or tailscale
 # so "fzf is not installed yet" is actually true inside a scenario — and so a
-# host that happens to have paru, yay or unzip cannot leak one into a sandbox
-# that is meant to be without it (the stub PATH provides its own).
+# host that happens to have stow, paru, yay or unzip cannot leak one into a
+# sandbox that is meant to be without it (the stub PATH provides its own).
 # tailscale is here for the same reason and one more: it is the only curl app
 # whose installer puts the binary in a *system* bin, so an author who has it on
 # the machine would see "already installed" and never run the install path at
@@ -819,6 +822,6 @@ SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|paru|yay|unzip|tailscale) continue ;; esac
+    case "$b" in fzf|stow|paru|yay|unzip|tailscale) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done

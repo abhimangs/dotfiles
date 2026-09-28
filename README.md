@@ -26,7 +26,7 @@ bash install.sh
 
 | Flag | Effect |
 |------|--------|
-| `--dry-run` | Walks the menus and prints the full plan, then exits without touching a dotfile. It is not a no-op on the machine: the AUR helper (Arch) or apt prerequisites, plus `stow` and `fzf`, are installed before the plan can be built, since the plan describes what *those* would do |
+| `--dry-run` | Walks the menus and prints the full plan, then exits. A true no-op: nothing is installed, nothing is written and no password is asked for, because everything that changes the machine, the AUR helper bootstrap, the apt refresh and `stow` included, waits for *Proceed* and is listed in the plan instead |
 | `--gui` | Forces the desktop menus on a machine detected as headless (e.g. provisioning a box before its desktop environment is up) |
 | `--restore-bash` | Undoes the zsh setup (rc files, the `.bashrc` hand-off hook, and the login shell). Runs alone, skipping every menu |
 | `--uninstall[=LIST]` | Unstows the configs this repo installed and moves any `.bak` back into place. `LIST` is comma-separated — any config, or a tool or app that carries one (`tmux`, `alacritty`) — or all of them when left out. Runs alone, prints its plan first, and defaults to *no*. **Removes no packages** — that is a separate decision it does not make for you, and the login shell stays where it is (`--restore-bash` owns that) |
@@ -44,7 +44,7 @@ bash install.sh
 
 Any of the three selection flags may be left out, which means "none of those": `--apps=docker` on its own installs Docker and touches no dotfile. An unknown name exits 2 with the list of real ones rather than quietly installing nothing.
 
-**Unattended runs.** Naming a selection means nobody is at the keyboard: no menu is drawn, and neither the two single-key questions (privacy, and what happens to existing configs) nor the *Proceed?* confirmation is asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. Naming what to install *is* the confirmation, so the plan prints and the run proceeds. So this is a complete, hands-off install:
+**Unattended runs.** Naming a selection means nobody is at the keyboard: no menu is drawn, and neither the two single-key questions (privacy, and what happens to configs of yours that are in the way) nor the *Proceed?* confirmation is asked at all. They take the answers Enter would have given, *keep* and *backup*, and the transcript says it assumed them. `--private` and `--backup-mode=` answer them outright; `delete` is only ever reached by asking for it, never by the default. Naming what to install *is* the confirmation, so the plan prints and the run proceeds. So this is a complete, hands-off install:
 
 ```bash
 curl -fsSL https://abhiman.io/linux.sh \
@@ -132,15 +132,15 @@ merge is deliberately conservative:
 ## Installer features
 
 - **One menu**: dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
-- **Dep tools tab**: bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux (all of them come automatically with zsh, see below)
+- **Dep tools tab**: bat, eza, fd, fzf, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux (all of them come automatically with zsh, see below)
 - **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
-- **Confirmation plan**: shows exactly what will be installed before proceeding
+- **Confirmation plan**: shows exactly what will be installed before proceeding, and nothing touches the machine before you say yes to it: the AUR helper, the apt refresh and `stow` are the plan's first rows, not something that already happened
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
 - **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
-- **Private mode**: its own first question, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
+- **Private mode**: a toggle on the menu's review tab, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
 - **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
 - **Repo before AUR**: on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
-- **paru or yay**: whichever is already installed is used; if neither is, paru is bootstrapped (`paru-bin` first, so there is no rust toolchain to compile)
+- **paru or yay**: whichever is already installed is used; if neither is, and the run has something headed for the AUR, paru is bootstrapped after you confirm the plan (`paru-bin` first, so there is no rust toolchain to compile)
 - **Shell change**: switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
 - **Reversible**: `~/.bashrc` is copied once before anything touches it, and `--restore-bash` puts it back byte for byte along with your login shell (see below)
 - **Headless aware**: on a machine with no display server, GUI configs and apps are hidden (see below)
@@ -162,13 +162,15 @@ One screen, four tabs (**dotfiles · tools · apps · selected**), and only one 
 | `ctrl-d` | review everything ticked; `ctrl-d` again starts the install |
 | `esc` | cancel the run |
 
-Every row says what will happen to it. On the dotfiles tab that is the config: `linked` (ours is already in place), `yours` (a file of yours is there and will be moved to `.bak`, or deleted in delete mode) or `new`. On the tools and apps tabs it is the package: `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
+Every row says what will happen to it. On the dotfiles tab that is the config: `linked` (ours is already in place), `yours` (a file of yours is there and will be backed up, or deleted if you choose that at the plan) or `new`. On the tools and apps tabs it is the package: `new`, `installed`, or `update` when it is installed and your package db has a newer version. Ticking `zsh` ticks starship and the tools with it, in the menu, where you can see it and untick any of them.
 
-The apps tab is grouped under headings (browsers, editors, terminals, AI agents and so on); the cursor and the bulk keys skip them, and a search hides a group with nothing left in it. The details pane on the right wraps rather than truncates, and says how the row installs (pacman, the AUR, apt, a vendor repo or `.deb`, or the curl script it fetches, URL included), the package state, where a config lands and anything worth knowing afterwards, such as `run 'hermes setup' after`. The **selected** tab ends with a **private mode** row, the same switch as the privacy question.
+The apps tab is grouped under headings (browsers, editors, terminals, AI agents and so on); the cursor and the bulk keys skip them, and a search hides a group with nothing left in it. The details pane on the right wraps rather than truncates, and says how the row installs (pacman, the AUR, apt, a vendor repo or `.deb`, or the curl script it fetches, URL included), the package state, where a config lands and anything worth knowing afterwards, such as `run 'hermes setup' after`.
 
-It is drawn by the installer rather than by fzf. fzf is still installed (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is remapped to autosuggest-accept) but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
+The **selected** tab ends with a **private mode** row: tick it to strip the repo traces at the end of the run (see [Private mode](#private-mode)). The one other question, what happens to configs of yours that are in the way, is asked at the plan, and only when there is something of yours in the way.
 
-On a terminal that genuinely cannot draw it (no tty, no window size, `TERM=dumb`), the installer falls back to numbered lists. `--ascii` and `--no-color` do *not* trigger the fallback; the menu adapts.
+It is drawn by the installer rather than by fzf. fzf is a tool in the tools tab now, pulled in by zsh (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is remapped to autosuggest-accept), but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
+
+On a terminal that genuinely cannot draw it (no tty, no window size, `TERM=dumb`), the installer falls back to numbered lists, and asks the privacy question on its own once they are answered. `--ascii` and `--no-color` do *not* trigger the fallback; the menu adapts.
 
 ### Going back to bash
 
@@ -267,7 +269,7 @@ path:
 Everything in `.zshrc` is guarded by `command -v`, so a missing tool means a silently absent feature rather than an error. Selecting `zsh` therefore also installs:
 
 - **starship**: the entire prompt is `eval "$(starship init zsh)"`
-- **bat, eza, fd, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux**: the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-F`/`Alt-C` integration
+- **bat, eza, fd, fzf, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux**: the `ls`/`ll`/`cat`/`z`/`lg`/`fuck` aliases and fzf's `Ctrl-F`/`Alt-C` integration
 
 Anything already ticked is not added twice, and all of these remain selectable on their own if you are not using zsh.
 
@@ -304,7 +306,7 @@ echo "export EDITOR='code --wait'" >> ~/.zshrc.local
 
 ### Private mode
 
-Privacy is its own question, asked before anything else, and it prints the exact list before you choose, nothing is a surprise afterwards. Answering `private` means the machine keeps no sign of where the configs came from or whose they are.
+Privacy is its own decision, made once you have picked what to install: the **private mode** row at the foot of the menu's selected tab, whose details list exactly what it removes, or a question of its own after the numbered lists, which prints the same list before you choose. Nothing is a surprise afterwards. Choosing `private` means the machine keeps no sign of where the configs came from or whose they are.
 
 **Deleted outright** (repo scaffolding, no value once the configs are stowed):
 `menu_temp` `.git` `.github` `.gitignore` `.gitattributes` `.editorconfig` `.shellcheckrc` `tests/` `README.md` `CLAUDE.md` `AGENTS.md` `LICENSE` `linux.sh` `.claude` `.codex` `.cursor`
@@ -321,7 +323,7 @@ Privacy is its own question, asked before anything else, and it prints the exact
 
 The byline and the URL are matched structurally, not by name, so the installer itself carries no identity to leak. The config folders, `install.sh` and `doctor.sh` stay: the symlinks have to keep resolving, the installer has to be re-runnable, and `doctor.sh` is what you run when something misbehaves afterwards. It names nobody and nothing remote, and it already reports the git metadata as `stripped (private mode)`.
 
-What happens to *existing* configs is asked separately, straight after:
+What happens to *existing* configs is a separate question, asked at the plan and only when the plan would replace something of yours, with the paths it is about:
 
 | Row | Effect |
 |-----|--------|

@@ -195,6 +195,10 @@ PKGS
     cp -a "$WORK/bin" "$root/bin"
     [ "${STUB_NO_FZF:-0}" = 1 ] && rm -f "$root/bin/fzf"
     [ "${STUB_YAY_ONLY:-0}" = 1 ] && rm -f "$root/bin/paru"
+    # No AUR helper at all, and no stow: the two things the plan now lists as
+    # "first" and the run installs only after Proceed, only when needed.
+    [ "${STUB_NO_AUR:-0}" = 1 ] && rm -f "$root/bin/paru" "$root/bin/yay"
+    [ "${STUB_NO_STOW:-0}" = 1 ] && rm -f "$root/bin/stow"
     # A box without unzip, which is neither distro's base install. bun's stub
     # installer refuses to run without it, so this is what makes ensure_unzip
     # something the suite can see.
