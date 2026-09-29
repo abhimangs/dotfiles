@@ -135,12 +135,12 @@ merge is deliberately conservative:
 
 - **One menu**: dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab**: bat, eza, fd, fzf, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux, jq, yazi, atuin, lazydocker, ncdu (the ones `.zshrc` calls come automatically with zsh, see below)
-- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Postman CLI, Bun, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
+- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Zed, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Ollama, Postman CLI, Bun, uv, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, Bitwarden, KeePassXC, LocalSend, Syncthing, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
 - **Confirmation plan**: shows exactly what will be installed before proceeding, and nothing touches the machine before you say yes to it: the AUR helper, the apt refresh and `stow` are the plan's first rows, not something that already happened
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
 - **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
 - **Private mode**: a toggle on the menu's review tab, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
-- **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
+- **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral, Ollama) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
 - **Repo before AUR**: on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
 - **paru or yay**: whichever is already installed is used; if neither is, and the run has something headed for the AUR, paru is bootstrapped after you confirm the plan (`paru-bin` first, so there is no rust toolchain to compile)
 - **Shell change**: switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
@@ -266,7 +266,7 @@ path:
 
 `claude-desktop` runs the other way around: Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
 
-### Where the newer tools come from
+### Where the newer tools and apps come from
 
 None of these is Arch-only: every one has a real path on Debian 12, Debian 13 and Ubuntu 24.04, so none is stripped there.
 
@@ -276,6 +276,13 @@ None of these is Arch-only: every one has a real path on Debian 12, Debian 13 an
 | `yazi` *(tool)* | extra | GitHub release `.deb`, the **musl** build: the gnu one needs glibc 2.39, which Debian 12 lacks. Its preview helpers (ffmpeg, imagemagick, …) are recommends and are not installed |
 | `atuin` *(tool)* | extra | apt on Debian 13, the static musl release tarball elsewhere (not `setup.atuin.sh`, which edits the rc files) |
 | `lazydocker` *(tool)* | extra | release tarball into `/usr/local/bin`, lazygit's route, checksum verified |
+| Zed | extra | Zed's own installer into `~/.local/zed.app`, which writes no rc file |
+| Ollama | Ollama's installer | Ollama's installer — on Arch too, like Tailscale: it detects the GPU, fetches the matching runtime and creates `ollama.service`, where `extra/ollama` is the CPU build. Rerunning it is its upgrade |
+| uv | extra | Astral's installer with `UV_NO_MODIFY_PATH=1` |
+| Bitwarden | extra | the `.deb` bitwarden.com links to (amd64 only upstream) |
+| KeePassXC | extra | apt |
+| LocalSend | AUR `localsend-bin` | GitHub release `.deb` |
+| Syncthing | extra | Syncthing's own apt repo, `stable-v2` — the archives carry 1.19 (Debian 12) and 1.27 (Ubuntu 24.04). It is not started for you: `systemctl --user enable --now syncthing` |
 
 ### Selecting zsh installs the whole shell
 

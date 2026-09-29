@@ -551,14 +551,14 @@ grep -qxF gh "$WORK/run/deb-gh-fallback/state/installed" \
     || bad  deb-gh-fallback "no gh after the release-deb fallback"
 
 # 15i. bun is the one curl app with a prerequisite of its own: the installer
-#      unpacks a zip, so ensure_unzip has to run first, and unzip is in neither
+#      unpacks a zip, so ensure_cmd unzip has to run first, and unzip is in neither
 #      distro's base install. Apps only — the font step wants unzip too, and
 #      with no config selected it never runs, so this stays about bun. The stub
-#      installer exits 1 without unzip, so a dropped ensure_unzip fails here.
+#      installer exits 1 without unzip, so a dropped ensure_cmd unzip fails here.
 STUB_NO_UNZIP=1 run bun-unzip ubuntu "$WORK/k-sel" DOTFILES_APPS="bun"
 check   bun-unzip 0
 grep -qxF unzip "$WORK/run/bun-unzip/state/installed" \
-    && note bun-unzip "ensure_unzip installed it first" \
+    && note bun-unzip "ensure_cmd unzip installed it first" \
     || bad  bun-unzip "unzip was never installed"
 [ -x "$WORK/run/bun-unzip/home/.bun/bin/bun" ] \
     && note bun-unzip "bun installed" || bad bun-unzip "no bun binary"
@@ -673,6 +673,79 @@ rerun   deb-newtools-again deb-newtools "$WORK/k-sel" DOTFILES_TOOLS="lazydocker
 check   deb-newtools-again 0
 want    deb-newtools-again 'lazydocker already installed' 'lazydocker found outside dpkg'
 want    deb-newtools-again 'atuin already installed'      'and so is atuin'
+
+# 15o. The new apps on Arch: five from extra, LocalSend through the AUR as
+#      localsend-bin, and Ollama through its own installer, tailscale-style —
+#      root via the cached sudo, the binary in a system bin, the unit enabled
+#      by the installer. --gui because four of them need a display.
+RUN_ARGS=--gui run arch-newapps arch "$WORK/k-sel" \
+    DOTFILES_APPS="zed,uv,bitwarden,keepassxc,localsend,syncthing,ollama"
+check   arch-newapps 0
+nowant  arch-newapps 'Failed \('  'every new app installed'
+d="$WORK/run/arch-newapps"
+for p in zed uv bitwarden keepassxc syncthing localsend-bin; do
+    grep -qxF "$p" "$d/state/installed" && note arch-newapps "$p installed" \
+                                         || bad  arch-newapps "$p missing"
+done
+grep -qxF localsend-bin "$d/state/aur-installed" 2>/dev/null \
+    && note arch-newapps "localsend-bin came through the AUR helper" \
+    || bad  arch-newapps "localsend-bin never reached the AUR fallback"
+[ -x "$d/bin/ollama" ] && note arch-newapps "ollama installed by its own installer" \
+                       || bad  arch-newapps "no ollama on PATH after its installer ran"
+grep -q 'systemctl enable ollama' "$d/state/sudo.log" \
+    && note arch-newapps "and the installer enabled ollama.service" \
+    || bad  arch-newapps "the installer never enabled ollama.service"
+want    arch-newapps 'ollama run <model>'  'the run says how to start a chat'
+want    arch-newapps 'systemctl --user enable --now syncthing' 'and how to start syncthing'
+
+# 15p. The same apps on Debian 12, where every one takes a different road: the
+#      archive (keepassxc), Syncthing's own apt repo (the archive's is 1.19),
+#      a vendor .deb behind a 302 (bitwarden) and a release .deb (localsend).
+RUN_ARGS=--gui run debian-newapps debian "$WORK/k-sel" \
+    DOTFILES_APPS="bitwarden,keepassxc,localsend,syncthing"
+check   debian-newapps 0
+nowant  debian-newapps 'Failed \('  'every new app installed'
+d="$WORK/run/debian-newapps"
+for p in bitwarden keepassxc localsend syncthing; do
+    grep -qxF "$p" "$d/state/installed" && note debian-newapps "$p installed" \
+                                         || bad  debian-newapps "$p missing"
+done
+if grep -qs 'https://apt.syncthing.net/ syncthing stable-v2' "$d/etc/apt/sources.list.d/syncthing.list"; then
+    note debian-newapps "syncthing.list points at Syncthing's stable-v2 channel"
+else
+    bad  debian-newapps "syncthing.list missing or not the stable-v2 channel"
+fi
+[ -s "$d/etc/apt/keyrings/syncthing-archive-keyring.gpg" ] \
+    && note debian-newapps "its keyring written" || bad debian-newapps "syncthing keyring missing"
+
+# 15q. uv, Zed and Ollama are curl apps on Debian/Ubuntu. uv's installer is the
+#      one mistral-cli reaches by inheritance, so the same rc-file sweep applies
+#      to it asked for directly; Zed's writes no rc file at all.
+RUN_ARGS=--gui run curl-newapps ubuntu "$WORK/k-sel" DOTFILES_APPS="uv,zed,ollama"
+check   curl-newapps 0
+nowant  curl-newapps 'Failed \('  'all three installed'
+d="$WORK/run/curl-newapps"
+for b in .local/bin/uv .local/bin/zed; do
+    [ -x "$d/home/$b" ] && note curl-newapps "${b##*/} installed in ~/${b%/*}" \
+                        || bad  curl-newapps "no ${b##*/} at ~/$b"
+done
+[ -x "$d/bin/ollama" ] && note curl-newapps "ollama installed in the system bin" \
+                       || bad  curl-newapps "no ollama after its installer ran"
+if grep -rqs 'STUB PATH BLOCK' "$d/home"; then
+    bad  curl-newapps "an installer edited a shell rc — UV_NO_MODIFY_PATH did not arrive"
+else
+    note curl-newapps "no installer touched a shell rc"
+fi
+RUN_ARGS=--gui rerun curl-newapps-again curl-newapps "$WORK/k-sel" DOTFILES_APPS="uv,zed,ollama"
+check   curl-newapps-again 0
+want    curl-newapps-again 'uv already installed'  'uv found in ~/.local/bin'
+want    curl-newapps-again 'Zed already installed' 'Zed found in ~/.local/bin'
+nowant  curl-newapps-again 'Downloading installer for .*(uv|Zed)' 'neither reinstalled — no updater of ours to run'
+# There is no `ollama update`; running the installer again is upstream's
+# documented upgrade, and the plan says so before it happens.
+want    curl-newapps-again 'Ollama already installed — installer runs again to update' \
+                                                   'the plan discloses the reinstall'
+want    curl-newapps-again 'Downloading installer for .*Ollama' 'and it runs'
 
 echo
 echo "── the menu ─────────────────────────────────────────────"

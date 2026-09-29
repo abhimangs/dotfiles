@@ -190,11 +190,17 @@ ncdu
 yazi
 atuin
 lazydocker
+zed
+uv
+bitwarden
+keepassxc
+syncthing
+localsend-bin
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
     # AUR fallback for them, which is how they install on a real Arch box.
-    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\n' > "$root/state/aur-only"
+    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\nlocalsend-bin\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 
@@ -209,7 +215,7 @@ PKGS
     [ "${STUB_NO_AUR:-0}" = 1 ] && rm -f "$root/bin/paru" "$root/bin/yay"
     [ "${STUB_NO_STOW:-0}" = 1 ] && rm -f "$root/bin/stow"
     # A box without unzip, which is neither distro's base install. bun's stub
-    # installer refuses to run without it, so this is what makes ensure_unzip
+    # installer refuses to run without it, so this is what makes ensure_cmd unzip
     # something the suite can see.
     [ "${STUB_NO_UNZIP:-0}" = 1 ] && rm -f "$root/bin/unzip"
     [ "${STUB_DEAD_GIT:-0}" = 1 ] && {

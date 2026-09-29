@@ -274,7 +274,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -1790,7 +1790,7 @@ APT_OWN_PPAS='lazygit-team|zhangsongcui3371|agornostal|aslatter'
 # left out of here, the one file written to heal a broken index was the one file
 # that could break it for good. zz-dotfiles-fallback is its pre-rename name, kept
 # so a machine that ran that version can still be healed.
-APT_OWN_SOURCES='gierens|vscode|claude-desktop|brave-browser-.*|wezterm|slack|docker|zz-installer-fallback|zz-dotfiles-fallback'
+APT_OWN_SOURCES='gierens|vscode|claude-desktop|brave-browser-.*|wezterm|slack|docker|syncthing|zz-installer-fallback|zz-dotfiles-fallback'
 APT_HEALED=0
 
 # An earlier run may have added a source that has since stopped publishing for
@@ -1964,11 +1964,13 @@ ensure_apt_deps() {
     fi
 }
 
-# Vendor installers that ship a zip (the fonts, bun) need it, and it is in
-# neither distro's base install.
-ensure_unzip() {
-    command -v unzip &>/dev/null && return 0
-    if [[ "$DISTRO" == "arch" ]]; then arch_install unzip; else apt_install unzip; fi
+# Vendor installers unpack an archive with a tool no base install promises:
+# unzip for the fonts and bun, zstd for ollama (its releases are .tar.zst only,
+# and its installer stops dead without one). Package and binary share the name
+# on both distros.
+ensure_cmd() {                  # ensure_cmd <tool>
+    command -v "$1" &>/dev/null && return 0
+    if [[ "$DISTRO" == "arch" ]]; then arch_install "$1"; else apt_install "$1"; fi
 }
 
 # A PPA that has no build for the running release does not just fail to
@@ -2625,6 +2627,50 @@ ensure_discord_canary_deb() {
     apt_pkg_installed discord-canary
 }
 
+# ── Bitwarden (Debian/Ubuntu) ─────────────────────────────────────────────────
+# No apt repo. Bitwarden's own download link 302s to the current desktop .deb
+# on GitHub — which is why this is not install_release_deb: bitwarden/clients
+# releases the browser extension and the CLI from the same repo, so its
+# /releases/latest is rarely the desktop app. Upstream builds amd64 only.
+ensure_bitwarden_deb() {
+    apt_pkg_installed bitwarden && return 0
+    install_deb_url "https://bitwarden.com/download/?app=desktop&platform=linux&variant=deb"
+    apt_pkg_installed bitwarden
+}
+
+# ── LocalSend (Debian/Ubuntu) ─────────────────────────────────────────────────
+# A .deb per release on GitHub, no apt repo. Its arch suffixes are its own
+# (x86-64, arm-64), and its dependencies take either appindicator, so unlike
+# Slack it resolves on Debian as well as Ubuntu.
+ensure_localsend_deb() {
+    apt_pkg_installed localsend && return 0
+    local a
+    case "$(deb_arch)" in
+        amd64) a='x86-64' ;;
+        arm64) a='arm-64' ;;
+        *)     return 1 ;;
+    esac
+    install_release_deb localsend/localsend "linux-${a}\.deb$"
+    apt_pkg_installed localsend
+}
+
+# ── Syncthing (Debian/Ubuntu) ─────────────────────────────────────────────────
+# Both archives carry it, a major version behind: Debian 12 has 1.19 (2022),
+# Ubuntu 24.04 1.27, while Arch is on 2.x. A daemon that syncs over the network
+# is a poor thing to run years stale, so this is Syncthing's own repo on its
+# stable-v2 channel. No apt pin needed: 2.x outranks every archive version.
+ensure_syncthing_deb() {
+    apt_pkg_installed syncthing && return 0
+    ensure_apt_deps
+    apt_install_keyring https://syncthing.net/release-key.txt \
+        /etc/apt/keyrings/syncthing-archive-keyring.gpg || return 1
+    apt_write_source_line \
+        "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" \
+        /etc/apt/sources.list.d/syncthing.list
+    apt_update_once
+    apt_install syncthing
+    apt_pkg_installed syncthing
+}
 
 # ── Docker Engine (Debian/Ubuntu) ─────────────────────────────────────────────
 # docker.io and the old standalone docker-compose ship different binaries at
@@ -2782,7 +2828,7 @@ maple_font_installed_deb() { font_dir_has_ttf "$MAPLE_FONT_DIR_DEB"; }
 symbols_font_installed_deb() { font_dir_has_ttf "$SYMBOLS_FONT_DIR_DEB"; }
 
 # Fetch a font zip from a GitHub release and unpack its .ttf files into <dir>.
-# Just the download+unzip step — callers own ensure_apt_deps/ensure_unzip/
+# Just the download+unzip step — callers own ensure_apt_deps/ensure_cmd unzip/
 # fc-cache, since install_fonts_parallel_deb needs those done once up front,
 # not once per backgrounded call. Return status mirrors whether the fetch (and
 # therefore the unzip) ran at all, so install_font_zip only fc-caches on a real
@@ -2806,7 +2852,7 @@ font_fetch_unzip() {
 install_font_zip() {
     local url="$1" dir="$2"
     ensure_apt_deps
-    ensure_unzip
+    ensure_cmd unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
     font_fetch_unzip "$url" "$dir" && fc-cache -f "$dir" &>/dev/null 2>&1
 }
@@ -2835,7 +2881,7 @@ ensure_symbols_font_deb() {
 # Download and unpack both fonts in parallel on Debian/Ubuntu
 install_fonts_parallel_deb() {
     ensure_apt_deps
-    ensure_unzip
+    ensure_cmd unzip
     command -v fc-cache &>/dev/null || apt_install fontconfig
     FONT_PIDS=()
 
@@ -3776,7 +3822,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca postman-cli bun vicinae notion obsidian chatgpt slack discord-canary vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca ollama postman-cli bun uv vicinae notion obsidian chatgpt slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -3843,6 +3889,13 @@ APP_LABEL[zoom]="Zoom"
 APP_LABEL[flatpak]="Flatpak"
 APP_LABEL[docker]="Docker + Compose"
 APP_LABEL[tailscale]="Tailscale"
+APP_LABEL[zed]="Zed"
+APP_LABEL[ollama]="Ollama"
+APP_LABEL[uv]="uv"
+APP_LABEL[bitwarden]="Bitwarden"
+APP_LABEL[keepassxc]="KeePassXC"
+APP_LABEL[localsend]="LocalSend"
+APP_LABEL[syncthing]="Syncthing"
 
 # paru-y forces a db refresh first (Brave bumps versions faster than a stale
 # db notices); paru and pacman both resolve through arch_install — repo first,
@@ -3901,6 +3954,21 @@ APP_TYPE[obs-studio]="pacman"
 APP_TYPE[zoom]="paru"
 APP_TYPE[flatpak]="pacman"
 APP_TYPE[docker]="pacman"
+# All five in extra. uv and zed are curl apps on Debian/Ubuntu instead, where
+# no archive has them — see APP_TYPE_DEB.
+APP_TYPE[zed]="pacman"
+APP_TYPE[uv]="pacman"
+APP_TYPE[bitwarden]="pacman"
+APP_TYPE[keepassxc]="pacman"
+APP_TYPE[syncthing]="pacman"
+# AUR-only; -bin is the prebuilt one, where plain `localsend` builds Flutter
+# from source.
+APP_TYPE[localsend]="paru"
+# The vendor script on Arch too, like tailscale. extra/ollama is the CPU build
+# (-cuda/-rocm/-vulkan are separate packages to choose between); the script
+# detects the GPU, fetches the matching runtime, creates the ollama user and
+# enables ollama.service — one path, the same service, on every distro.
+APP_TYPE[ollama]="curl"
 
 APP_PKG[brave-beta]="brave-origin-beta-bin"
 APP_PKG[brave-stable]="brave-origin-bin"
@@ -3931,6 +3999,12 @@ APP_PKG[flatpak]="flatpak"
 # transaction to resolve shared deps cleanly, and app_pkg_name only carries one
 # name, so this is the anchor package used for the before/after installed check.
 APP_PKG[docker]="docker"
+APP_PKG[zed]="zed"
+APP_PKG[uv]="uv"
+APP_PKG[bitwarden]="bitwarden"
+APP_PKG[keepassxc]="keepassxc"
+APP_PKG[localsend]="localsend-bin"
+APP_PKG[syncthing]="syncthing"
 
 # Installer bin dirs, exported before running them: opencode, codex and kimi
 # all append a PATH block to ~/.zshrc, which is a stow symlink into this repo —
@@ -3967,6 +4041,10 @@ APP_CURL_ENV[grok-cli]="SHELL=/bin/sh"
 # CURL_APP_PATH above is a second guard, but only for the default install
 # dir — UV_INSTALL_DIR or XDG_BIN_HOME moves it out from under that.
 APP_CURL_ENV[mistral-cli]="UV_NO_MODIFY_PATH=1"
+# The same installer, asked for directly: uv on Debian/Ubuntu, where no archive
+# carries it. Zed's and Ollama's need nothing here — Zed's only prints the PATH
+# line it would want, and Ollama's installs into /usr/local as root.
+APP_CURL_ENV[uv]="UV_NO_MODIFY_PATH=1"
 
 # Where each curl app's installer comes from and which shell runs it. One case,
 # read by the apps loop to install and by the menu's details pane to say where
@@ -4004,6 +4082,13 @@ curl_app_source() {             # curl_app_source <app> — sets _curl_url and _
         # needs sudo — already cached — and it enables tailscaled itself. Its
         # own `| sh`, so sh.
         tailscale)       _curl_url="https://tailscale.com/install.sh"          ; _shell="sh" ;;
+        # tailscale's shape again: root via the cached sudo, the binary in
+        # /usr/local/bin, a unit it enables itself.
+        ollama)          _curl_url="https://ollama.com/install.sh"             ; _shell="sh" ;;
+        uv)              _curl_url="https://astral.sh/uv/install.sh"           ; _shell="sh" ;;
+        # Unpacks into ~/.local/zed.app, links ~/.local/bin/zed and only
+        # *prints* the PATH line — no rc file is written.
+        zed)             _curl_url="https://zed.dev/install.sh"                ; _shell="sh" ;;
     esac
 }
 
@@ -4040,6 +4125,10 @@ APP_UPDATE[kimi-code]=""
 APP_UPDATE[muse]=""
 APP_UPDATE[grok-cli]=""
 APP_UPDATE[mistral-cli]=""
+# `ollama run <model>` is an interactive chat, and there is no `ollama update`:
+# upstream's documented upgrade is running the install script again. Its hint
+# line is its own (see app_open_hint) — bare `ollama` only prints usage.
+APP_UPDATE[ollama]=""
 
 app_open_hint() {
     # The one app here that is a daemon rather than something you "open": its
@@ -4048,6 +4137,13 @@ app_open_hint() {
     if [[ "$1" == "tailscale" ]]; then
         substep "${C_DIM}Service: ${C_ACCENT}sudo systemctl enable --now tailscaled${C_RESET}${C_DIM} — the installer does this${C_RESET}"
         substep "${C_DIM}Log in:  ${C_ACCENT}sudo tailscale up${C_RESET}${C_DIM}, then ${C_ACCENT}tailscale status${C_RESET}"
+        return 0
+    fi
+    # A daemon plus a CLI, like tailscale. The installer creates and enables
+    # the unit; a model is a separate multi-gigabyte download nobody picked.
+    if [[ "$1" == "ollama" ]]; then
+        substep "${C_DIM}Service: ${C_ACCENT}ollama.service${C_RESET}${C_DIM} — the installer enables it; API on 127.0.0.1:11434${C_RESET}"
+        substep "${C_DIM}Chat:    ${C_ACCENT}ollama run <model>${C_RESET}${C_DIM} — ollama.com/library lists them${C_RESET}"
         return 0
     fi
     [ -n "${APP_UPDATE[$1]+x}" ] || return 0
@@ -4077,6 +4173,12 @@ APP_BIN[ori]="ori"
 APP_BIN[postman-cli]="postman"
 APP_BIN[bun]="bun"
 APP_BIN[tailscale]="tailscale"
+# /usr/local/bin — the first of /usr/local/bin, /usr/bin, /bin on its PATH
+APP_BIN[ollama]="ollama"
+# ~/.local/bin, both of them: uv's installer by default, Zed's as a symlink
+# into ~/.local/zed.app
+APP_BIN[uv]="uv"
+APP_BIN[zed]="zed"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
@@ -4087,6 +4189,8 @@ APP_PKG_DEB[vscode-insiders]="code-insiders"
 APP_PKG_DEB[claude-desktop]="claude-desktop"
 APP_PKG_DEB[wezterm]="wezterm-nightly"
 APP_PKG_DEB[docker]="docker-ce"
+# The AUR's is localsend-bin; the .deb upstream publishes is plain localsend.
+APP_PKG_DEB[localsend]="localsend"
 
 declare -A APP_TYPE_DEB
 APP_TYPE_DEB[brave-stable]="brave"
@@ -4114,7 +4218,15 @@ APP_TYPE_DEB[slack]="slack"
 APP_TYPE_DEB[discord-canary]="discord-canary"
 APP_TYPE_DEB[docker]="docker"
 APP_TYPE_DEB[tailscale]="curl"
-# vlc/flatpak fall through to the "apt" default below
+APP_TYPE_DEB[ollama]="curl"
+# No archive carries either: Astral's installer (UV_NO_MODIFY_PATH, see
+# APP_CURL_ENV) and Zed's own, which unpacks into ~/.local/zed.app.
+APP_TYPE_DEB[uv]="curl"
+APP_TYPE_DEB[zed]="curl"
+APP_TYPE_DEB[bitwarden]="bitwarden"
+APP_TYPE_DEB[localsend]="localsend"
+APP_TYPE_DEB[syncthing]="syncthing"
+# vlc/flatpak/keepassxc fall through to the "apt" default below
 
 app_pkg_name() {
     local app="$1"
@@ -4237,6 +4349,13 @@ APP_DESC[zoom]="video calls"
 APP_DESC[flatpak]="sandboxed app runtime"
 APP_DESC[docker]="containers"
 APP_DESC[tailscale]="mesh VPN"
+APP_DESC[zed]="fast collaborative code editor"
+APP_DESC[ollama]="run LLMs locally"
+APP_DESC[uv]="Python package and project manager"
+APP_DESC[bitwarden]="password manager"
+APP_DESC[keepassxc]="offline password manager"
+APP_DESC[localsend]="send files to devices nearby"
+APP_DESC[syncthing]="continuous file sync between devices"
 
 APP_NOTE[brave-beta]="the beta channel"
 APP_NOTE[vscode-insiders]="the nightly channel"
@@ -4256,6 +4375,10 @@ APP_NOTE[obs-studio]="pulls in v4l2loopback-dkms (virtual camera) and qt6-waylan
 APP_NOTE[flatpak]="adds the Flathub remote"
 APP_NOTE[docker]="with compose and buildx; adds you to the docker group and starts the service"
 APP_NOTE[tailscale]="log in after with: sudo tailscale up"
+APP_NOTE[ollama]="sets up the GPU runtime and ollama.service; its installer reruns to update"
+APP_NOTE[uv]="your rc files are left untouched"
+APP_NOTE[bitwarden]="amd64 only on Debian/Ubuntu"
+APP_NOTE[syncthing]="not started for you; web UI on 127.0.0.1:8384"
 
 DEP_DESC[bat]="cat with syntax highlighting"
 DEP_DESC[eza]="modern ls"
@@ -4338,6 +4461,13 @@ APP_GROUP[bun]="Dev & infra"
 APP_GROUP[postman-cli]="Dev & infra"
 APP_GROUP[docker]="Dev & infra"
 APP_GROUP[tailscale]="Dev & infra"
+APP_GROUP[uv]="Dev & infra"
+APP_GROUP[zed]="Editors"
+APP_GROUP[ollama]="AI agents"
+APP_GROUP[bitwarden]="Utilities"
+APP_GROUP[keepassxc]="Utilities"
+APP_GROUP[localsend]="Utilities"
+APP_GROUP[syncthing]="Utilities"
 
 # ── Does a directory-shaped config target conflict? ──────────────────────────
 # True when a ~/.config/<name> target is a foreign symlink, or holds a real
@@ -6551,7 +6681,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 curl_app_source "$app"
                 # bun's installer unpacks a zip, and unzip is in neither
                 # distro's base install.
-                [ "$app" = bun ] && ensure_unzip
+                [ "$app" = bun ] && ensure_cmd unzip
+                # Ollama ships .tar.zst only; its installer stops without zstd.
+                [ "$app" = ollama ] && ensure_cmd zstd
                 if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                     substep "Running installer..."
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
@@ -6619,6 +6751,9 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 chatgpt) ensure_chatgpt_arch ;;
                 slack) ensure_slack_deb ;;
                 discord-canary) ensure_discord_canary_deb ;;
+                bitwarden) ensure_bitwarden_deb ;;
+                localsend) ensure_localsend_deb ;;
+                syncthing) ensure_syncthing_deb ;;
                 docker) ensure_docker_deb ;;
             esac
             if pkg_installed "$_pkg"; then
@@ -6657,6 +6792,12 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                             || substep "${C_YELLOW}Could not install docker-compose/docker-buildx${C_RESET} ${C_DIM}— docker itself is installed${C_RESET}"
                     fi
                     docker_postinstall
+                elif [[ "$app" == "syncthing" ]]; then
+                    # Both packages ship the user unit and neither enables it.
+                    # Starting a daemon that opens a sync port is left to the
+                    # person who knows which folders it should share.
+                    substep "${C_DIM}Start it: ${C_ACCENT}systemctl --user enable --now syncthing${C_RESET}${C_DIM} — web UI on 127.0.0.1:8384${C_RESET}"
+                    substep "${C_DIM}On a server, ${C_ACCENT}sudo loginctl enable-linger $(id -un)${C_RESET}${C_DIM} keeps it up after you log out${C_RESET}"
                 fi
                 # After the install, not before: stowing a theme for something
                 # that failed to install leaves a config with nothing to read

@@ -269,7 +269,7 @@ exit 0'
 # both Debian/Ubuntu font installs report failure — invisible until a scenario
 # ran --gui, because a headless run skips fonts entirely and every config
 # scenario in the suite was headless. Only the -d/'*.ttf' shape is honoured;
-# every other call stays the no-op it was (ensure_unzip/bun only probe for it).
+# every other call stays the no-op it was (ensure_cmd unzip/bun only probe for it).
 w unzip <<'EOF'
 #!/usr/bin/env bash
 dir=""; want_ttf=0
@@ -440,17 +440,18 @@ if [ -n "$out" ]; then
     # and a scenario asserting the rc file is clean is the only thing that can
     # prove APP_CURL_ARGS/APP_CURL_ENV/CURL_APP_PATH reached the installer.
     case "$url" in
-        */gpg|*/gpgkey|*.asc) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
+        */gpg|*/gpgkey|*.asc|*/release-key.txt) printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nSTUBKEY\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out" ;;
         *.deb)
             : > "$out"
             # Vendor .deb: the -o path is a mktemp name that says nothing, but the
             # URL is the real <pkg>_<ver>_<arch>.deb. Hand the name to the apt stub,
-            # which only sees the temp file. yazi does not name its .deb that way
-            # (yazi-x86_64-unknown-linux-musl.deb), so for it the package is the
-            # one its control file really says.
+            # which only sees the temp file. Two projects do not name theirs that
+            # way (yazi-x86_64-unknown-linux-musl.deb, LocalSend-1.0-linux-x86-64.deb),
+            # and for them the package is the one their control file really says.
             b=${url##*/}
             case "$url" in
                 */sxyazi/yazi/*)          p=yazi ;;
+                */localsend/localsend/*)  p=localsend ;;
                 *)                        p=${b%%_*} ;;
             esac
             printf '%s\n' "$p" > "${STUB_STATE:?}/deb_pkg"
@@ -468,6 +469,11 @@ if [ -n "$out" ]; then
                 *)        printf 'discord\n' ;;
             esac > "${STUB_STATE:?}/deb_pkg"
             sha256sum "$out" | cut -d' ' -f1 > "${STUB_STATE:?}/deb_sha" ;;
+        *bitwarden.com/download*)
+            # Discord's shape: a download link that 302s to the versioned .deb,
+            # so the package name comes from the endpoint, not the URL's tail.
+            : > "$out"
+            printf 'bitwarden\n' > "${STUB_STATE:?}/deb_pkg" ;;
         */releases/download/*.tar.gz)
             # A GitHub release tarball holding one binary, named after the repo
             # (lazygit, lazydocker, atuin), one directory down — atuin's real
@@ -682,8 +688,54 @@ echo "Installation complete! Log in to start using Tailscale by running:"
 echo "sudo tailscale up"
 TS_SH
             ;;
+        *ollama.com/install.sh)
+            # Tailscale's shape: root through sudo, the binary in a system bin,
+            # a unit it creates and enables itself. The real one also refuses
+            # to start without zstd — its releases are .tar.zst — so this does
+            # too, which is what makes a dropped ensure_cmd zstd visible.
+            cat > "$out" <<'OLLAMA_SH'
+#!/bin/sh
+[ "$(readlink /proc/self/fd/0 2>/dev/null)" = /dev/null ] \
+    || echo "STUBFAIL: ollama installer was handed the run's own stdin" >&2
+command -v zstd >/dev/null 2>&1 \
+    || { echo "ERROR: This version requires zstd for extraction." >&2; exit 1; }
+sudo true || { echo "STUBFAIL: ollama installer could not reach sudo" >&2; exit 1; }
+printf '#!/bin/sh\necho ollama stub "$@"\n' > "${STUB_BIN:?}/ollama"
+chmod +x "${STUB_BIN}/ollama"
+sudo systemctl enable ollama
+echo ">>> Install complete. Run \"ollama\" from the command line."
+OLLAMA_SH
+            ;;
+        *astral.sh/uv/install.sh)
+            # The installer mistral-cli reaches by inheritance, asked for
+            # directly: without UV_NO_MODIFY_PATH=1 it appends its PATH line to
+            # every rc file it can find, ~/.zshrc — the stow symlink — included.
+            cat > "$out" <<'UV_SH'
+#!/bin/sh
+if [ -z "${UV_NO_MODIFY_PATH:-}" ]; then
+    for rc in .profile .bashrc .zshrc .zshenv; do
+        echo '# STUB PATH BLOCK (uv)' >> "$HOME/$rc"
+    done
+fi
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho uv stub "$@"\n' > "$HOME/.local/bin/uv"
+chmod +x "$HOME/.local/bin/uv"
+UV_SH
+            ;;
+        *zed.dev/install.sh)
+            # Unpacks into ~/.local/zed.app and links ~/.local/bin/zed; it only
+            # prints the PATH line it would like, which is the part worth
+            # asserting stays true.
+            cat > "$out" <<'ZED_SH'
+#!/bin/sh
+mkdir -p "$HOME/.local/zed.app/bin" "$HOME/.local/bin"
+printf '#!/bin/sh\necho zed stub "$@"\n' > "$HOME/.local/zed.app/bin/zed"
+chmod +x "$HOME/.local/zed.app/bin/zed"
+ln -sf "$HOME/.local/zed.app/bin/zed" "$HOME/.local/bin/zed"
+ZED_SH
+            ;;
         *bun.com/install)
-            # Three contracts in one installer: it unpacks a zip, so ensure_unzip
+            # Three contracts in one installer: it unpacks a zip, so ensure_cmd unzip
             # has to have run; its PATH block is guarded by ~/.bun/bin being on
             # PATH (CURL_APP_PATH); and `bun completions` writes to the rc file of
             # whatever $SHELL names, which is what SHELL=/bin/sh is for — a shell
@@ -747,6 +799,10 @@ case "$url" in
                 printf '"browser_download_url": "%s/%s"\n' \
                     "$dl" yazi-x86_64-unknown-linux-gnu.deb "$dl" yazi-x86_64-unknown-linux-musl.deb \
                     "$dl" yazi-aarch64-unknown-linux-musl.deb
+                exit 0 ;;
+            localsend/localsend)
+                printf '"browser_download_url": "%s/%s"\n' \
+                    "$dl" LocalSend-1.0-linux-arm-64.deb "$dl" LocalSend-1.0-linux-x86-64.deb
                 exit 0 ;;
             atuinsh/atuin)
                 printf '"browser_download_url": "%s/%s"\n' \
@@ -867,14 +923,15 @@ EOF
 # tailscale is here for the same reason and one more: it is the only curl app
 # whose installer puts the binary in a *system* bin, so an author who has it on
 # the machine would see "already installed" and never run the install path at
-# all — passing here and testing something else on CI. eza, lazydocker and
-# atuin are PKG_BIN entries, which a host binary satisfies the same way: with
-# any of them installed, ensure_eza_deb's version check and the
-# release-tarball path were skipped on this laptop and run on CI.
+# all — passing here and testing something else on CI. ollama is the second
+# such curl app. eza, lazydocker and atuin are PKG_BIN entries, which a host
+# binary satisfies the same way: with any of them installed, ensure_eza_deb's
+# version check and the release-tarball path were skipped on this laptop and
+# run on CI.
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|stow|paru|yay|unzip|tailscale|eza|lazydocker|atuin) continue ;; esac
+    case "$b" in fzf|stow|paru|yay|unzip|tailscale|ollama|eza|lazydocker|atuin) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done
