@@ -269,7 +269,12 @@ install_pass() {        # install_pass <root> <outdir> <keys-file> [VAR=value ..
     # STUB_NO_SIZE reproduces a pty nobody ever set a size on — a CI runner, or
     # a detached session. The menu has to decline to draw on one.
     [ "${STUB_NO_SIZE:-0}" = 1 ] && { _rows=0; _cols=0; }
-    local cmd="stty rows $_rows cols $_cols 2>/dev/null; bash ./install.sh"
+    # SIGPIPE ignored, as the GitHub Actions runner starts every job: a signal
+    # ignored on entry stays ignored in bash, so a write to a pipe whose reader
+    # left (a `break` out of `done < <(…)`) prints "write error: Broken pipe"
+    # there instead of dying quietly. Passing here and failing on CI is what
+    # that difference cost, so the suite runs the way CI does.
+    local cmd="trap '' PIPE; stty rows $_rows cols $_cols 2>/dev/null; bash ./install.sh"
     [ -n "${RUN_ARGS:-}" ] && cmd="$cmd ${RUN_ARGS}"
 
     # script(1) gives the installer a real pty, so /dev/tty resolves and the

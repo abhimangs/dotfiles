@@ -463,7 +463,10 @@ want    curlapps 'sudo tailscale up'  'and the run says how to log in'
 want    curlapps 'systemctl enable --now tailscaled' 'and names the service'
 # Both rc files and the checkout behind the symlink, in one sweep — an append
 # to ~/.zshrc follows it into the repo copy, which is the damage that matters.
-if grep -rqs 'STUB PATH BLOCK\|STUB COMPLETIONS' "$d"; then
+# Not .git, here or in the three sweeps below: a checkout where a conflict in
+# tests/stubs.sh was resolved with rerere on carries these very strings in
+# .git/rr-cache, and every sweep failed on a clean run.
+if grep -rqs --exclude-dir=.git 'STUB PATH BLOCK\|STUB COMPLETIONS' "$d"; then
     bad  curlapps "an installer edited a shell rc — an opt-out did not arrive"
 else
     note curlapps "no installer touched a shell rc"
@@ -604,7 +607,7 @@ want    grok 'Grok CLI installed'  'grok reached the summary'
 d="$WORK/run/grok/home"
 [ -x "$d/.grok/bin/grok" ] && note grok "grok installed in ~/.grok/bin" \
                            || bad  grok "no grok binary"
-if grep -rqs 'STUB PATH BLOCK (grok)' "$d"; then
+if grep -rqs --exclude-dir=.git 'STUB PATH BLOCK (grok)' "$d"; then
     bad  grok "grok edited a shell rc — SHELL=/bin/sh did not arrive"
 else
     note grok "no rc file was touched"
@@ -626,7 +629,7 @@ want    mistral 'Mistral CLI installed'  'mistral reached the summary'
 d="$WORK/run/mistral/home"
 [ -x "$d/.local/bin/vibe" ] && note mistral "vibe installed in ~/.local/bin" \
                             || bad  mistral "no vibe binary"
-if grep -rqs 'STUB PATH BLOCK (uv)' "$d"; then
+if grep -rqs --exclude-dir=.git 'STUB PATH BLOCK (uv)' "$d"; then
     bad  mistral "uv edited a shell rc — UV_NO_MODIFY_PATH did not arrive"
 else
     note mistral "no rc file was touched"
@@ -732,7 +735,7 @@ for b in .local/bin/uv .local/bin/zed; do
 done
 [ -x "$d/bin/ollama" ] && note curl-newapps "ollama installed in the system bin" \
                        || bad  curl-newapps "no ollama after its installer ran"
-if grep -rqs 'STUB PATH BLOCK' "$d/home"; then
+if grep -rqs --exclude-dir=.git 'STUB PATH BLOCK' "$d/home"; then
     bad  curl-newapps "an installer edited a shell rc — UV_NO_MODIFY_PATH did not arrive"
 else
     note curl-newapps "no installer touched a shell rc"

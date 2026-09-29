@@ -4503,7 +4503,10 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
         _pdd_n=$(( _pdd_n + 1 ))
         if [ "$_pdd_n" -gt 4 ]; then _pdd_steps+=("${C_DIM}…${C_RESET}"); return 0; fi
         _pdd_steps+=("${C_DIM}${_pdd_line}${C_RESET}")
-    done < <(diff -rq "$_pdd_t" "$_pdd_s" 2>/dev/null)
+    # sed, not the return above, is what ends the stream: it reads diff to the
+    # end and passes on only the five lines the cap looks at, so nothing is
+    # left writing into a pipe this loop has stopped reading.
+    done < <(diff -rq "$_pdd_t" "$_pdd_s" 2>/dev/null | sed -n '1,5p')
 }
 
 # The row for something of the user's that is in the way of a stow, worded for
@@ -4657,7 +4660,9 @@ plan_home_file() {      # plan_home_file <steps-array> <path> [delete-note]
                 # — Ubuntu's stock .bashrc has several — would recolour the plan
                 # instead of showing. Escape the file's backslashes first.
                 _steps+=("${C_DIM}${_dl//\\/\\\\}${C_RESET}")
-            done < <(diff -u "$_file" "$_src" 2>/dev/null | tail -n +3)
+            # Lines 3-9 only (past the two headers; the cap plus one), for the
+            # reason plan_dir_diff gives: nothing left writing after a break.
+            done < <(diff -u "$_file" "$_src" 2>/dev/null | sed -n '3,9p')
         fi
         plan_replace_row "$1" "$_file" "$_note"
         _steps+=("${C_GREEN}stow ~/${_name}${C_RESET}")
@@ -4724,12 +4729,17 @@ show_plan() {
     # backup_bases, not a hand-written glob: that one named ~/.config outright,
     # so under XDG_CONFIG_HOME — or for ~/scripts/pvpn — it found nothing.
     if [ "${#PLAN_REPLACES[@]}" -gt 0 ] && [[ "$BACKUP_MODE" != "delete" ]]; then
-        local _o
-        while IFS= read -r _o; do
+        # Read the whole list before the loop can break out of it. Breaking
+        # out of `done < <(backup_bases)` left it writing into a closed pipe:
+        # silent where SIGPIPE kills it, "printf: write error: Broken pipe"
+        # all over the plan where SIGPIPE is ignored (the CI runners).
+        local _o _bases
+        mapfile -t _bases < <(backup_bases)
+        for _o in "${_bases[@]}"; do
             { [ -e "$_o.old.bak" ] || [ -L "$_o.old.bak" ]; } || continue
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
             break
-        done < <(backup_bases)
+        done
     fi
 
     plan_body "$@"
