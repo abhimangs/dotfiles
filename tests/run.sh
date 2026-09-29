@@ -144,9 +144,10 @@ want    ubuntu-headless 'zsh needs these for its aliases' 'zsh pulls the toolcha
 want    ubuntu-headless 'adding starship'                 'zsh pulls starship'
 want    ubuntu-headless 'ssh -O exit'                     'SSH multiplexing hint'
 nowant  ubuntu-headless 'Failed \([1-9]'                  'nothing failed'
-# ZSH_TOOLS, not every tool: exactly what .zshrc calls, in that order, and fzf
-# skipped because step 2 already installed it and it has no tools-tab row.
-want    ubuntu-headless 'adding bat eza fd zoxide pay-respects lazygit yazi$' \
+# ZSH_TOOLS, not every tool: exactly what .zshrc calls, in that order — fzf
+# included, now that it is a tools-tab row rather than something every run
+# installed before the menu.
+want    ubuntu-headless 'adding bat eza fd zoxide pay-respects lazygit fzf yazi$' \
                                                           'zsh pulls ZSH_TOOLS, in order'
 nowant  ubuntu-headless 'Dep tools: .*(btop|lazydocker|jq|atuin|tmux)' \
                                                           'and nothing .zshrc never calls'

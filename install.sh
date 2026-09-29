@@ -657,7 +657,13 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
                     fresh|pay-respects) _h="the upstream release .deb" ;;
                     gh|delta)           _h="apt, else the upstream release .deb" ;;
                     lazygit)            _h="apt, else the upstream release tarball" ;;
-                    eza)                _h="apt, else the eza apt repo" ;;
+                    eza)                _h="apt when it is 0.20+, else the eza apt repo" ;;
+                    atuin)              _h="apt, else the upstream release tarball" ;;
+                    lazydocker)         _h="the upstream release tarball" ;;
+                    yazi)               _h="the upstream musl release .deb" ;;
+                    localsend)          _h="the upstream release .deb" ;;
+                    bitwarden)          _h="bitwarden.com's .deb" ;;
+                    syncthing)          _h="Syncthing's own apt repo" ;;
                     starship)           _h="apt, else the starship.rs install script" ;;
                     alacritty)          _h="apt, else a PPA" ;;
                     discord-canary)     _h="Discord's own .deb" ;;
@@ -1006,7 +1012,7 @@ tui_pane_build() {              # tui_pane_build <view entry or empty>
         esac
         [ -n "${T_TGT[$idx]:-}" ] && tui_pane_add "stows    ${T_TGT[$idx]}" "$C_RESET" 9
         [ -n "${T_HOW[$idx]:-}" ] && tui_pane_add "installs ${T_HOW[$idx]}" "$C_RESET" 9
-        [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools" "$C_RESET" 9
+        [ "$key" = zsh ] && tui_pane_add "pulls    starship + the tools .zshrc calls" "$C_RESET" 9
         [ "$key" = ccstatusline ] && tui_pane_add "pulls    bun (renders it)" "$C_RESET" 9
         [ -n "${T_NOTE[$idx]}" ] && tui_pane_add "note     ${T_NOTE[$idx]}" "$C_RESET" 9
     fi
@@ -1184,7 +1190,7 @@ tui_tick_key() {                # tui_tick_key <key> <0|1>
 # Ticking zsh ticks what zsh cannot work without, in the menu, where it can be
 # seen and undone — rather than silently after it closes. starship draws the
 # whole prompt and ZSH_TOOLS are what its aliases call. Tools-tab rows only, so
-# a ZSH_TOOLS name that is not in DEPS_LIST (fzf) is simply not found.
+# a ZSH_TOOLS name a strip took out of DEPS_LIST is simply not found.
 tui_implied_pull() {            # tui_implied_pull <index just ticked>
     local i t
     case "${T_KEY[$1]}" in
@@ -5902,7 +5908,7 @@ fi
 if [ "$TUI_CONFIRMED" != 1 ] && printf '%s\n' "${SELECTED[@]}" | grep -qx zsh; then
     _dep_added=()
     for _d in "${ZSH_TOOLS[@]}"; do
-        # fzf today: step 2 installs it for every run, it is no tools-tab entry
+        # a name a Debian or headless strip took out of the tools tab
         printf '%s\n' "${DEPS_LIST[@]}" | grep -qx "$_d" || continue
         printf '%s\n' "${DEPS[@]}" | grep -qx "$_d" && continue
         DEPS+=("$_d"); _dep_added+=("$_d")
