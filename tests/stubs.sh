@@ -383,7 +383,7 @@ case "${1:-}" in
           if have "$a"; then printf 'Name            : %s\n' "$a"; else rc=1; fi
       done
       exit $rc ;;
-  -S|-Sy|-Syu)
+  -S|-Sy|-Syu|-Syyu)
       rc=0
       for a in "$@"; do
           case "$a" in -*) continue ;; esac

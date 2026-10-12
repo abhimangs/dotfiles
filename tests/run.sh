@@ -427,6 +427,8 @@ STUB_BAD_SHA=1 run debian-deb-badsha debian "$WORK/k-sel" \
 check   debian-deb-badsha 1
 want    debian-deb-badsha 'Checksum mismatch'          'mismatch is reported, not swallowed'
 want    debian-deb-badsha 'Refusing to install'        'and says what it did about it'
+want    debian-deb-badsha 'installer said:'            'the failure line carries a reason of its own'
+want    debian-deb-badsha 'checksum mismatch on .*refused' 'a one-line one, not apt'"'"'s words'
 grep -qxF fresh-editor "$WORK/run/debian-deb-badsha/state/installed" \
     && bad  debian-deb-badsha "apt installed the .deb anyway" \
     || note debian-deb-badsha "nothing was installed"
@@ -937,6 +939,33 @@ want    tui-installed 'Apps: .*Grok CLI$'      'ctrl-u ticked the already-instal
 want    tui-installed 'AI agents'              'under its group heading, which ctrl-u stepped over'
 want    tui-installed 'No configs selected'    'and nothing from the other menus'
 want    tui-installed 'No dep tools selected'  'and nothing from the other menus'
+
+# ctrl-u on the dotfiles tab means "already linked from this repo", not "its
+# package is here": bash is always installed and used to be ticked, which would
+# stow over the user's rc file. Nothing is linked in a fresh sandbox, so ctrl-u
+# there ticks nothing; one app is ticked afterwards only so the run has a plan.
+cat > "$WORK/k-tui-cfgu.sh" <<'FEED'
+. "$WORK/k-lib.sh"
+menu_up
+printf '\025'; sleep 0.4              # ctrl-u on the dotfiles tab
+printf '\033[C'; sleep 0.3
+printf '\033[C'; sleep 0.3            # apps
+printf 'grok'; sleep 0.4
+printf ' '; sleep 0.3
+printf '\004'; sleep 0.4
+printf '\004'
+confirm
+FEED
+STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run tui-cfgu ubuntu "$WORK/k-tui-cfgu.sh"
+check   tui-cfgu 0
+want    tui-cfgu 'No configs selected'         'ctrl-u on dotfiles ticked no unlinked config'
+# ...and the keyword means the same thing, and a binary that merely shares a
+# package's name (docker, with no docker-ce) is not that package.
+rerun   keyword-installed tui-grok-base "$WORK/k-sel" DOTFILES_CONFIGS="installed" DOTFILES_APPS="installed"
+check   keyword-installed 0
+want    keyword-installed 'No configs selected' '--configs=installed is the linked ones too'
+want    keyword-installed 'Apps: .*Grok CLI'    'a curl app is still found by its binary'
+nowant  keyword-installed 'Apps: .*Docker'      'a bare docker on PATH is not Docker'
 
 # --ascii: no box-drawing characters, no Nerd Font glyphs, same menu.
 RUN_ARGS=--ascii STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 \
@@ -2598,6 +2627,13 @@ asset_pick lazydocker-x86 's|.*install_release_bin jesseduffield/lazydocker "\([
     lazydocker_0.25.2_Linux_x86.tar.gz \
     checksums.txt lazydocker_0.25.2_Linux_x86_64.tar.gz lazydocker_0.25.2_Linux_x86.tar.gz
 unset -f asset_pick
+
+# A stale-database retry upgrades (-Syu); a bare -Sy then -S is a partial upgrade.
+if grep -nE 'pacman -Sy( |$)|-Syy? ' "$inst_src" | grep -v '^[0-9]*:[[:space:]]*#' | grep -q .; then
+    bad  pacman-syu "a bare -Sy refresh is still in install.sh"
+else
+    note pacman-syu "no bare -Sy refresh before an install"
+fi
 
 # The Proton listing is oldest-first and its 1.0.3-2 release package carries a
 # signing key that expired in 2024, so taking the first match leaves apt unable

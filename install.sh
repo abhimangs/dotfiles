@@ -586,12 +586,20 @@ item_probe() {                  # item_probe <dotfiles|tools|apps> <key>
 # Is the thing item_probe named already here? Reads the one-time snapshot, so
 # scan_installed_pkgs has to have run. Three ways to be installed: a package
 # the manager knows, a curl CLI in its own bin dir, or a binary put there by
-# something else entirely (the starship script, the lazygit tarball).
+# something else entirely (the starship script, the lazygit tarball). A bare
+# PATH lookup is only for the first two kinds of probe: applied to a package
+# name it finds zed (ZFS's daemon) for the Zed editor and podman's docker shim
+# for Docker.
 item_installed() {              # item_installed <probe-name>
-    local p="$1"
+    local p="$1" k t
     [ -n "$p" ] || return 1
     [ -n "${PKG_HAVE[$p]:-}" ] && return 0
-    curl_app_installed "$p" && return 0
+    for k in "${!APP_BIN[@]}"; do
+        [ "${APP_BIN[$k]}" = "$p" ] || continue
+        t=${APP_TYPE[$k]:-}
+        [[ "$DISTRO" == "arch" ]] || t=${APP_TYPE_DEB[$k]:-apt}
+        [ "$t" = curl ] && curl_app_installed "$p" && return 0
+    done
     [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null
 }
 
@@ -1248,10 +1256,15 @@ tui_toggle_all() {
 # is exactly the point of a second key. Only ticks, never unticks, since
 # there is nothing to toggle off: rows this leaves alone were never touched.
 tui_tick_installed() {
-    local idx
+    local idx st
     for idx in "${TUI_VIEW[@]}"; do
         [[ $idx == [0-9]* ]] || continue
-        case "${T_STATE[$idx]}" in
+        # A config is "installed" when our symlinks are in place, not when its
+        # package is here: bash is always installed, and ticking it would stow
+        # over the user's rc file.
+        st=${T_STATE[$idx]}
+        [ "${T_SEC[$idx]}" = dotfiles ] && { [ "${T_CFG[$idx]:-}" = linked ] && st=installed || st=new; }
+        case "$st" in
             installed|update)
                 [ "${T_TICK[$idx]}" = 1 ] && continue
                 T_TICK[$idx]=1
@@ -1525,11 +1538,11 @@ pacman_install() {
     spin_stop
     # A sync db older than the mirror resolves to package versions that have
     # since been replaced — "target not found" or a 404 mid-download. Refresh
-    # the db once and retry before calling it a failure.
-    substep "${C_YELLOW}Stale package database — refreshing and retrying${C_RESET}"
+    # the db once and retry before calling it a failure. -Syu, never a bare
+    # -Sy: a refreshed db with an un-upgraded system is a partial upgrade.
+    substep "${C_YELLOW}Stale package database — upgrading and retrying${C_RESET}"
     spin_start
-    sudo pacman -Sy --noconfirm &>/dev/null 2>&1 || true
-    out=$(sudo pacman -S --needed --noconfirm "$@" 2>&1)
+    out=$(sudo pacman -Syu --needed --noconfirm "$@" 2>&1)
     local _rc=$?
     spin_stop
     [ "$_rc" -eq 0 ] && return 0
@@ -1549,7 +1562,7 @@ aur_ready() { [ -n "$AUR_HELPER" ] && command -v "$AUR_HELPER" &>/dev/null; }
 AUR_SIG_SKIPPED=()
 
 _aur_run_robust() {
-    local sync_flag="${1:-}"   # "" | "y" | "yy"
+    local sync_flag="${1:-}"   # "" | "yu" — a refresh is always a full upgrade
     local pkg="$2"
 
     # No helper when the AUR bootstrap was skipped — as root, where makepkg
@@ -1626,7 +1639,7 @@ _aur_run_robust() {
         substep "${C_YELLOW}Corrupt cache/database — cleaning and force-resyncing${C_RESET}"
         sudo pacman -Sc --noconfirm &>/dev/null 2>&1 || true
         "$AUR_HELPER" -Sc --noconfirm &>/dev/null 2>&1 || true
-        if "$AUR_HELPER" -Syy --needed --noconfirm --removemake --cleanafter "$pkg" >"$tmplog" 2>&1; then
+        if "$AUR_HELPER" -Syyu --needed --noconfirm --removemake --cleanafter "$pkg" >"$tmplog" 2>&1; then
             rm -f "$tmplog"; return 0
         fi
         err=$(<"$tmplog")
@@ -1652,7 +1665,7 @@ _aur_run_robust() {
 }
 
 aur_install()   { _aur_run_robust ""  "$1"; }
-aur_install_y() { _aur_run_robust "y" "$1"; }
+aur_install_y() { _aur_run_robust "yu" "$1"; }
 
 # Official repos first, AUR only as a fallback. Repo packages are signed,
 # prebuilt and install in seconds, where the AUR builds from source — and some
@@ -2110,11 +2123,13 @@ install_release_deb() {
 # to apt-get as-is — yazi's .deb recommends a gigabyte of preview tools.
 #   install_deb_url <url> [extra apt-get args...]
 install_deb_url() {
-    local url=$1 tmp want got rc
-    APT_LAST_ERROR=""   # apt's output is discarded below, so nothing of ours to show
-    [ -n "$url" ] || return 1
+    local url=$1 tmp want got rc out
+    APT_LAST_ERROR=""
+    [ -n "$url" ] || { APT_LAST_ERROR="installer: no matching release asset was found"; return 1; }
     tmp=$(mktemp -p "$RUN_TMPDIR" release_XXXXXX.deb)
-    curl -fsSL "$url" -o "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    curl -fsSL "$url" -o "$tmp" 2>/dev/null || {
+        rm -f "$tmp"; APT_LAST_ERROR="installer: could not download ${url%%\?*}"; return 1
+    }
 
     # The file holds "<sha256>  <filename>". Grep the hash out instead of using
     # `sha256sum -c`, which insists the file sit there under its published name
@@ -2142,12 +2157,14 @@ install_deb_url() {
             substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
             substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
             error "Refusing to install it — that .deb would go in as root"
+            APT_LAST_ERROR="installer: checksum mismatch on ${url##*/}, refused"
             return 1
         fi
     fi
 
-    apt_get install -y "${@:2}" "$tmp" &>/dev/null 2>&1; rc=$?
+    out=$(apt_get install -y "${@:2}" "$tmp" 2>&1); rc=$?
     rm -f "$tmp"
+    [ "$rc" -eq 0 ] || APT_LAST_ERROR="$out"
     return "$rc"
 }
 
@@ -3695,6 +3712,9 @@ install_error_tail() {
         err="$PACMAN_LAST_ERROR"; label="pacman"
     fi
     [ -n "$err" ] || return 0
+    # install_deb_url's own one-line reasons (no apt ran, or it was refused)
+    # are not apt's words.
+    case "$err" in "installer: "*) label="installer"; err="${err#installer: }" ;; esac
     substep "${C_DIM}${label} said:${C_RESET}"
     printf '%s\n' "$err" | tail -5 | while IFS= read -r _el; do
         substep "${C_DIM}${_el}${C_RESET}"
@@ -5349,7 +5369,11 @@ menu_from_flags() {
     if [ "$raw" = "installed" ]; then
         scan_installed_pkgs
         for item in "${_pool[@]}"; do
-            item_installed "$(item_probe "$sec" "$item")" && _out+=("$item")
+            if [ "$sec" = dotfiles ]; then   # same meaning as the menu's ctrl-u
+                [ "$(config_state "$item")" = linked ] && _out+=("$item")
+            else
+                item_installed "$(item_probe "$sec" "$item")" && _out+=("$item")
+            fi
         done
         return 0
     fi
