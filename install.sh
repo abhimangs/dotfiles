@@ -1511,9 +1511,14 @@ pkg_installed_snapshot() {
 PACMAN_LAST_ERROR=""
 
 pacman_install() {
-    if [ -f /var/lib/pacman/db.lck ]; then
+    # Only a lock nothing holds: pacman's own db.lck belongs to a live pacman
+    # (a -Syu in another terminal), and removing it under one is how a sync
+    # database gets corrupted. With one running, the install below fails with
+    # pacman's own "unable to lock database", which is the truth.
+    if [ -f /var/lib/pacman/db.lck ] && ! pgrep -x pacman &>/dev/null; then
         sudo rm -f /var/lib/pacman/db.lck
     fi
+    PACMAN_LAST_ERROR=""
     local out
     spin_start
     out=$(sudo pacman -S --needed --noconfirm "$@" 2>&1) && { spin_stop; return 0; }
@@ -1556,9 +1561,10 @@ _aur_run_robust() {
     fi
 
     local tmplog; tmplog=$(mktemp -p "$RUN_TMPDIR" aur_XXXXXX.log)
+    PACMAN_LAST_ERROR=""   # an earlier batch's error is not this package's
 
     # ── preflight: stale pacman lock ─────────────────────────────────────────
-    if [ -f /var/lib/pacman/db.lck ]; then
+    if [ -f /var/lib/pacman/db.lck ] && ! pgrep -x pacman &>/dev/null; then
         substep "${C_YELLOW}Stale pacman lock — removing${C_RESET}"
         sudo rm -f /var/lib/pacman/db.lck
     fi
@@ -1915,6 +1921,7 @@ APT_LAST_ERROR=""
 
 apt_install() {
     apt_update_once
+    APT_LAST_ERROR=""   # what install_error_tail prints is this attempt's, not an earlier item's
     local out _rc
     # Started outside the substitution on purpose: a spinner forked inside it
     # would write into the pipe being captured instead of onto the terminal.
@@ -2104,6 +2111,7 @@ install_release_deb() {
 #   install_deb_url <url> [extra apt-get args...]
 install_deb_url() {
     local url=$1 tmp want got rc
+    APT_LAST_ERROR=""   # apt's output is discarded below, so nothing of ours to show
     [ -n "$url" ] || return 1
     tmp=$(mktemp -p "$RUN_TMPDIR" release_XXXXXX.deb)
     curl -fsSL "$url" -o "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
