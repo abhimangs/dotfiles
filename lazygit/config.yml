@@ -46,4 +46,4 @@ git:
   diffRenderers:
     - name: delta
       colorArg: "always"
-      command: delta --dark --paging=never
+      command: command -v delta >/dev/null 2>&1 && exec delta --dark --paging=never || exec cat

@@ -81,7 +81,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
 | `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |
 | `tmux/` | `~/.config/tmux/` | `tmux` *(dep)* | apt — needs tmux 3.1+, older builds read only `~/.tmux.conf` |
-| `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` |
+| `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` when it is installed |
 | `eza/` | `~/.config/eza/theme.yml` | `eza` *(dep)* | apt when it is 0.20+ (Debian 13), else eza's own repo (Debian 12, Ubuntu 24.04's 0.18 cannot read the theme) |
 | `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
 | `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |

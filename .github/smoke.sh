@@ -35,10 +35,12 @@ step "planning every entry (--dry-run)"
 # detection and a real package lookup (pacman -Si on Arch) for every config,
 # tool and app offered on this distro.
 run_installer "--dry-run --configs=all --tools=all --apps=all" | tee /tmp/plan.log
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail "the dry run exited non-zero"
 grep -q 'dry run' /tmp/plan.log || fail "the dry run never reached the plan"
 
 step "installing two entries for real"
 run_installer "--configs=git --tools=bat" | tee /tmp/install.log
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail "the real install exited non-zero"
 
 step "checking the filesystem, not the transcript"
 # The transcript says what the installer believes; these say what happened.

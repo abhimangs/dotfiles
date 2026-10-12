@@ -930,8 +930,12 @@ EOF
 # run on CI.
 SYS="$WORK/sysbin"
 rm -rf "$SYS"; mkdir -p "$SYS"
+# Every binary install.sh's PKG_BIN / APP_BIN maps probe for is left out, read
+# from install.sh itself so a new entry cannot be forgotten here: a host copy
+# would otherwise answer "already installed" and skip the path under test.
+HIDE=" fzf stow paru yay unzip tailscale ollama $(sed -nE 's/^(PKG_BIN|APP_BIN)\[[^]]*\]="([^"]+)".*/\2/p' "$HERE/../install.sh" | tr '\n' ' ') "
 for f in /usr/bin/*; do
     b="${f##*/}"
-    case "$b" in fzf|stow|paru|yay|unzip|tailscale|ollama|eza|lazydocker|atuin) continue ;; esac
+    case "$HIDE" in *" $b "*) continue ;; esac
     ln -sf "$f" "$SYS/$b"
 done

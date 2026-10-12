@@ -570,7 +570,7 @@ _pvpn_config_tui() {
         IFS= read -r -k1 ch 2>/dev/null
         case "$ch" in
             $'\033')
-                IFS= read -r -k1 esc 2>/dev/null
+                esc=""; IFS= read -r -k1 -t 0.05 esc 2>/dev/null   # lone Esc: no follow-up byte, quit now
                 if [[ "$esc" == "[" ]]; then
                     IFS= read -r -k1 esc 2>/dev/null
                     case "$esc" in

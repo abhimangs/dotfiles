@@ -149,7 +149,10 @@ command -v zoxide &>/dev/null && eval "$(zoxide init zsh)"
 # where it was on quit and this cds there. Upstream's own wrapper.
 if command -v yazi &>/dev/null; then
     function y() {
+        # local_traps scopes the trap to this call; without it Ctrl-C leaves the temp file.
+        setopt local_options local_traps
         local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+        trap 'rm -f -- "$tmp"; return 130' INT
         command yazi "$@" --cwd-file="$tmp"
         IFS= read -r -d '' cwd < "$tmp"
         [ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"

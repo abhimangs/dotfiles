@@ -5,8 +5,8 @@
 # `alacritty migrate` is the upgrade path.
 
 # ── Font ─────────────────────────────────────────────────────────────────────
-# ghostty's font and size exactly. (kitty's primary family is Maple Mono; it
-# names JetBrainsMono Nerd Font only for its ligature font_features.)
+# ghostty's font and size exactly. (kitty's primary family is Maple Mono, and
+# its ligature font_features name Maple Mono too.)
 [font]
 size = 15
 
