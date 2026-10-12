@@ -2034,7 +2034,9 @@ apt_add_fallback_mirror() {
             *)          host="http://ports.ubuntu.com/ubuntu-ports" ;;
         esac
         # Already on the canonical mirror? Then a duplicate cannot fix anything.
-        grep -rqs "${host#http://}" /etc/apt/sources.list /etc/apt/sources.list.d/ && return 1
+        # The // anchors the host: us.archive.ubuntu.com and the EC2 regional
+        # mirrors are exactly the half-synced ones this exists to work around.
+        grep -rqsF "//${host#http://}" /etc/apt/sources.list /etc/apt/sources.list.d/ && return 1
         printf 'deb %s %s main restricted universe multiverse\ndeb %s %s-updates main restricted universe multiverse\ndeb %s %s-security main restricted universe multiverse\n' \
             "$host" "$codename" "$host" "$codename" "$host" "$codename" \
             | sudo tee "$list" >/dev/null
@@ -2490,7 +2492,9 @@ ensure_protonvpn_cli_deb() {
         local listing_url="https://repo.protonvpn.com/debian/dists/stable/main/binary-all/"
         local listing deb_name tmp
         listing=$(curl -fsSL "$listing_url" 2>/dev/null)
-        deb_name=$(grep -oP "protonvpn-stable-release[^\"'>]+\.deb" <<< "$listing" | head -1)
+        # Newest, not first: the listing is oldest-first, and 1.0.3-2 carries
+        # the signing key that expired in 2024 — apt then cannot verify the repo.
+        deb_name=$(grep -oP "protonvpn-stable-release[^\"'>]+\.deb" <<< "$listing" | sort -uV | tail -1)
         if [ -n "$deb_name" ]; then
             tmp=$(mktemp -p "$RUN_TMPDIR" protonvpn_XXXXXX.deb)
             if curl -fsSL "${listing_url}${deb_name}" -o "$tmp" 2>/dev/null; then

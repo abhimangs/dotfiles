@@ -2564,6 +2564,17 @@ asset_pick lazydocker-x86 's|.*install_release_bin jesseduffield/lazydocker "\([
     checksums.txt lazydocker_0.25.2_Linux_x86_64.tar.gz lazydocker_0.25.2_Linux_x86.tar.gz
 unset -f asset_pick
 
+# The Proton listing is oldest-first and its 1.0.3-2 release package carries a
+# signing key that expired in 2024, so taking the first match leaves apt unable
+# to verify the repo. Runs install.sh's own pipeline over the real file names.
+proton_pipe=$(sed -n 's|.*deb_name=\$(\(.*\))$|\1|p' "$inst_src")
+got=$(listing=$'<a href="protonvpn-stable-release_1.0.3-2_all.deb">x</a>\n<a href="protonvpn-stable-release_1.0.3_all.deb">x</a>\n<a href="protonvpn-stable-release_1.0.8_all.deb">x</a>' \
+    bash -c "$proton_pipe" 2>/dev/null)
+[ "$got" = "protonvpn-stable-release_1.0.8_all.deb" ] \
+    && note proton-release "the newest release package is picked, not the first listed" \
+    || bad  proton-release "picked '${got:-nothing}', not 1.0.8"
+unset proton_pipe got
+
 echo "── --list without a terminal ────────────────────────────"
 # Every scenario above runs under script(1), so all of them have a tty and none
 # of them can show this: the installer refuses to start without a terminal, and
