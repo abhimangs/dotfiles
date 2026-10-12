@@ -1865,6 +1865,54 @@ else
     bad  restore-linkrc "hook still in the file behind the user's ~/.bashrc symlink"
 fi
 
+# 22. Off means off, and a hook from an older body is refreshed on a re-run.
+run     hook-refresh ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
+check   hook-refresh 0
+hr="$WORK/run/hook-refresh/home"
+cp "$hr/.bashrc" "$WORK/seed/hook-fresh"
+#     DOTFILES_NO_ZSH: 0/false/no (any case) mean "do hand off", 1 means don't.
+for v in 0 False NO 1; do
+    hk_out=$(echo 'echo past-hook' | PATH="$WORK/fakezsh:$PATH" DOTFILES_NO_ZSH=$v bash --rcfile "$hr/.bashrc" -i 2>/dev/null)
+    case "$v:$hk_out" in
+        1:*past-hook*) note hook-refresh "DOTFILES_NO_ZSH=1 stays in bash" ;;
+        1:*)           bad  hook-refresh "DOTFILES_NO_ZSH=1 still handed off" ;;
+        *:*ZSH*)       note hook-refresh "DOTFILES_NO_ZSH=$v is off: hands off" ;;
+        *)             bad  hook-refresh "DOTFILES_NO_ZSH=$v counted as on" ;;
+    esac
+done
+#     An out-of-date body (the marker is the same) is rewritten, not kept.
+sed -i 's/BASH_EXECUTION_STRING/OLD_BODY/' "$hr/.bashrc"
+rerun   hook-refresh2 hook-refresh "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
+check   hook-refresh2 0
+if cmp -s "$WORK/seed/hook-fresh" "$hr/.bashrc"; then
+    note hook-refresh2 "outdated hook block rewritten to the current one"
+else
+    bad  hook-refresh2 "outdated hook block was kept"
+fi
+#     Proceed? with no answer to read (EOF) is no: the undo must not run.
+RUN_ARGS=--restore-bash rerun hook-eof hook-refresh "$WORK/k-none"
+grep -q 'hand interactive bash to zsh' "$hr/.bashrc" \
+    && note hook-eof "EOF at Proceed did not run the undo" \
+    || bad  hook-eof "EOF at Proceed was taken as yes"
+
+#     DOTFILES_PRIVATE=0 is off; a name list is never globbed against the cwd.
+RUN_ARGS=--dry-run run priv-off ubuntu "$WORK/k-none" DOTFILES_CONFIGS="git" DOTFILES_PRIVATE=0
+nowant priv-off 'repo traces' 'DOTFILES_PRIVATE=0 is not private mode'
+RUN_ARGS=--dry-run run glob-apps ubuntu "$WORK/k-none" DOTFILES_APPS='*'
+want   glob-apps 'Unknown app: \*' 'the * is a name, not a pattern'
+
+#     A ~/.bashrc symlink that is the user's own gets no hook, and the plan says so.
+build_root "$WORK/run/hook-userlink" ubuntu
+hu="$WORK/run/hook-userlink/home"
+mkdir -p "$hu/mydots"; printf '# mine\n' > "$hu/mydots/bashrc"
+rm -f "$hu/.bashrc"; ln -s "$hu/mydots/bashrc" "$hu/.bashrc"
+install_pass "$WORK/run/hook-userlink" "$WORK/run/hook-userlink" "$WORK/k-sel" DOTFILES_CONFIGS="zsh"
+want    hook-userlink 'no .bashrc fallback hook'  'the plan says no hook will be written'
+want    hook-userlink 'your own symlink'          'and so does the run'
+grep -q 'hand interactive bash to zsh' "$hu/mydots/bashrc" \
+    && bad  hook-userlink "wrote a hook through the user's own ~/.bashrc symlink" \
+    || note hook-userlink "user's file behind the symlink untouched"
+
 echo
 echo "── interrupt ────────────────────────────────────────────"
 # Ctrl-C has to stop the run. A trap that only cleans up does not: bash runs

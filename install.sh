@@ -95,6 +95,9 @@ one also has an environment variable:
   DOTFILES_PRIVATE   DOTFILES_BACKUP_MODE
   DOTFILES_UNINSTALL DOTFILES_BACKUPS
 
+On/off variables (all but CONFIGS, TOOLS, APPS, BACKUP_MODE and BACKUPS) are on when set
+to anything except empty, 0, false or no.
+
   curl -fsSL https://abhiman.io/linux.sh | DOTFILES_GUI=1 bash
 USAGE
 }
@@ -143,10 +146,18 @@ unset _arg
 
 # The environment is the only channel that survives `curl … | bash`.
 # (Verified against the hosted copy, which is deployed by hand and can lag.)
-[ -n "${DOTFILES_DRY_RUN:-}" ]      && DRY_RUN=1
-[ -n "${DOTFILES_GUI:-}" ]          && FORCE_GUI=1
-[ -n "${DOTFILES_RESTORE_BASH:-}" ] && RESTORE_BASH=1
-[ -n "${DOTFILES_UNINSTALL:-}" ]    && { UNINSTALL=1; [ "$DOTFILES_UNINSTALL" = 1 ] || PICK_UNINSTALL="$DOTFILES_UNINSTALL"; }
+# A boolean variable is on when set to anything but empty, 0, false or no (any
+# case) — DOTFILES_PRIVATE=0 used to switch private mode ON.
+env_on() {
+    case "${!1:-}" in ""|0|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]) return 1 ;; esac
+}
+env_on DOTFILES_DRY_RUN      && DRY_RUN=1
+env_on DOTFILES_GUI          && FORCE_GUI=1
+env_on DOTFILES_RESTORE_BASH && RESTORE_BASH=1
+if env_on DOTFILES_UNINSTALL; then
+    UNINSTALL=1
+    case "$DOTFILES_UNINSTALL" in 1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]) ;; *) PICK_UNINSTALL="$DOTFILES_UNINSTALL" ;; esac
+fi
 if [ -n "${DOTFILES_BACKUPS:-}" ]; then
     case "$DOTFILES_BACKUPS" in
         list|prune) BACKUPS_MODE="$DOTFILES_BACKUPS" ;;
@@ -154,14 +165,14 @@ if [ -n "${DOTFILES_BACKUPS:-}" ]; then
             exit 2 ;;
     esac
 fi
-[ -n "${DOTFILES_LIST:-}" ]         && LIST_ONLY=1
-[ -n "${DOTFILES_PORCELAIN:-}" ]    && { OPT_PORCELAIN=1; LIST_ONLY=1; }
-[ -n "${DOTFILES_ASCII:-}" ]        && OPT_ASCII=1
-[ -n "${DOTFILES_NO_COLOR:-}" ]     && OPT_NO_COLOR=1
+env_on DOTFILES_LIST         && LIST_ONLY=1
+env_on DOTFILES_PORCELAIN    && { OPT_PORCELAIN=1; LIST_ONLY=1; }
+env_on DOTFILES_ASCII        && OPT_ASCII=1
+env_on DOTFILES_NO_COLOR     && OPT_NO_COLOR=1
 [ -n "${DOTFILES_CONFIGS:-}" ]      && PICK_CONFIGS="$DOTFILES_CONFIGS"
 [ -n "${DOTFILES_TOOLS:-}" ]        && PICK_TOOLS="$DOTFILES_TOOLS"
 [ -n "${DOTFILES_APPS:-}" ]         && PICK_APPS="$DOTFILES_APPS"
-[ -n "${DOTFILES_PRIVATE:-}" ]      && OPT_PRIVATE=1
+env_on DOTFILES_PRIVATE      && OPT_PRIVATE=1
 if [ -n "${DOTFILES_BACKUP_MODE:-}" ]; then
     case "$DOTFILES_BACKUP_MODE" in
         backup|delete) OPT_BACKUP_MODE="$DOTFILES_BACKUP_MODE" ;;
@@ -3143,12 +3154,13 @@ case \$- in
     *i*) ;;
       *) return ;;
 esac
-# Escape hatch, for when you want bash and mean it:
+# Escape hatch, for when you want bash and mean it (0, false and no are off):
 #     DOTFILES_NO_ZSH=1 bash
 # To undo permanently: delete this block, or run
 #     bash ~/dotfiles/install.sh --restore-bash
 # \`bash -ic 'cmd'\` is interactive too, and an exec here would drop cmd.
-if [ -z "\${ZSH_VERSION:-}" ] && [ -z "\${DOTFILES_NO_ZSH:-}" ] && [ -z "\${BASH_EXECUTION_STRING:-}" ]; then
+case "\${ZSH_VERSION:-}\${BASH_EXECUTION_STRING:-}:\${DOTFILES_NO_ZSH:-}" in
+:|:0|:[Ff][Aa][Ll][Ss][Ee]|:[Nn][Oo])
     _zsh_bin=\$(command -v zsh 2>/dev/null)
     # Verified, not assumed. A zsh that is on PATH but cannot actually start
     # would otherwise end every new session instantly — on a machine you may
@@ -3158,7 +3170,8 @@ if [ -z "\${ZSH_VERSION:-}" ] && [ -z "\${DOTFILES_NO_ZSH:-}" ] && [ -z "\${BASH
         exec zsh -l
     fi
     unset _zsh_bin
-fi
+    ;;
+esac
 $HOOK_END
 EOF
 }
@@ -3191,25 +3204,32 @@ ensure_zsh_autoexec() {
         return 1
     fi
 
-    snapshot_bashrc || return 1
-
-    if [ -f "$rc" ] && grep -qF "$HOOK_BEGIN" "$rc" 2>/dev/null; then
-        _HOOK_STATE="present"
-        return 0
-    fi
-
-    # An older block: replace it rather than stacking a second one on top.
-    # Only the exit status matters here (0 found / 1 absent / 2 malformed), so
-    # the range itself is discarded — bashrc_hook_strip_to looks it up again.
-    if bashrc_hook_range "$rc" >/dev/null; then
-        bashrc_hook_strip_to "$rc" "$rc" || { _HOOK_STATE="malformed"; return 1; }
-        _HOOK_STATE="migrated"
-    elif [ "$?" = 2 ]; then
-        _HOOK_STATE="malformed"
+    # Nor through the user's own: that edits a file in their repo. (Restore
+    # still strips through one, for a hook an earlier version wrote.)
+    if [ -L "$rc" ]; then
+        _HOOK_STATE="skipped-user-link"
         return 1
     fi
 
-    { printf '\n'; bashrc_hook_block; } >> "$rc" || return 1
+    snapshot_bashrc || return 1
+
+    # A block that differs from what is generated now (v1, v2 or an older
+    # body) is replaced rather than stacked or kept.
+    local range
+    range="$(bashrc_hook_range "$rc" 2>/dev/null)"
+    case "$?" in
+        0)  if [ "$(sed -n "${range% *},${range#* }p" "$rc")" = "$(bashrc_hook_block)" ]; then
+                _HOOK_STATE="present"
+                return 0
+            fi
+            bashrc_hook_strip_to "$rc" "$rc" || { _HOOK_STATE="malformed"; return 1; }
+            _HOOK_STATE="migrated" ;;
+        2)  _HOOK_STATE="malformed"
+            return 1 ;;
+    esac
+
+    # A migrated block left its separating blank line behind; don't add another.
+    { [ "$_HOOK_STATE" = migrated ] || printf '\n'; bashrc_hook_block; } >> "$rc" || return 1
     [ "$_HOOK_STATE" = "migrated" ] || _HOOK_STATE="added"
     return 0
 }
@@ -4795,7 +4815,7 @@ show_plan() {
         return 0
     fi
     echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
-    read -r CONFIRM <"$TTY_IN"
+    read -r CONFIRM <"$TTY_IN" || CONFIRM=n    # EOF or a dead terminal is no
     [[ "$CONFIRM" =~ ^[Nn]$ ]] && echo "" && exit 0
     echo ""
 }
@@ -4898,6 +4918,9 @@ plan_body() {
             ;;
           zsh)
             plan_home_file steps "$HOME/.zshrc"
+            # The hand-off hook is never written through a link of the user's.
+            [ -L "$HOME/.bashrc" ] && ! is_repo_link "$HOME/.bashrc" && zsh_hook_wanted \
+                && steps+=("${C_DIM}no .bashrc fallback hook — ~/.bashrc is your own symlink${C_RESET}")
             ;;
           protonvpn)
             local script="$HOME/scripts/pvpn/pvpn.zsh"
@@ -5132,7 +5155,7 @@ restore_bash() {
         return 0
     fi
     echo -ne "${C_MAIN}${C_BOLD} ${G_END} ${C_YELLOW}Proceed? [Y/n]: ${C_RESET}"
-    read -r ans <"$TTY_IN"
+    read -r ans <"$TTY_IN" || ans=n
     [[ "$ans" =~ ^[Nn]$ ]] && { echo ""; return 0; }
     echo ""
 
@@ -5372,8 +5395,10 @@ menu_from_flags() {
         done
         return 0
     fi
-    local IFS=', '
-    for name in $raw; do
+    # read -ra, not an unquoted expansion: `--apps=*` must not glob the cwd.
+    local -a names
+    IFS=', ' read -ra names <<< "$raw"
+    for name in "${names[@]}"; do
         # A name repeated in the list — `--configs=zsh,zsh`, or a shell that
         # expanded something twice — used to be installed twice and counted
         # twice in the summary. Accepted, taken once.
@@ -5505,7 +5530,11 @@ uninstall_run() {
         [ -d "$t" ] && rmdir "$t" 2>/dev/null
         if [ -e "$t" ] || [ -L "$t" ]; then
             skipped+=("$cfg")
-            substep "${C_YELLOW}${cfg}${C_RESET} ${C_DIM}— something is still at ${t/#$HOME/\~}, left alone${C_RESET}"
+            if [ -d "$t" ]; then
+                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET} ${C_DIM}— our links are gone; only your own files remain in ${t/#$HOME/\~}, so no .bak was put back${C_RESET}"
+            else
+                substep "${C_YELLOW}${cfg}${C_RESET} ${C_DIM}— something is still at ${t/#$HOME/\~}, left alone${C_RESET}"
+            fi
             continue
         fi
         removed+=("$cfg")
@@ -5525,7 +5554,7 @@ uninstall_run() {
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
     [ "${#removed[@]}"  -gt 0 ] && substep "Unstowed (${#removed[@]}): ${C_DIM}$(join_list "${removed[@]}")${C_RESET}"
     [ "${#restored[@]}" -gt 0 ] && substep "Restored from .bak (${#restored[@]}): ${C_DIM}$(join_list "${restored[@]}")${C_RESET}"
-    [ "${#skipped[@]}"  -gt 0 ] && substep "${C_YELLOW}Left in place (${#skipped[@]}): $(join_list "${skipped[@]}")${C_RESET}"
+    [ "${#skipped[@]}"  -gt 0 ] && substep "${C_YELLOW}Unstowed, your own files left in place (${#skipped[@]}): $(join_list "${skipped[@]}")${C_RESET}"
     # A .bak that would not move is the one outcome worth a non-zero exit: the
     # config is gone and the thing meant to replace it is not there.
     if [ "${#failed[@]}" -gt 0 ]; then
@@ -6463,10 +6492,14 @@ for cfg in "${SELECTED[@]}"; do
             if ! zsh_hook_wanted; then
                 :
             elif ensure_zsh_autoexec; then
-                [ "$_HOOK_STATE" = "present" ] \
+                [ "$_HOOK_STATE" = "present" ] || [ "$_HOOK_STATE" = "migrated" ] \
                     || substep "${C_DIM}Restored the .bashrc fallback — it had gone missing${C_RESET}"
+                [ "$_HOOK_STATE" = "migrated" ] \
+                    && substep "${C_DIM}Refreshed the .bashrc fallback — it was out of date${C_RESET}"
             elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
                 substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+            elif [ "$_HOOK_STATE" = "skipped-user-link" ]; then
+                substep "${C_YELLOW}~/.bashrc is your own symlink — fallback hook not written${C_RESET}"
             elif [ "$_HOOK_STATE" = "malformed" ]; then
                 substep "${C_YELLOW}A hand-edited hook block is in ~/.bashrc — left alone${C_RESET}"
             fi
@@ -6501,6 +6534,8 @@ for cfg in "${SELECTED[@]}"; do
                     substep "${C_DIM}Added a .bashrc fallback in case a session still starts bash${C_RESET}"
                 elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
                     substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+                elif [ "$_HOOK_STATE" = "skipped-user-link" ]; then
+                    substep "${C_YELLOW}~/.bashrc is your own symlink — fallback hook not written${C_RESET}"
                 elif [ "$_HOOK_STATE" = "malformed" ]; then
                     substep "${C_YELLOW}A hand-edited hook block is in ~/.bashrc — left alone${C_RESET}"
                 fi
@@ -6526,6 +6561,8 @@ for cfg in "${SELECTED[@]}"; do
                     substep "${C_GREEN}Added a .bashrc fallback — bash will hand over to zsh${C_RESET}"
                 elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
                     substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+                elif [ "$_HOOK_STATE" = "skipped-user-link" ]; then
+                    substep "${C_YELLOW}~/.bashrc is your own symlink — fallback hook not written${C_RESET}"
                 fi
                 substep "To fix it properly: ${C_ACCENT}sudo usermod -s ${zsh_path} ${target_user}${C_RESET}"
                 substep "${C_DIM}This sets the shell for '${target_user}'. If you SSH in as a${C_RESET}"
