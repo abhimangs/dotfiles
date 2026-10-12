@@ -1653,6 +1653,14 @@ rb_zsh="$WORK/run/restore-zsh/home"
 grep -q 'hand interactive bash to zsh (v2)' "$rb_zsh/.bashrc" 2>/dev/null \
     && note restore-zsh "install wrote the v2 hook" \
     || bad  restore-zsh "no hook written — the undo below would prove nothing"
+#     `bash -ic 'cmd'` is an interactive shell too; the hook used to exec zsh
+#     there and the command never ran. A zsh that only says so stands in.
+mkdir -p "$WORK/fakezsh"; printf '#!/bin/sh\necho ZSH\n' > "$WORK/fakezsh/zsh"; chmod +x "$WORK/fakezsh/zsh"
+hk_out=$(PATH="$WORK/fakezsh:$PATH" bash --rcfile "$rb_zsh/.bashrc" -ic 'echo ran-cmd' 2>/dev/null </dev/null)
+case "$hk_out" in
+    *ran-cmd*) note restore-zsh "hook leaves bash -ic 'cmd' alone" ;;
+    *)         bad  restore-zsh "hook exec'd zsh and dropped a bash -ic command: $hk_out" ;;
+esac
 
 #     Dry run first, and on this sandbox rather than a fresh one: a dry run over
 #     a machine with nothing to undo cannot tell you whether it writes. Compared
@@ -1810,6 +1818,23 @@ else
     bad  restore-foreign "deleted the user's own ~/.zshrc symlink"
 fi
 want restore-foreign 'your own symlink, not ours' 'and said why it was left'
+
+#     The hook goes in through the user's own ~/.bashrc symlink (only a link
+#     into the checkout is refused), so the undo has to take it out the same
+#     way instead of reporting the block removed and leaving it.
+build_root "$WORK/run/restore-linkrc" ubuntu
+rb_l="$WORK/run/restore-linkrc/home"
+mkdir -p "$rb_l/mydots"
+{ printf '# my own bashrc\n'; cat "$SEED_V1_HOOK"; } > "$rb_l/mydots/bashrc"
+rm -f "$rb_l/.bashrc"; ln -s "$rb_l/mydots/bashrc" "$rb_l/.bashrc"
+RUN_ARGS=--restore-bash install_pass "$WORK/run/restore-linkrc" \
+    "$WORK/run/restore-linkrc" "$WORK/k-restore"
+check restore-linkrc 0
+if [ -L "$rb_l/.bashrc" ] && ! grep -q 'hand interactive bash to zsh' "$rb_l/mydots/bashrc"; then
+    note restore-linkrc "hook removed through the user's own ~/.bashrc symlink"
+else
+    bad  restore-linkrc "hook still in the file behind the user's ~/.bashrc symlink"
+fi
 
 echo
 echo "── interrupt ────────────────────────────────────────────"
@@ -2087,6 +2112,16 @@ if ls "$WORK/run/ccsl-keep/home/.claude/".settings.json.new_* >/dev/null 2>&1; t
 else
     note ccsl-again "no staging temp file left behind"
 fi
+
+# 4b. The helper exiting 1 because it crashed is not "already right". A
+# command that is not a string makes it raise; that used to read as wired.
+build_root "$WORK/run/ccsl-crash" ubuntu
+mkdir -p "$WORK/run/ccsl-crash/home/.claude"
+printf '{"statusLine":{"type":"command","command":5}}\n' > "$WORK/run/ccsl-crash/home/.claude/settings.json"
+RUN_ARGS="--configs=ccstatusline" install_pass \
+    "$WORK/run/ccsl-crash" "$WORK/run/ccsl-crash" "$WORK/k-sel"
+nowant ccsl-crash 'already wired up' 'a crashed merge is not reported as wired'
+want   ccsl-crash 'Could not update'  'and says it left the file alone'
 
 # 5. A managed statusLine outranks user settings, so the merge still happens but
 # must not be reported as the statusline that will actually render.

@@ -3133,7 +3133,8 @@ esac
 #     DOTFILES_NO_ZSH=1 bash
 # To undo permanently: delete this block, or run
 #     bash ~/dotfiles/install.sh --restore-bash
-if [ -z "\${ZSH_VERSION:-}" ] && [ -z "\${DOTFILES_NO_ZSH:-}" ]; then
+# \`bash -ic 'cmd'\` is interactive too, and an exec here would drop cmd.
+if [ -z "\${ZSH_VERSION:-}" ] && [ -z "\${DOTFILES_NO_ZSH:-}" ] && [ -z "\${BASH_EXECUTION_STRING:-}" ]; then
     _zsh_bin=\$(command -v zsh 2>/dev/null)
     # Verified, not assumed. A zsh that is on PATH but cannot actually start
     # would otherwise end every new session instantly — on a machine you may
@@ -3512,7 +3513,7 @@ if isinstance(existing, dict):
     # Already in there and already right: nothing to merge, leave the file
     # alone entirely rather than rewrite it to identical content.
     if cur == cmd and existing.get("type") == "command":
-        sys.exit(1)
+        sys.exit(4)                       # not 1: an uncaught exception exits 1
     if "ccstatusline" not in cur:
         sys.exit(2)                       # somebody else's statusline — leave it
     line = existing                       # ours, but an older command: update
@@ -3548,6 +3549,8 @@ PY
         # so re-running never overwrites the pristine copy with an edited one —
         # the same rule the .bashrc snapshot follows.
         [ -e "$f" ] && [ ! -e "$orig" ] && cp -p "$f" "$orig" 2>/dev/null
+        # mktemp made it 0600; keep the mode the user's file had.
+        [ -e "$f" ] && chmod --reference="$f" "$tmp" 2>/dev/null
         if mv "$tmp" "$f"; then
             substep "Claude Code statusline ${C_GREEN}wired up${C_RESET}"
             wired=0
@@ -3556,7 +3559,7 @@ PY
             substep "${C_YELLOW}Could not write ~/.claude/settings.json${C_RESET}"
         fi
         ;;
-      1) rm -f "$tmp"; wired=0; substep "${C_DIM}Claude Code statusline already wired up${C_RESET}" ;;
+      4) rm -f "$tmp"; wired=0; substep "${C_DIM}Claude Code statusline already wired up${C_RESET}" ;;
       2) rm -f "$tmp"
          substep "${C_YELLOW}Left your existing statusLine alone${C_RESET} ${C_DIM}— it does not point at ccstatusline${C_RESET}" ;;
       3) rm -f "$tmp"
@@ -5135,7 +5138,9 @@ restore_bash() {
         substep "Unstowed the bash config"
     fi
 
-    if [ "$has_hook" = 1 ] && [ -f "$rc" ] && [ ! -L "$rc" ]; then
+    # Not a bare ! -L: ensure_zsh_autoexec writes through the user's own link,
+    # so the block has to come out the same way; only ours is refused.
+    if [ "$has_hook" = 1 ] && [ -f "$rc" ] && ! is_repo_link "$rc"; then
         if bashrc_hook_strip_to "$rc" "$rc"; then
             substep "Removed the zsh hand-off block from ${C_ACCENT}~/.bashrc${C_RESET}"
         else
@@ -5634,11 +5639,6 @@ if [ "$(id -u)" -eq 0 ]; then
     sudo() { env "$@"; }
     substep "Running as root — sudo not needed"
     success "Ready"
-elif ! command -v sudo &>/dev/null; then
-    IS_ROOT=0
-    error "sudo is not installed and you are not root."
-    substep "Install sudo, or re-run this script as root."
-    exit 1
 elif [ "$DRY_RUN" -eq 1 ] || [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; then
     # A dry run — of the install or of --restore-bash — prints its plan and
     # exits without running a single privileged command: everything up to the
@@ -5652,6 +5652,11 @@ elif [ "$DRY_RUN" -eq 1 ] || [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; t
     IS_ROOT=0
     substep "Nothing here needs root"
     success "Ready"
+elif ! command -v sudo &>/dev/null; then
+    IS_ROOT=0
+    error "sudo is not installed and you are not root."
+    substep "Install sudo, or re-run this script as root."
+    exit 1
 else
     IS_ROOT=0
     substep "Enter your sudo password once — cached for the full install"
