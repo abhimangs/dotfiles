@@ -83,7 +83,7 @@ setopt INTERACTIVE_COMMENTS
 setopt NOTIFY
 
 # ── micro ─────────────────────────────────────────────────────
-# Without this micro drops to 256 colours and the Catppuccin scheme in
+# Without this micro drops to 256 colours and the colour scheme in
 # micro/settings.json renders as approximations of itself.
 export MICRO_TRUECOLOR=1
 

@@ -43,8 +43,9 @@ clipboard-paste-protection = true
 window-inherit-font-size = true
 scrollback-limit = 10000
 
-# Shell integration: add cwd so new tabs open in current directory
-shell-integration-features = cursor,sudo,title,cwd
+# Shell integration. There is no "cwd" feature (it made ghostty reject the whole
+# line); new tabs already open in the current directory by default.
+shell-integration-features = cursor,sudo,title
 
 # ── Keybindings ──────────────────────────────────────────────────────────────
 # Tabs

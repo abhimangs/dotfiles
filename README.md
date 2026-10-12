@@ -128,7 +128,7 @@ merge is deliberately conservative:
 - the result is parsed back before it replaces anything, and moved into place
   with `mv`, so an interrupt cannot truncate it
 - the original is kept once as `~/.claude/settings.json.orig`
-- `--delete` mode does not reach it: that mode removes what this repo
+- `--backup-mode=delete` does not reach it: that mode removes what this repo
   installed, and this file was there first
 
 ## Installer features
@@ -170,7 +170,7 @@ The apps tab is grouped under headings (browsers, editors, terminals, AI agents 
 
 The **selected** tab ends with a **private mode** row: tick it to strip the repo traces at the end of the run (see [Private mode](#private-mode)). The one other question, what happens to configs of yours that are in the way, is asked at the plan, and only when there is something of yours in the way.
 
-It is drawn by the installer rather than by fzf. fzf is a tool in the tools tab now, pulled in by zsh (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is remapped to autosuggest-accept), but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
+It is drawn by the installer rather than by fzf. fzf is a tool in the tools tab now, pulled in by zsh (the zsh config uses it for `Ctrl-F`/`Alt-C` — `Ctrl-T` is unbound and `Ctrl-E` accepts the autosuggestion), but nothing shells out to it to ask a question, which is what made the old menus slow: a tick forked a callback that re-read the item table, re-rendered the list and re-ran the preview. A redraw here starts no processes at all.
 
 On a terminal that genuinely cannot draw it (no tty, no window size, `TERM=dumb`), the installer falls back to numbered lists, and asks the privacy question on its own once they are answered. `--ascii` and `--no-color` do *not* trigger the fallback; the menu adapts.
 

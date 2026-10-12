@@ -78,7 +78,7 @@ echo "── dotfiles checkout ────────────────�
 d="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 echo "dir             : $d $( [ -d "$d" ] && echo '(exists)' || echo '(MISSING)')"
 echo "install.sh      : $( [ -f "$d/install.sh" ] && echo present || echo MISSING)"
-echo "git metadata    : $( [ -d "$d/.git" ] && echo present || echo 'stripped (private mode)')"
+echo "git metadata    : $( [ -e "$d/.git" ] && echo present || echo 'stripped (private mode)')"
 echo "top level:"
 # shellcheck disable=SC2012  # a flat, human-readable listing is the point here;
 # find(1) output would be one path per line and much noisier to paste into a bug
