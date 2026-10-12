@@ -652,7 +652,6 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
     case "$3:$_t" in
         *:curl)          curl_app_source "$3"; _h="curl ${_curl_url}" ;;
         *:chatgpt)       _h="OpenAI's install script, which adds its own pacman repo" ;;
-        *:paru-y)        _h="AUR" ;;
         bash:*)          _h="nothing, bash is already here" ;;
         ccstatusline:*)  _h="nothing: bunx runs it, with bun from the apps tab" ;;
         *)
@@ -1562,8 +1561,7 @@ aur_ready() { [ -n "$AUR_HELPER" ] && command -v "$AUR_HELPER" &>/dev/null; }
 AUR_SIG_SKIPPED=()
 
 _aur_run_robust() {
-    local sync_flag="${1:-}"   # "" | "yu" — a refresh is always a full upgrade
-    local pkg="$2"
+    local pkg="$1"
 
     # No helper when the AUR bootstrap was skipped — as root, where makepkg
     # refuses to build. Fail cleanly here instead of leaking
@@ -1582,7 +1580,7 @@ _aur_run_robust() {
         sudo rm -f /var/lib/pacman/db.lck
     fi
 
-    local _flags=( "$AUR_HELPER" -S"${sync_flag}" --needed --noconfirm --removemake --cleanafter )
+    local _flags=( "$AUR_HELPER" -S --needed --noconfirm --removemake --cleanafter )
 
     # ── attempt 1: normal install ─────────────────────────────────────────────
     # The longest silence in the whole run: a source build with its log going
@@ -1664,8 +1662,7 @@ _aur_run_robust() {
     return 1
 }
 
-aur_install()   { _aur_run_robust ""  "$1"; }
-aur_install_y() { _aur_run_robust "yu" "$1"; }
+aur_install() { _aur_run_robust "$1"; }
 
 # Official repos first, AUR only as a fallback. Repo packages are signed,
 # prebuilt and install in seconds, where the AUR builds from source — and some
@@ -3939,11 +3936,11 @@ APP_LABEL[keepassxc]="KeePassXC"
 APP_LABEL[localsend]="LocalSend"
 APP_LABEL[syncthing]="Syncthing"
 
-# paru-y forces a db refresh first (Brave bumps versions faster than a stale
-# db notices); paru and pacman both resolve through arch_install — repo first,
-# AUR second — so the distinction is only about which one is expected to hit.
-APP_TYPE[brave-beta]="paru-y"
-APP_TYPE[brave-stable]="paru-y"
+# paru and pacman both resolve through arch_install — repo first, AUR second —
+# so the distinction is only about which one is expected to hit. No -Sy for
+# Brave: the AUR is queried live, and a refresh without -u is a partial upgrade.
+APP_TYPE[brave-beta]="paru"
+APP_TYPE[brave-stable]="paru"
 APP_TYPE[vscode]="paru"
 APP_TYPE[vscode-insiders]="paru"
 # same name in the official repos and on apt, so no *_DEB override — apt is the
@@ -4601,9 +4598,8 @@ stow_wanted() {         # true when this run will stow anything at all
 }
 
 # True when this run will hand something to an AUR helper: a package the sync
-# repos do not carry (arch_install's fallback), or a paru-y app, which goes to
-# the helper directly. An app already installed still counts — it is updated
-# through the same path it was installed by.
+# repos do not carry (arch_install's fallback). An app already installed still
+# counts — it is updated through the same path it was installed by.
 aur_wanted() {
     [[ "$DISTRO" == "arch" ]] || return 1
     local k p
@@ -4621,7 +4617,6 @@ aur_wanted() {
     done
     for k in "${APPS[@]}"; do
         case "${RESOLVED_APP_TYPE[$k]}" in
-            paru-y)      return 0 ;;
             pacman|paru) [ -n "${PKG_SYNC[${RESOLVED_APP_PKG[$k]}]:-}" ] || return 0 ;;
         esac
         [ "$k" = wezterm ] && ! pkg_installed_snapshot "$SYMBOLS_FONT_PKG" \
@@ -6797,7 +6792,6 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 substep "Installing ${C_ACCENT}${_lbl}${C_RESET}..."
             fi
             case "$_type" in
-                paru-y) aur_install_y "$_pkg" ;;
                 pacman|paru) arch_install "$_pkg" ;;
                 apt)    apt_install "$_pkg" ;;
                 brave)
