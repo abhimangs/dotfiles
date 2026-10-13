@@ -7007,14 +7007,18 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # without qt6-wayland OBS falls back to XWayland (blurry UI,
                     # broken screen capture) on a Wayland session. Same package
                     # names on Arch and apt, so no *_DEB map entry.
-                    substep "Installing v4l2loopback-dkms and qt6-wayland..."
-                    if [[ "$DISTRO" == "arch" ]]; then
-                        pacman_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
-                    else
-                        apt_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
-                    fi || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
+                    # Asked first: on a re-run "Installing …" for two packages
+                    # that are already there is the summary telling a lie.
+                    if ! { pkg_installed v4l2loopback-dkms && pkg_installed qt6-wayland; }; then
+                        substep "Installing v4l2loopback-dkms and qt6-wayland..."
+                        if [[ "$DISTRO" == "arch" ]]; then
+                            pacman_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
+                        else
+                            apt_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
+                        fi || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
+                    fi
                 elif [[ "$app" == "docker" ]]; then
-                    if [[ "$DISTRO" == "arch" ]]; then
+                    if [[ "$DISTRO" == "arch" ]] && ! { pkg_installed docker-compose && pkg_installed docker-buildx; }; then
                         substep "Installing docker-compose and docker-buildx..."
                         # The app is called "Docker + Compose" and the plan
                         # promises both. Losing compose silently and still
