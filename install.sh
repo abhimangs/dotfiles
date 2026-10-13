@@ -5987,10 +5987,10 @@ net_reachable() {       # <host> [host...] — false only if a probe ran and fai
     for h in "$@"; do
         if command -v curl &>/dev/null; then
             probed=1
-            curl -fsSL --connect-timeout 5 --max-time 8 "https://$h" -o /dev/null 2>/dev/null && return 0
+            curl -fsSL --connect-timeout 5 --max-time 15 "https://$h" -o /dev/null 2>/dev/null && return 0
         elif command -v wget &>/dev/null; then
             probed=1
-            wget -q --timeout=8 --tries=1 -O /dev/null "https://$h" 2>/dev/null && return 0
+            wget -q --timeout=15 --tries=1 -O /dev/null "https://$h" 2>/dev/null && return 0
         fi
     done
     # A minimal Debian or Ubuntu has neither — and bash's own /dev/tcp is not a
@@ -6293,7 +6293,10 @@ if [[ "$DISTRO" == "arch" ]]; then
     if [ -z "$AUR_HELPER" ] && [ "$IS_ROOT" -eq 0 ] && aur_wanted; then
         info "Installing an AUR helper..."
         substep "Checking internet connection..."
-        if ! net_reachable archlinux.org; then
+        # Any of the three: archlinux.org's own site is the one that goes
+        # down or slows to a crawl (it failed a CI run), and the AUR and the
+        # mirrors this actually needs carry on without it.
+        if ! net_reachable aur.archlinux.org archlinux.org geo.mirror.pkgbuild.com; then
             error "No internet connection — the AUR helper needs it to install."
             exit 1
         fi
