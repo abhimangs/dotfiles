@@ -209,7 +209,9 @@ check_doctor() {        # check_doctor <name>
     local f="$LOGS/$1.log"
     bash doctor.sh > "$f" 2>&1 && pass "$1: doctor.sh exits 0" || flunk "$1: doctor.sh exited non-zero"
     grep -q 'no drift' "$f" && pass "$1: doctor.sh reports no drift" \
-        || flunk "$1: doctor.sh does not say 'no drift'" "$(grep -iA8 drift "$f" | head -12)"
+        || flunk "$1: doctor.sh does not say 'no drift'" "$(grep -iA8 drift "$f" | head -12)" \
+            "what changed in the repo copy:" "$(git -C "$HOME/dotfiles" status --porcelain 2>&1 | head -20)" \
+            "$(git -C "$HOME/dotfiles" diff 2>&1 | head -40)"
 }
 
 # After a full install the plan for the same selection must have nothing left

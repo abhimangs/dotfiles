@@ -218,6 +218,13 @@ PKGS
     # "first" and the run installs only after Proceed, only when needed.
     [ "${STUB_NO_AUR:-0}" = 1 ] && rm -f "$root/bin/paru" "$root/bin/yay"
     [ "${STUB_NO_STOW:-0}" = 1 ] && rm -f "$root/bin/stow"
+    # A paru that is on PATH and cannot start: paru-bin built against an older
+    # libalpm than pacman ships, which is what CI's Arch image ran into.
+    if [ "${STUB_PARU_BROKEN:-0}" = 1 ]; then
+        rm -f "$root/bin/yay"
+        printf '#!/bin/sh\necho "paru: error while loading shared libraries: libalpm.so.15: cannot open shared object file: No such file or directory" >&2\nexit 127\n' > "$root/bin/paru"
+        chmod +x "$root/bin/paru"
+    fi
     # A box without unzip, which is neither distro's base install. bun's stub
     # installer refuses to run without it, so this is what makes ensure_cmd unzip
     # something the suite can see.

@@ -3432,10 +3432,10 @@ stow_config() {
         backup_file "$target"
 
     elif [ -d "$target" ]; then
-        # Only real files (not symlinks, not dirs) need handling — stow -D
-        # removes our own symlinks; foreign symlinks coexist or cause a conflict.
-        if find "$target" -mindepth 1 -maxdepth 3 \
-                ! -type l ! -type d 2>/dev/null | grep -q .; then
+        # The plan's own test, not a copy of it: a hand-written find here still
+        # counted the app's runtime files (micro's plug/) as the user's, so a
+        # re-run backed the directory up — or, in delete mode, rm -rf'd it.
+        if dir_target_conflicts "$target"; then
             if [[ "$BACKUP_MODE" == "delete" ]]; then
                 rm -rf "$target"
                 # The path, not the bare name: "Deleted btop" in the middle of
@@ -4354,8 +4354,11 @@ prepare_install_snapshot() {
     # one. Either helper does everything this script asks of one, so an
     # existing install wins over a new one; no reason to build paru on a yay
     # machine.
+    # --version, not command -v: a helper built against an older libalpm is on
+    # PATH and cannot start ("libalpm.so.15: cannot open shared object file"),
+    # and every AUR install through it fails the same way.
     for _a in paru yay; do
-        command -v "$_a" &>/dev/null && { AUR_HELPER="$_a"; break; }
+        "$_a" --version &>/dev/null && { AUR_HELPER="$_a"; break; }
     done
     local _names=("$FONT_PKG" "$MAPLE_FONT_PKG" "$SYMBOLS_FONT_PKG")
     for _c in "${SELECTED[@]}"; do _names+=("${PKG_MAP[$_c]}"); done
@@ -4569,10 +4572,30 @@ APP_GROUP[syncthing]="Utilities"
 # three times verbatim — one more place for the plan to drift from what the
 # install loop actually does.
 dir_target_conflicts() {
-    local target="$1"
-    { [ -L "$target" ] && ! is_repo_link "$target"; } \
-        || { [ -d "$target" ] && find "$target" -mindepth 1 -maxdepth 3 \
-             ! -type l ! -type d 2>/dev/null | grep -q .; }
+    local target="$1" l f pkg="" d
+    { [ -L "$target" ] && ! is_repo_link "$target"; } && return 0
+    [ -d "$target" ] || return 1
+    # A directory already holding our links is ours, and the files the app makes
+    # beside them at run time (micro's plug/, lazygit's state.yml, nvim's
+    # lazy-lock.json) are not a config of the user's: counting them moved the
+    # whole directory to .bak on every re-run, rotating a real backup away. In
+    # one, only a real file where the package has its own is in the way.
+    d="$(readlink -f "$DOTFILES_DIR" 2>/dev/null || printf '%s' "$DOTFILES_DIR")"
+    local -a links files
+    # Read whole, not looped over a live pipe: returning out of one under CI's
+    # ignored SIGPIPE prints "write error: Broken pipe".
+    mapfile -t links < <(find "$target" -mindepth 1 -maxdepth 3 -type l 2>/dev/null)
+    mapfile -t files < <(find "$target" -mindepth 1 -maxdepth 3 ! -type l ! -type d 2>/dev/null)
+    for l in "${links[@]}"; do
+        is_repo_link "$l" || continue
+        pkg="$(readlink -f "$l")"; pkg="${pkg#"$d"/}"; pkg="${pkg%%/*}"
+        break
+    done
+    for f in "${files[@]}"; do
+        [ -z "$pkg" ] && return 0
+        [ -e "$d/$pkg/${f#"$target"/}" ] && return 0
+    done
+    return 1
 }
 
 # A terse diff for the highest-stakes line in the plan: a real, non-repo
@@ -4636,7 +4659,8 @@ omarchy_stock_starship() {      # omarchy_stock_starship <file>
     local ref
     [ -n "$OMARCHY_DIR" ] && [ -f "$1" ] && [ ! -L "$1" ] || return 1
     for ref in "$OMARCHY_DIR/config/starship.toml" /etc/skel/.config/starship.toml; do
-        [ -f "$ref" ] && cmp -s "$1" "$ref" && return 0
+        # Compared in bash: cmp is diffutils, which a minimal Arch lacks.
+        [ -f "$ref" ] && [ "$(<"$1")" = "$(<"$ref")" ] && return 0
     done
     return 1
 }
@@ -6194,15 +6218,20 @@ if [[ "$DISTRO" == "arch" ]]; then
                 substep "Installing prebuilt paru..."
                 (cd "$_paru_build" && makepkg -si --noconfirm) &>/dev/null 2>&1 || true
             fi
-            command -v paru &>/dev/null && break
-            substep "${C_YELLOW}${_src} did not install${C_RESET}"
+            paru --version &>/dev/null && break
+            # paru-bin lags pacman's libalpm soname: it installs fine and then
+            # cannot start. It also conflicts with the source build, which
+            # --noconfirm would refuse to replace it with, so it goes first.
+            [ "$_src" = paru-bin ] && pacman -Q paru-bin &>/dev/null \
+                && sudo pacman -Rns --noconfirm paru-bin &>/dev/null
+            substep "${C_YELLOW}${_src} did not install, or cannot start${C_RESET}"
         done
 
         rm -rf "$_paru_build"
         unset _paru_build _src
 
-        if ! command -v paru &>/dev/null; then
-            error "paru installation failed — binary not found after build."
+        if ! paru --version &>/dev/null; then
+            error "paru installation failed — no working paru after the build."
             exit 1
         fi
         AUR_HELPER="paru"

@@ -37,6 +37,8 @@ jobs:
           # needs the commit before it — a shallow clone has neither that nor
           # the pull request's base.
           fetch-depth: 0
+          # Nothing here pushes, so the token is not left in .git/config.
+          persist-credentials: false
 
       # Both passes, the file list, and the changed-line filter live in the
       # script: one source of truth, and runnable by hand before pushing
@@ -73,6 +75,7 @@ jobs:
         os: [ubuntu-22.04, ubuntu-24.04]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
 
       - name: Install harness dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y stow zsh
@@ -149,7 +152,10 @@ jobs:
           - { name: ubuntu-26.04, image: 'ubuntu:26.04' }
           - { name: omarchy,      image: 'archlinux:base', flavor: omarchy }
     steps:
+      # No token in the checkout: this job runs ~20 vendors' install scripts
+      # with sudo beside it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
 
       # The stubbed suite proves the branches; this proves the assumptions
       # underneath them — that the package names still exist, that real
@@ -182,7 +188,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
 
       # It is deployed by hand to a hosted URL, so a change here means the
       # hosted copy is stale until someone re-pastes it. A warning, never a

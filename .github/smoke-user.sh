@@ -53,4 +53,7 @@ check_install install2
 check_no_new_installs install2
 check_doctor doctor2
 
+# A vendor installer's own log, for the failure annotation to point at.
+cp ~/.hermes/logs/install.log "$LOGS/hermes-install.log" 2>/dev/null
+
 verdict

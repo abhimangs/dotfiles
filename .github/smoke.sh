@@ -41,6 +41,12 @@ if command -v pacman >/dev/null; then
 else
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq sudo || fail "could not install sudo"
+    # No systemd in a container. proton-vpn-daemon's postinst calls systemctl
+    # directly, fails, and leaves dpkg half-configured, so every apt install
+    # after it fails too. On a real machine that call works; here it is a no-op.
+    # (/usr/local/sbin comes first on the PATH dpkg gives maintainer scripts.)
+    printf '#!/bin/sh\nexit 0\n' > /usr/local/sbin/systemctl
+    chmod 0755 /usr/local/sbin/systemctl
 fi
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then

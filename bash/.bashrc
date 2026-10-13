@@ -20,7 +20,9 @@ _path_prepend() {
         *) PATH="$1:$PATH" ;;
     esac
 }
-_path_prepend "$HOME/.local/bin"
+# Spelled out rather than through the helper: Hermes's installer (and any like
+# it) appends its own PATH line unless it finds an existing `PATH=…/.local/bin`.
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac
 _path_prepend "$HOME/.npm-global/bin"
 _path_prepend "$HOME/.opencode/bin"
 _path_prepend "$HOME/.kimi-code/bin"

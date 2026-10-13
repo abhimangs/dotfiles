@@ -215,6 +215,12 @@ nowant  arch-noaur 'Cloning'                      'and a dry run builds nothing'
 STUB_NO_AUR=1 RUN_ARGS="--dry-run --configs=git" run arch-noaur-repo arch "$WORK/k-sel"
 check   arch-noaur-repo 0
 nowant  arch-noaur-repo 'bootstrap paru'          'a repo-only run needs no AUR helper'
+# A paru on PATH that cannot start is not a helper: picking it failed every AUR
+# install with "libalpm.so.15: cannot open shared object file".
+STUB_PARU_BROKEN=1 RUN_ARGS="--dry-run --apps=orca" run arch-paru-broken arch "$WORK/k-sel" STUB_PARU_BROKEN=1
+check   arch-paru-broken 0
+want    arch-paru-broken 'bootstrap paru'         'a paru that cannot start is replaced, not used'
+nowant  arch-paru-broken 'paru already installed' 'and it is not reported as present'
 
 # 5d. No stow. It is only needed to link something, so it is installed after
 #     Proceed and only then: a config run gets it, an apps-only run does not.
@@ -2452,6 +2458,30 @@ if [ ! -L "$h/.config/kitty/kitty.conf" ] && cmp -s "$WORK/seed/omarchy-kitty" "
 else
     bad  uninst-gui2 "kitty was left stowed, or not restored from its .bak"
 fi
+
+# ── An app's own files inside a config dir that is ours ─────────────────────
+# micro -plugin install (the installer's own step) puts plug/ beside our links.
+# That made the directory read as "yours", so every re-run moved it to .bak and
+# rotated a real backup away. A real file where the package has one still is
+# in the way.
+echo "── runtime files in our config dir ─────────────────────"
+run     micro-rt arch "$WORK/k-sel" DOTFILES_CONFIGS="micro"
+check   micro-rt 0
+mrt="$WORK/run/micro-rt/home/.config/micro"
+mkdir -p "$mrt/plug/filemanager" "$mrt/buffers"
+printf 'x\n' > "$mrt/plug/filemanager/filemanager.lua"
+printf '{}\n' > "$mrt/buffers/history"
+rerun   micro-rt2 micro-rt "$WORK/k-sel" DOTFILES_CONFIGS="micro"
+check   micro-rt2 0
+nowant  micro-rt2 'yours, in the way: ~/\.config/micro' 'plug/ and buffers/ do not make the directory the user'"'"'s'
+[ ! -e "$mrt.bak" ] && [ -f "$mrt/plug/filemanager/filemanager.lua" ] \
+    && note micro-rt2 "no micro.bak, and the plugin is still in place" \
+    || bad  micro-rt2 "the directory was moved to .bak over the app's own files"
+rm -f "$mrt/settings.json"; printf '{"colorscheme":"mine"}\n' > "$mrt/settings.json"
+rerun   micro-rt3 micro-rt "$WORK/k-sel" DOTFILES_CONFIGS="micro"
+check   micro-rt3 0
+want    micro-rt3 'yours, in the way: ~/\.config/micro' 'a real settings.json where ours belongs is still in the way'
+unset mrt
 
 # ── Omarchy ──────────────────────────────────────────────────────────────────
 # A fake OMARCHY_PATH tree: stand-ins shaped like Omarchy v4's files. The real
