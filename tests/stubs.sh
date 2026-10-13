@@ -438,6 +438,18 @@ for a in "$@"; do
 done
 case "$url" in *deb.debian.org|*archive.ubuntu.com) exit 0 ;; esac
 if [ -n "$out" ]; then
+    # STUB_BINARY_DL=<url glob> [STUB_BINARY_DL_TIMES=n]: serve NUL-laden bytes
+    # (a CDN handing back a body that is not the script) for the first n
+    # downloads of a matching URL, every download when n is unset.
+    if [ -n "${STUB_BINARY_DL:-}" ]; then
+        case "$url" in $STUB_BINARY_DL)
+            n=$(cat "${STUB_STATE:?}/bin_dl" 2>/dev/null || echo 0)
+            if [ -z "${STUB_BINARY_DL_TIMES:-}" ] || [ "$n" -lt "$STUB_BINARY_DL_TIMES" ]; then
+                echo $((n + 1)) > "$STUB_STATE/bin_dl"
+                printf '\x1f\x8b\x08\x00\x00garbage\x00\x01\x02' > "$out"; exit 0
+            fi ;;
+        esac
+    fi
     # Keyring/signing-key fetches need real (non-empty) bytes — apt_install_keyring
     # rejects an empty download before gpg ever sees it. .deb files and font zips
     # stay empty stand-ins; every vendor *installer script* is served for real,
@@ -467,6 +479,7 @@ if [ -n "$out" ]; then
                 *)                        p=${b%%_*} ;;
             esac
             printf '%s\n' "$p" > "${STUB_STATE:?}/deb_pkg"
+            printf '%s\n' "$url" >> "${STUB_STATE:?}/deb_urls"
             # ... and hash whatever was just written, so the .sha256 served
             # below is by construction the right one for this file. A literal
             # constant here would be the hash of an empty file, and would go
@@ -844,6 +857,19 @@ case "$url" in
                 "$repo" "${STUB_ARCH:-amd64}"
         printf '"browser_download_url": "https://github.com/%s/releases/download/v1.0/%s_1.0_%s.deb"\n' \
             "$repo" "$pkg" "${STUB_ARCH:-amd64}"
+        exit 0 ;;
+esac
+# kitty's own installer: unpacks ~/.local/kitty.app, with the two .desktop files
+# the documented desktop integration copies and rewrites.
+case "$url" in
+    *sw.kovidgoyal.net/kitty/installer.sh)
+        cat <<'KITTY'
+#!/bin/sh
+a="$HOME/.local/kitty.app"
+mkdir -p "$a/bin" "$a/share/applications"
+for t in kitty kitten; do printf '#!/bin/sh\necho kitty stub\n' > "$a/bin/$t"; chmod +x "$a/bin/$t"; done
+for d in kitty kitty-open; do printf 'TryExec=kitty\nIcon=kitty\nExec=kitty %%U\n' > "$a/share/applications/$d.desktop"; done
+KITTY
         exit 0 ;;
 esac
 case "$url" in

@@ -23,6 +23,7 @@ sandbox_repo() {        # sandbox_repo <root>
         -e "s#/etc/arch-release#$etc/arch-release#g" \
         -e "s#/etc/apt#$etc/apt#g" \
         -e "s#/etc/shells#$etc/shells#g" \
+        -e "s#/etc/pacman.conf#$etc/pacman.conf#g" \
         -e "s#/usr/share/xsessions#$share/xsessions#g" \
         -e "s#/usr/share/wayland-sessions#$share/wayland-sessions#g" \
         -e "s#/run/systemd/system#$run/systemd/system#g" \
@@ -125,8 +126,9 @@ build_root() {          # build_root <root> <distro>
                 printf 'NAME="Omarchy"\nID=omarchy\nID_LIKE=arch\n' > "$root/etc/os-release" ;;
         ubuntu) printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\n' > "$root/etc/os-release"
                 printf 'deb http://archive.ubuntu.com/ubuntu noble main\n' > "$root/etc/apt/sources.list" ;;
-        debian) printf 'ID=debian\nVERSION_CODENAME=bookworm\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n' > "$root/etc/os-release"
-                printf 'deb http://deb.debian.org/debian bookworm main\n' > "$root/etc/apt/sources.list" ;;
+        debian) printf 'ID=debian\nVERSION_CODENAME=%s\nPRETTY_NAME="Debian GNU/Linux 12 (%s)"\n' \
+                    "${STUB_DEBIAN_CODENAME:-bookworm}" "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/os-release"
+                printf 'deb http://deb.debian.org/debian %s main\n' "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/apt/sources.list" ;;
     esac
     [ "${STUB_DEAD_PPA:-0}" = 1 ] && \
         printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/lazygit-team/release/ubuntu/\nSuites: noble\n' \
@@ -200,6 +202,7 @@ bitwarden
 keepassxc
 syncthing
 localsend-bin
+libayatana-appindicator3-1
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
@@ -232,6 +235,13 @@ PKGS
     fi
     # A paru that is on PATH and cannot start: paru-bin built against an older
     # libalpm than pacman ships, which is what CI's Arch image ran into.
+    # What OpenAI's ChatGPT script leaves when its pacman prompt is declined:
+    # its repo in pacman.conf (and so chatgpt-bin installable). sudo never runs
+    # the script itself here.
+    if [ "${STUB_OAI_REPO:-0}" = 1 ]; then
+        echo 'Include = /etc/pacman.d/openai-chatgpt.conf' >> "$root/etc/pacman.conf"
+        echo chatgpt-bin >> "$root/state/available"
+    fi
     if [ "${STUB_PARU_BROKEN:-0}" = 1 ]; then
         rm -f "$root/bin/yay"
         printf 'paru-bin\nparu-bin-debug\n' >> "$root/state/installed"

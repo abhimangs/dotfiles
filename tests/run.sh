@@ -247,6 +247,16 @@ want    arch-aur-parubin 'Removing .*paru-bin, paru-bin-debug' 'the broken paru-
 [ "$(tr '\n' ' ' < "$WORK/run/arch-aur-parubin/state/removed" 2>/dev/null)" = 'paru-bin paru-bin-debug ' ] \
     && note arch-aur-parubin 'paru-bin and paru-bin-debug are removed' || bad arch-aur-parubin 'paru-bin and paru-bin-debug are removed'
 
+# ChatGPT: OpenAI's script configures its repo and stops at pacman's prompt;
+# the install is then a non-interactive -Syu of ours. Without the repo (the
+# script failed before adding it) nothing is attempted.
+STUB_OAI_REPO=1 run chatgpt-arch arch "$WORK/k-sel" DOTFILES_APPS=chatgpt DOTFILES_GUI=1 STUB_OAI_REPO=1
+check   chatgpt-arch 0
+grep -qxF chatgpt-bin "$WORK/run/chatgpt-arch/state/installed" \
+    && note chatgpt-arch 'chatgpt-bin installed from the repo the script added' || bad chatgpt-arch 'chatgpt-bin was not installed'
+run chatgpt-norepo arch "$WORK/k-sel" DOTFILES_APPS=chatgpt DOTFILES_GUI=1
+want    chatgpt-norepo 'Failed \(1\):.*ChatGPT' 'no repo, no install: ChatGPT fails on its own line'
+
 # 5d. No stow. It is only needed to link something, so it is installed after
 #     Proceed and only then: a config run gets it, an apps-only run does not.
 #     The host's own stow is kept out of the sandbox for exactly this.
@@ -443,6 +453,31 @@ check   agy-again 0
 want    agy-again 'Antigravity CLI already installed' 'the plan finds agy on PATH'
 want    agy-again 'agy stub update'                    'and updates it with agy update'
 nowant  agy-again 'Downloading installer'             'no second run of the installer'
+
+# 15e2. A download that is not a script (a CDN edge sending an undecoded or
+#       foreign body) is never handed to a shell: retried once, and if it is
+#       still binary the app fails by name while the others install. A binary
+#       first answer followed by a good one installs.
+run     dl-binary ubuntu "$WORK/k-sel" DOTFILES_APPS="antigravity-cli bun" \
+        STUB_BINARY_DL='*antigravity*'
+check   dl-binary 1
+want    dl-binary 'Antigravity CLI: the downloaded installer is not a shell script' 'binary body fails the app with a clear message'
+want    dl-binary 'Failed \(1\): .*Antigravity CLI' 'and it is in the failure list'
+nowant  dl-binary 'Installer exited'  'the garbage was never executed'
+nowant  dl-binary 'cannot execute binary' 'by any shell'
+[ -e "$WORK/run/dl-binary/home/.local/bin/agy" ] \
+    && bad  dl-binary "agy appeared although its installer was not a script" \
+    || note dl-binary "no agy binary"
+[ -x "$WORK/run/dl-binary/home/.bun/bin/bun" ] \
+    && note dl-binary "the other app still installed" \
+    || bad  dl-binary "bun did not install"
+run     dl-retry ubuntu "$WORK/k-sel" DOTFILES_APPS="antigravity-cli" \
+        STUB_BINARY_DL='*antigravity*' STUB_BINARY_DL_TIMES=1
+check   dl-retry 0
+nowant  dl-retry 'not a shell script' 'the retry got a script'
+[ -x "$WORK/run/dl-retry/home/.local/bin/agy" ] \
+    && note dl-retry "installed after one bad download" \
+    || bad  dl-retry "no agy binary after retry"
 
 # 15f. A GitHub-release .deb is an unsigned binary going into a root install,
 #      so where upstream publishes a checksum it is checked. sinelaw/fresh is
@@ -673,6 +708,23 @@ else
     note mistral "no rc file was touched"
 fi
 
+# 15m'. kitty.conf needs cursor_trail (0.37+). Debian 12 / Ubuntu 24.04 archives
+#      are older (0.26 / 0.32) and take kitty's own installer; a 0.41 archive is used as is.
+RUN_ARGS=--gui run kitty-old ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="kitty" STUB_APT_CANDIDATE="0.32.2-2"
+check   kitty-old 0
+d="$WORK/run/kitty-old/home"
+[ -x "$d/.local/kitty.app/bin/kitty" ] && [ -L "$d/.local/bin/kitty" ] && [ -L "$d/.local/bin/kitten" ] \
+    && note kitty-old "old archive kitty: official installer, linked into ~/.local/bin" \
+    || bad  kitty-old "kitty.app not installed or not linked"
+grep -qs "^Exec=$d/.local/kitty.app/bin/kitty" "$d/.local/share/applications/kitty.desktop" \
+    && grep -qs "^TryExec=$d/.local/kitty.app/bin/kitty" "$d/.local/share/applications/kitty.desktop" \
+    && grep -qs "^Icon=$d/.local/kitty.app/share/icons" "$d/.local/share/applications/kitty-open.desktop" \
+    && note kitty-old "desktop files point at kitty.app" || bad kitty-old "desktop files not rewritten"
+RUN_ARGS=--gui run kitty-new ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="kitty" STUB_APT_CANDIDATE="0.41.1-1"
+check   kitty-new 0
+[ -e "$WORK/run/kitty-new/home/.local/kitty.app" ] \
+    && bad  kitty-new "used kitty's installer although the archive's 0.41 is new enough" \
+    || note kitty-new "a new-enough archive kitty is taken as it is"
 # 15m. eza reads the Catppuccin theme.yml from 0.20 on. Debian 13's archive has
 #      0.21, Ubuntu 24.04's has 0.18 — which installs fine and then ignores the
 #      theme without a word. The archive's candidate decides which it gets.
@@ -759,6 +811,36 @@ else
 fi
 [ -s "$d/etc/apt/keyrings/syncthing-archive-keyring.gpg" ] \
     && note debian-newapps "its keyring written" || bad debian-newapps "syncthing keyring missing"
+
+# 15p2. zoxide: Debian 12's 0.4.3 breaks `zoxide init zsh` under Zinit, so an
+#       old archive candidate takes upstream's release .deb and a 0.9+ one apt.
+run     zoxide-old ubuntu "$WORK/k-sel" DOTFILES_TOOLS="zoxide" STUB_APT_CANDIDATE="0.4.3-1"
+check   zoxide-old 0
+grep -qs 'ajeetdsouza/zoxide/.*zoxide_1.0_amd64.deb' "$WORK/run/zoxide-old/state/deb_urls" \
+    && note zoxide-old "a 0.4.3 archive candidate is passed over for the release .deb" \
+    || bad  zoxide-old "zoxide 0.4.3 was not replaced by the release .deb"
+run     zoxide-new ubuntu "$WORK/k-sel" DOTFILES_TOOLS="zoxide" STUB_APT_CANDIDATE="0.9.3-1"
+check   zoxide-new 0
+grep -qxF zoxide "$WORK/run/zoxide-new/state/installed" \
+    && [ ! -s "$WORK/run/zoxide-new/state/deb_urls" ] \
+    && note zoxide-new "a 0.9.3 archive candidate is taken from apt" \
+    || bad  zoxide-new "zoxide 0.9.3 did not come from apt"
+
+# 15p3. LocalSend's .deb omits the tray library it links; it must be pulled.
+grep -qxF libayatana-appindicator3-1 "$WORK/run/debian-newapps/state/installed" \
+    && note debian-newapps "localsend came with libayatana-appindicator3-1" \
+    || bad  debian-newapps "localsend's tray library was not installed"
+
+# 15p4. ghostty needs GTK4 4.14+: absent on Debian 12, offered on 13 and Ubuntu.
+RUN_ARGS="--list --gui" run ghostty-deb12 debian "$WORK/k-none"
+check   ghostty-deb12 0
+nowant  ghostty-deb12 'ghostty' 'Debian 12 has no GTK4 new enough for ghostty'
+RUN_ARGS="--list --gui" STUB_DEBIAN_CODENAME=trixie run ghostty-deb13 debian "$WORK/k-none"
+check   ghostty-deb13 0
+want    ghostty-deb13 'ghostty' 'Debian 13 offers ghostty'
+RUN_ARGS="--list --gui" run ghostty-ubu ubuntu "$WORK/k-none"
+check   ghostty-ubu 0
+want    ghostty-ubu 'ghostty' 'Ubuntu offers ghostty'
 
 # 15q. uv, Zed and Ollama are curl apps on Debian/Ubuntu. uv's installer is the
 #      one mistral-cli reaches by inheritance, so the same rc-file sweep applies

@@ -73,8 +73,8 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | Config | Stow target | Arch package | Debian/Ubuntu |
 |--------|------------|---------|---------|
 | `fastfetch/` | `~/.config/fastfetch/` | `fastfetch` | apt / PPA / GitHub `.deb` |
-| `ghostty/` | `~/.config/ghostty/` | `ghostty` | official install script |
-| `kitty/` | `~/.config/kitty/` | `kitty` | apt |
+| `ghostty/` | `~/.config/ghostty/` | `ghostty` | official install script (**not on Debian 12**: bookworm has GTK4 4.8, ghostty needs 4.14+) |
+| `kitty/` | `~/.config/kitty/` | `kitty` | apt when it is 0.37+ (the config uses `cursor_trail`), else kitty's own binary installer into `~/.local/kitty.app`, linked into `~/.local/bin` with its `.desktop` files |
 | `rofi/` | `~/.config/rofi/` | `rofi` | **Arch only** (Debian/Ubuntu still ship the 1.7.x X11-only build) |
 | `starship/` | `~/.config/starship.toml` | `starship` | apt / official install script (**pulled in automatically with zsh**, which draws its whole prompt with it) |
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* | PPA (Ubuntu) / GitHub `.deb` (Debian) |
@@ -83,6 +83,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `tmux/` | `~/.config/tmux/` | `tmux` *(dep)* | apt — needs tmux 3.1+, older builds read only `~/.tmux.conf` |
 | `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` when it is installed |
 | `eza/` | `~/.config/eza/theme.yml` | `eza` *(dep)* | apt when it is 0.20+ (Debian 13), else eza's own repo (Debian 12, Ubuntu 24.04's 0.18 cannot read the theme) |
+| zoxide *(dep)* | - | `zoxide` | apt when it is 0.9+, else the upstream release `.deb` (Debian 12's 0.4.3 breaks `zoxide init zsh` under Zinit's `zi` alias) |
 | `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
 | `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |
 | `nvim/` | `~/.config/nvim/` | `neovim` *(app)* | apt — lazy.nvim + catppuccin + lualine on 0.8+; Debian 12's 0.7.2 gets the plain options only |
@@ -239,7 +240,7 @@ installed but my shell is still bash", which is the question it was written for.
 
 ### Arch-only items
 
-`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `notion` (no official Linux build, only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only: upstream ships a release tarball and a Nix flake, no apt repo), `zoom` (a vendor `.deb` behind a download page, no apt repo), `deepseek-harness` (AUR only, `deepseek-harness-bin`; DeepSeek's plugin-based agent harness — `dsh web` opens its browser UI), `orca` (AUR only, `stably-orca-bin`; Stably's agent worktree manager), `emdash` (AUR only, `emdash-bin`; runs coding agents in parallel) and `chatgpt` (OpenAI's own installer bootstraps a signed pacman repo directly, with no apt/deb equivalent — `chatgpt-bin`, the desktop app, not the CLI) are only offered on Arch. `orca` is not a GUI entry, so unlike the rest of that list it is still offered on a headless Arch box. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` (the command to bind to a hotkey) is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
+`rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `ghostty` on Debian 12 and older only (GTK4 4.14+ needed, bookworm has 4.8; trixie and Ubuntu are fine), `notion` (no official Linux build, only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only: upstream ships a release tarball and a Nix flake, no apt repo), `zoom` (a vendor `.deb` behind a download page, no apt repo), `deepseek-harness` (AUR only, `deepseek-harness-bin`; DeepSeek's plugin-based agent harness — `dsh web` opens its browser UI), `orca` (AUR only, `stably-orca-bin`; Stably's agent worktree manager), `emdash` (AUR only, `emdash-bin`; runs coding agents in parallel) and `chatgpt` (OpenAI's own installer bootstraps a signed pacman repo directly, with no apt/deb equivalent — `chatgpt-bin`, the desktop app, not the CLI) are only offered on Arch. `orca` is not a GUI entry, so unlike the rest of that list it is still offered on a headless Arch box. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` (the command to bind to a hotkey) is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
 
 ### Slack and Discord Canary, per distro
 
@@ -281,7 +282,7 @@ None of these is Arch-only: every one has a real path on Debian 12, Debian 13 an
 | uv | extra | Astral's installer with `UV_NO_MODIFY_PATH=1` |
 | Bitwarden | extra | the `.deb` bitwarden.com links to (amd64 only upstream) |
 | KeePassXC | extra | apt |
-| LocalSend | AUR `localsend-bin` | GitHub release `.deb` |
+| LocalSend | AUR `localsend-bin` | GitHub release `.deb`, plus `libayatana-appindicator3-1` (its `.deb` does not depend on the tray library it links) |
 | Syncthing | extra | Syncthing's own apt repo, `stable-v2` — the archives carry 1.19 (Debian 12) and 1.27 (Ubuntu 24.04). It is not started for you: `systemctl --user enable --now syncthing` |
 
 ### Selecting zsh installs the whole shell

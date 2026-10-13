@@ -688,7 +688,9 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
                     fresh|pay-respects) _h="the upstream release .deb" ;;
                     gh|delta)           _h="apt, else the upstream release .deb" ;;
                     lazygit)            _h="apt, else the upstream release tarball" ;;
+                    kitty)              _h="apt when it is 0.37+, else kitty's own installer" ;;
                     eza)                _h="apt when it is 0.20+, else the eza apt repo" ;;
+                    zoxide)             _h="apt when it is 0.9+, else the upstream release .deb" ;;
                     atuin)              _h="apt, else the upstream release tarball" ;;
                     lazydocker)         _h="the upstream release tarball" ;;
                     yazi)               _h="the upstream musl release .deb" ;;
@@ -1499,6 +1501,8 @@ declare -A PKG_BIN
 PKG_BIN[starship]="starship"
 PKG_BIN[lazygit]="lazygit"
 PKG_BIN[ghostty]="ghostty"
+# kitty's own installer (Debian/Ubuntu archives older than 0.37) is not on PATH.
+PKG_BIN[kitty]="$HOME/.local/kitty.app/bin/kitty"
 PKG_BIN[fastfetch]="fastfetch"
 PKG_BIN[eza]="eza"
 PKG_BIN[zoxide]="zoxide"
@@ -1715,8 +1719,17 @@ ensure_chatgpt_arch() {
         https://persistent.oaistatic.com/codex-app-prod/linux/install-arch.sh 2>/dev/null || {
         rm -f "$tmp"; return 1
     }
+    # The script verifies and trusts OpenAI's signing key, adds the
+    # [openai-chatgpt] repo, then ends on pacman's own "Proceed?" — it has no
+    # unattended mode, and </dev/null declines it. It installs through a
+    # temporary pacman.conf, too, so the system never syncs [openai-chatgpt]'s
+    # db and the next pacman -S anywhere fails "could not find database". The
+    # install is therefore ours: -Syu syncs that db, then installs from the repo
+    # the script has just configured and trusted.
     sudo bash "$tmp" </dev/null
     rm -f "$tmp"
+    grep -qxF 'Include = /etc/pacman.d/openai-chatgpt.conf' /etc/pacman.conf \
+        && sudo pacman -Syu --needed --noconfirm chatgpt-bin </dev/null
     pkg_installed chatgpt-bin
 }
 
@@ -2202,6 +2215,41 @@ ensure_ghostty_deb() {
     command -v ghostty &>/dev/null
 }
 
+# ── kitty (Debian/Ubuntu) ─────────────────────────────────────────────────────
+# kitty.conf uses cursor_trail (0.37+); Debian 12 ships 0.26 and Ubuntu 24.04
+# 0.32, which log "Ignoring unknown config key". Take the archive only when it
+# is new enough, else kitty's own binary installer (~/.local/kitty.app) plus the
+# documented desktop integration (sw.kovidgoyal.net/kitty/binary/).
+ensure_kitty_deb() {
+    apt_pkg_installed kitty && return 0
+    local cand app="$HOME/.local/kitty.app"
+    [ -x "$app/bin/kitty" ] && return 0
+    apt_update_once
+    cand=$(apt-cache policy kitty 2>/dev/null | sed -n 's/^ *Candidate: *//p')
+    if [ -n "$cand" ] && [ "$cand" != "(none)" ] \
+       && [ "$(printf '%s\n' 0.37 "$cand" | sort -V | head -1)" = 0.37 ]; then
+        apt_install kitty
+        apt_pkg_installed kitty && return 0
+    fi
+
+    ensure_cmd curl || return 1
+    # sh -c "$(curl)" rather than `| sh`, so </dev/null does not replace the script.
+    sh -c "$(curl -fsSL https://sw.kovidgoyal.net/kitty/installer.sh)" kitty-installer launch=n &>/dev/null 2>&1 </dev/null
+    [ -x "$app/bin/kitty" ] || return 1
+    local apps="$XDG_DATA/applications" f
+    mkdir -p "$HOME/.local/bin" "$apps"
+    ln -sf "$app/bin/kitty" "$app/bin/kitten" "$HOME/.local/bin/"
+    for f in kitty kitty-open; do
+        [ -f "$app/share/applications/$f.desktop" ] || continue
+        # Unanchored, as kitty's docs do it: TryExec=kitty needs the same
+        # absolute path, or a desktop without ~/.local/bin on PATH hides it.
+        sed -e "s|Icon=kitty|Icon=$app/share/icons/hicolor/256x256/apps/kitty.png|g" \
+            -e "s|Exec=kitty|Exec=$app/bin/kitty|g" \
+            "$app/share/applications/$f.desktop" > "$apps/$f.desktop"
+    done
+    return 0
+}
+
 # ── alacritty (Debian/Ubuntu) ────────────────────────────────────────────────
 # Debian has had it in main since bookworm, so plain apt is the whole story
 # there. Ubuntu carries it in universe too, a release or so behind upstream —
@@ -2527,6 +2575,24 @@ ensure_eza_deb() {
     apt_pkg_installed eza
 }
 
+# ── zoxide (Debian/Ubuntu) ────────────────────────────────────────────────────
+# Debian 12's 0.4.3 (2020) defines zi() in `zoxide init zsh`, which Zinit's zi
+# alias turns into a parse error on every shell start; 0.9+ is fine (Ubuntu
+# 24.04 has 0.9.3). Older candidates take upstream's release .deb (amd64/arm64).
+ensure_zoxide_deb() {
+    apt_pkg_installed zoxide && return 0
+    local cand
+    apt_update_once
+    cand=$(apt-cache policy zoxide 2>/dev/null | sed -n 's/^ *Candidate: *//p')
+    if [ -n "$cand" ] && [ "$cand" != "(none)" ] \
+       && [ "$(printf '%s\n' 0.9 "$cand" | sort -V | head -1)" = 0.9 ]; then
+        apt_install zoxide
+        apt_pkg_installed zoxide && return 0
+    fi
+    install_release_deb ajeetdsouza/zoxide "_$(deb_arch)\.deb$"
+    apt_pkg_installed zoxide
+}
+
 # ── proton-vpn-cli (Debian/Ubuntu) ────────────────────────────────────────────
 # Official ProtonVPN repo bootstrapper — same repo.protonvpn.com/debian path
 # serves both Debian and Ubuntu.
@@ -2699,15 +2765,18 @@ ensure_bitwarden_deb() {
 # (x86-64, arm-64), and its dependencies take either appindicator, so unlike
 # Slack it resolves on Debian as well as Ubuntu.
 ensure_localsend_deb() {
-    apt_pkg_installed localsend && return 0
+    # Its .deb does not depend on the tray library the binary links against
+    # (libayatana-appindicator3.so.1), so on Ubuntu it installs and cannot start.
+    apt_pkg_installed localsend && apt_pkg_installed libayatana-appindicator3-1 && return 0
     local a
     case "$(deb_arch)" in
         amd64) a='x86-64' ;;
         arm64) a='arm-64' ;;
         *)     return 1 ;;
     esac
-    install_release_deb localsend/localsend "linux-${a}\.deb$"
-    apt_pkg_installed localsend
+    apt_pkg_installed localsend || install_release_deb localsend/localsend "linux-${a}\.deb$"
+    apt_install libayatana-appindicator3-1
+    apt_pkg_installed localsend && apt_pkg_installed libayatana-appindicator3-1
 }
 
 # ── Syncthing (Debian/Ubuntu) ─────────────────────────────────────────────────
@@ -2988,8 +3057,11 @@ SYMBOLS_FONT_PKG="ttf-nerd-fonts-symbols-mono"
 install_symbols_font() {
     if [[ "$DISTRO" == "arch" ]]; then
         pkg_installed "$SYMBOLS_FONT_PKG" && return 0
+        substep "Installing Nerd Font symbols..."
         arch_install "$SYMBOLS_FONT_PKG"
     else
+        symbols_font_installed_deb && return 0
+        substep "Installing Nerd Font symbols..."
         ensure_symbols_font_deb
     fi
 }
@@ -3723,6 +3795,7 @@ PKG_MAP[fresh]="fresh-editor-bin"
 # an entry only where a plain `apt install` will not do. Absent means apt.
 declare -A DEB_INSTALLER
 DEB_INSTALLER[ghostty]="ensure_ghostty_deb"
+DEB_INSTALLER[kitty]="ensure_kitty_deb"
 DEB_INSTALLER[fastfetch]="ensure_fastfetch_deb"
 DEB_INSTALLER[fresh]="ensure_fresh_deb"
 DEB_INSTALLER[protonvpn]="ensure_protonvpn_cli_deb"
@@ -3801,6 +3874,13 @@ CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git 
 # re-declared as a second literal list: a hand-maintained Debian copy silently
 # drops every config added after it was written (micro and fresh both were).
 [[ "$DISTRO" == "debian" ]] && strip_items CONFIGS rofi
+# Ghostty needs GTK4 4.14+ and the ghostty-ubuntu installer refuses Debian
+# before trixie (bookworm has GTK 4.8): no reasonable path, so it is not offered.
+if [[ "$DISTRO" == "debian" && "$IS_UBUNTU" -eq 0 ]]; then
+    case "$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")" in
+        bookworm|bullseye|buster|stretch) strip_items CONFIGS ghostty ;;
+    esac
+fi
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 
 # ── Optional dep tools ───────────────────────────────────────────────────────
@@ -6399,7 +6479,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         _batch_apt=()
         for _dep in "${DEPS[@]}"; do
             case "$_dep" in
-                eza|gh|delta|lazygit|pay-respects|yazi|atuin|lazydocker) ;;
+                eza|zoxide|gh|delta|lazygit|pay-respects|yazi|atuin|lazydocker) ;;
                 *)
                     if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
                         _batch_apt+=("${RESOLVED_DEP_PKG[$_dep]}")
@@ -6448,6 +6528,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             else
                 case "$dep" in
                     eza)          ensure_eza_deb          || _dep_ok=0 ;;
+                    zoxide)       ensure_zoxide_deb       || _dep_ok=0 ;;
                     gh)           ensure_gh_deb           || _dep_ok=0 ;;
                     delta)        ensure_delta_deb        || _dep_ok=0 ;;
                     lazygit)      ensure_lazygit_deb      || _dep_ok=0 ;;
@@ -6923,7 +7004,22 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 [ "$app" = bun ] && ensure_cmd unzip
                 # Ollama ships .tar.zst only; its installer stops without zstd.
                 [ "$app" = ollama ] && ensure_cmd zstd
-                if curl -fsSL "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
+                # --compressed: a CDN edge has served Antigravity's script gzip-
+                # encoded unasked, which plain curl writes out undecoded. Whatever
+                # comes back must still start with #! before a shell sees it; one
+                # retry, then the app fails rather than running a binary blob.
+                _dlok=0
+                for _try in 1 2; do
+                    if curl -fsSL --compressed "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
+                        _dlok=1
+                        [ "$(head -c2 "$_tmpsh")" = '#!' ] && { _dlok=2; break; }
+                    fi
+                    [ "$_try" -eq 1 ] && sleep 2
+                done
+                if [ "$_dlok" -eq 1 ]; then
+                    error "${C_ACCENT}${_lbl}${C_RESET}: the downloaded installer is not a shell script"
+                    FAILED+=("$_lbl")
+                elif [ "$_dlok" -eq 2 ]; then
                     substep "Running installer..."
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
                     _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
@@ -6964,7 +7060,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     FAILED+=("$_lbl")
                 fi
                 rm -f "$_tmpsh"
-                unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok
+                unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok _dlok _try
             fi
         else
             _pkg="${RESOLVED_APP_PKG[$app]}"
@@ -7001,8 +7097,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             if pkg_installed "$_pkg"; then
                 if [[ "$app" == "wezterm" ]]; then
                     # Silent — no menu row, no plan line: it is part of what
-                    # "wezterm" means here, not a separate thing to pick.
-                    substep "Installing Nerd Font symbols..."
+                    # "wezterm" means here, not a separate thing to pick. It
+                    # says "Installing" itself, and only when it is missing.
                     install_symbols_font \
                         || substep "${C_YELLOW}Could not install the symbols font — glyphs may not render${C_RESET}"
                 elif [[ "$app" == "flatpak" ]]; then
