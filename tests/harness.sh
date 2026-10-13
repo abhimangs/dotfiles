@@ -218,10 +218,23 @@ PKGS
     # "first" and the run installs only after Proceed, only when needed.
     [ "${STUB_NO_AUR:-0}" = 1 ] && rm -f "$root/bin/paru" "$root/bin/yay"
     [ "${STUB_NO_STOW:-0}" = 1 ] && rm -f "$root/bin/stow"
+    # The bootstrap for real: an AUR clone is a mkdir, and makepkg puts the
+    # helper stub named by its build dir on PATH (or fails, with
+    # STUB_AUR_BUILD=fail). Every other git call is the host's.
+    if [ -n "${STUB_AUR_BUILD:-}" ]; then
+        printf '#!/bin/sh\n[ "$1" = clone ] && case "$2" in https://aur.archlinux.org/*) echo "$2" >> "$STUB_STATE/aur-clones"; exec mkdir -p "$3" ;; esac\nexec "%s/sysbin/git" "$@"\n' "$WORK" > "$root/bin/git"
+        if [ "$STUB_AUR_BUILD" = fail ]; then
+            printf '#!/bin/sh\nexit 1\n' > "$root/bin/makepkg"
+        else
+            printf '#!/bin/sh\nh=${PWD##*/}\ncp "%s/bin/yay" "$STUB_BIN/${h%%%%-bin}"\n' "$WORK" > "$root/bin/makepkg"
+        fi
+        chmod +x "$root/bin/git" "$root/bin/makepkg"
+    fi
     # A paru that is on PATH and cannot start: paru-bin built against an older
     # libalpm than pacman ships, which is what CI's Arch image ran into.
     if [ "${STUB_PARU_BROKEN:-0}" = 1 ]; then
         rm -f "$root/bin/yay"
+        printf 'paru-bin\nparu-bin-debug\n' >> "$root/state/installed"
         printf '#!/bin/sh\necho "paru: error while loading shared libraries: libalpm.so.15: cannot open shared object file: No such file or directory" >&2\nexit 127\n' > "$root/bin/paru"
         chmod +x "$root/bin/paru"
     fi

@@ -196,31 +196,56 @@ STUB_TERM=xterm-256color STUB_LANG=en_US.UTF-8 run arch-desktop arch "$WORK/k-se
 check   arch-desktop 0
 want    arch-desktop 'Installed \('                       'pacman path works'
 
-# 5b. Arch box that already has yay: it is used as-is, no paru is built.
+# 5b. Arch box that already has yay: it is used as-is, nothing is built.
 STUB_YAY_ONLY=1 run arch-yay arch "$WORK/k-sel" \
     DOTFILES_CONFIGS="git" STUB_YAY_ONLY=1
 check   arch-yay 0
 want    arch-yay 'yay already installed'          'existing helper reused'
-nowant  arch-yay 'bootstrap paru'                 'no bootstrap'
+nowant  arch-yay 'bootstrap yay'                  'no bootstrap'
 nowant  arch-yay 'Cloning'                        'nothing cloned from the AUR'
 
-# 5c. No helper at all. Bootstrapping paru used to happen before the menu, on
+# 5c. No helper at all. Bootstrapping one used to happen before the menu, on
 #     every Arch run, whatever was picked — so it is planned now, and only for
 #     a run with something headed for the AUR. orca is AUR-only, git is not.
 #     Dry runs: the plan is the assertion, and nothing may be built for real.
 STUB_NO_AUR=1 RUN_ARGS="--dry-run --apps=orca" run arch-noaur arch "$WORK/k-sel"
 check   arch-noaur 0
-want    arch-noaur 'bootstrap paru'               'an AUR package puts paru in the plan'
+want    arch-noaur 'bootstrap yay'                'an AUR package puts yay in the plan'
 nowant  arch-noaur 'Cloning'                      'and a dry run builds nothing'
 STUB_NO_AUR=1 RUN_ARGS="--dry-run --configs=git" run arch-noaur-repo arch "$WORK/k-sel"
 check   arch-noaur-repo 0
-nowant  arch-noaur-repo 'bootstrap paru'          'a repo-only run needs no AUR helper'
+nowant  arch-noaur-repo 'bootstrap yay'           'a repo-only run needs no AUR helper'
 # A paru on PATH that cannot start is not a helper: picking it failed every AUR
 # install with "libalpm.so.15: cannot open shared object file".
 STUB_PARU_BROKEN=1 RUN_ARGS="--dry-run --apps=orca" run arch-paru-broken arch "$WORK/k-sel" STUB_PARU_BROKEN=1
 check   arch-paru-broken 0
-want    arch-paru-broken 'bootstrap paru'         'a paru that cannot start is replaced, not used'
+want    arch-paru-broken 'bootstrap yay'          'a paru that cannot start is not used'
 nowant  arch-paru-broken 'paru already installed' 'and it is not reported as present'
+# The bootstrap itself, not just its plan row: yay from yay-bin, then paru from
+# its AUR source package. Not paru-bin: 2.1.0 (still the newest) needs
+# libalpm.so.15, which pacman 7.1 no longer ships.
+STUB_AUR_BUILD=1 STUB_NO_AUR=1 run arch-aur-boot arch "$WORK/k-sel" \
+    DOTFILES_APPS=orca STUB_AUR_BUILD=1 STUB_NO_AUR=1
+check   arch-aur-boot 0
+want    arch-aur-boot 'yay installed'             'yay is installed'
+want    arch-aur-boot 'paru installed'            'and paru'
+want    arch-aur-boot 'Building paru from source' 'paru is the one built from source'
+want    arch-aur-boot 'Installed \('              'and the AUR app installs through them'
+nowant  arch-aur-boot 'paru-bin'                  'paru-bin is never tried'
+[ "$(tr '\n' ' ' < "$WORK/run/arch-aur-boot/state/aur-clones" 2>/dev/null)" = 'https://aur.archlinux.org/yay-bin.git https://aur.archlinux.org/paru.git ' ] \
+    && note arch-aur-boot 'the clones are yay-bin.git and paru.git' || bad arch-aur-boot 'the clones are yay-bin.git and paru.git'
+STUB_AUR_BUILD=fail STUB_NO_AUR=1 run arch-aur-bootfail arch "$WORK/k-sel" \
+    DOTFILES_APPS=orca STUB_AUR_BUILD=fail STUB_NO_AUR=1
+want    arch-aur-bootfail 'No AUR helper could be built' 'a failed bootstrap is said'
+want    arch-aur-bootfail 'Failed \('               'and the AUR app fails on its own line'
+# A paru-bin that cannot start (what every paru-bin install is on pacman 7.1)
+# would block the build as a conflict: it and its -debug go first.
+STUB_AUR_BUILD=1 STUB_PARU_BROKEN=1 \
+    run arch-aur-parubin arch "$WORK/k-sel" DOTFILES_APPS=orca STUB_AUR_BUILD=1 STUB_PARU_BROKEN=1
+check   arch-aur-parubin 0
+want    arch-aur-parubin 'Removing .*paru-bin, paru-bin-debug' 'the broken paru-bin is replaced'
+[ "$(tr '\n' ' ' < "$WORK/run/arch-aur-parubin/state/removed" 2>/dev/null)" = 'paru-bin paru-bin-debug ' ] \
+    && note arch-aur-parubin 'paru-bin and paru-bin-debug are removed' || bad arch-aur-parubin 'paru-bin and paru-bin-debug are removed'
 
 # 5d. No stow. It is only needed to link something, so it is installed after
 #     Proceed and only then: a config run gets it, an apps-only run does not.

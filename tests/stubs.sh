@@ -383,6 +383,18 @@ case "${1:-}" in
           if have "$a"; then printf 'Name            : %s\n' "$a"; else rc=1; fi
       done
       exit $rc ;;
+  -Qq)
+      shift; rc=0
+      for a in "$@"; do grep -qxF "$a" "$st/installed" 2>/dev/null && echo "$a" || rc=1; done
+      exit $rc ;;
+  -R*)
+      shift
+      for a in "$@"; do
+          case "$a" in -*) continue ;; esac
+          echo "$a" >> "$st/removed"
+          grep -vxF "$a" "$st/installed" > "$st/installed.new" 2>/dev/null
+          mv "$st/installed.new" "$st/installed"
+      done ;;
   -S|-Sy|-Syu|-Syyu)
       rc=0
       for a in "$@"; do

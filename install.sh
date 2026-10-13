@@ -768,7 +768,7 @@ scan_installed_pkgs() {
 }
 
 # Which of these names the Arch sync repos carry — everything else goes to the
-# AUR helper, which is what the details pane and the plan's "bootstrap paru"
+# AUR helper, which is what the details pane and the plan's AUR-helper bootstrap
 # row both need to know. One `pacman -Si` for the whole list rather than one per
 # name, and read-only: it looks at the local sync db and nothing else. LC_ALL=C
 # because pacman translates the "Name" it prints. A no-op on apt.
@@ -4352,7 +4352,7 @@ prepare_install_snapshot() {
     # Which AUR helper this machine already has, if any — looked up, not
     # installed: that waits for Proceed, and only happens when the plan needs
     # one. Either helper does everything this script asks of one, so an
-    # existing install wins over a new one; no reason to build paru on a yay
+    # existing install wins over a new one; no reason to add yay on a paru
     # machine.
     # --version, not command -v: a helper built against an older libalpm is on
     # PATH and cannot start ("libalpm.so.15: cannot open shared object file"),
@@ -4750,7 +4750,7 @@ plan_prereqs() {
             if [ "${IS_ROOT:-0}" -eq 1 ]; then
                 pre+=("${C_YELLOW}no AUR helper${C_RESET} ${C_DIM}— makepkg will not build as root, so the AUR items below will fail${C_RESET}")
             else
-                pre+=("${C_YELLOW}bootstrap paru${C_RESET} ${C_DIM}(base-devel and git, then paru-bin from the AUR)${C_RESET}")
+                pre+=("${C_YELLOW}bootstrap yay and paru${C_RESET} ${C_DIM}(base-devel and git, then yay-bin and paru from the AUR — paru builds from source, a few minutes)${C_RESET}")
             fi
         fi
     else
@@ -6179,14 +6179,14 @@ show_plan "${SELECTED[@]}"
 # All of this used to run before the menu was drawn, so esc at the menu — or a
 # --dry-run — had already bootstrapped paru, refreshed apt and installed stow
 # and fzf. It waits for Proceed now, and each part runs only when the plan said
-# it would: paru only when something is headed for the AUR and there is no
-# helper, stow only when something will be stowed and it is missing.
+# it would: the AUR helpers only when something is headed for the AUR and none
+# starts, stow only when something will be stowed and it is missing.
 if [[ "$DISTRO" == "arch" ]]; then
     if [ -z "$AUR_HELPER" ] && [ "$IS_ROOT" -eq 0 ] && aur_wanted; then
         info "Installing an AUR helper..."
         substep "Checking internet connection..."
         if ! net_reachable archlinux.org; then
-            error "No internet connection — paru requires internet to install."
+            error "No internet connection — the AUR helper needs it to install."
             exit 1
         fi
         substep "Installing build dependencies..."
@@ -6195,54 +6195,56 @@ if [[ "$DISTRO" == "arch" ]]; then
             exit 1
         fi
 
-        # Under RUN_TMPDIR, like every other temp artifact: a predictable
-        # /tmp/paru-build is shared across users, and the EXIT trap cleans this
-        # up if the build is interrupted between the two rm -rf calls.
-        _paru_build="$RUN_TMPDIR/paru-build"
-
-        # paru-bin is the same paru, prebuilt. Building from source drags in the
-        # whole rust toolchain — 300+ MB and 2–4 minutes of compiling — for an
-        # identical binary, so that is the fallback, not the default.
-        for _src in paru-bin paru; do
-            substep "Cloning ${C_ACCENT}${_src}${C_RESET} from AUR..."
-            rm -rf "$_paru_build"
-            if ! git clone "https://aur.archlinux.org/${_src}.git" "$_paru_build" &>/dev/null 2>&1; then
-                substep "${C_YELLOW}Could not clone ${_src}${C_RESET}"
+        # Both helpers, newest release each. paru from its AUR source package,
+        # as its README does: paru-bin's newest (2.1.0) needs libalpm.so.15 and
+        # pacman 7.1 ships .so.16, so it installs and cannot start. yay from
+        # yay-bin: the same release, prebuilt by yay's CI with no libalpm.so
+        # dependency, so a pacman soname bump that stops paru leaves yay
+        # working — and the helper lookup falls back to it on its own.
+        # Under RUN_TMPDIR: a predictable /tmp path is shared across users, and
+        # the EXIT trap cleans it up if a build is interrupted.
+        for _h in yay:yay-bin paru:paru; do
+            _pkg="${_h#*:}"; _h="${_h%%:*}"
+            "$_h" --version &>/dev/null && continue
+            # Any installed copy of this helper cannot start (it would have
+            # passed above), conflicts with the new one, and --noconfirm
+            # declines to replace it; its -debug owns the same paths too. No
+            # -s: git may be installed only as its dependency, and is next.
+            mapfile -t _rm < <(pacman -Qq "$_h" "$_h-bin" "$_h-debug" "$_h-bin-debug" 2>/dev/null)
+            if [ "${#_rm[@]}" -gt 0 ]; then
+                substep "Removing ${C_ACCENT}$(join_list "${_rm[@]}")${C_RESET} ${C_DIM}(cannot start)${C_RESET}"
+                sudo pacman -Rn --noconfirm "${_rm[@]}" &>/dev/null
+            fi
+            substep "Cloning ${C_ACCENT}${_pkg}${C_RESET} from AUR..."
+            rm -rf "$RUN_TMPDIR/$_pkg"
+            if ! git clone "https://aur.archlinux.org/${_pkg}.git" "$RUN_TMPDIR/$_pkg" &>/dev/null; then
+                substep "${C_YELLOW}Could not clone ${_pkg}${C_RESET}"
                 continue
             fi
-            if [[ "$_src" == "paru" ]]; then
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building paru from source — output below (takes 2–4 min)${C_RESET}\n"
-                (cd "$_paru_build" && makepkg -si --noconfirm) || true
+            if [ "$_pkg" = "$_h" ]; then
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}❯ ${C_YELLOW}Building ${_h} from source — output below (takes 2–4 min)${C_RESET}\n"
+                (cd "$RUN_TMPDIR/$_pkg" && makepkg -si --noconfirm) || true
                 echo ""
             else
-                substep "Installing prebuilt paru..."
-                (cd "$_paru_build" && makepkg -si --noconfirm) &>/dev/null 2>&1 || true
+                substep "Installing prebuilt ${_h}..."
+                (cd "$RUN_TMPDIR/$_pkg" && makepkg -si --noconfirm) &>/dev/null || true
             fi
-            paru --version &>/dev/null && break
-            # paru-bin lags pacman's libalpm soname: it installs fine and then
-            # cannot start. It also conflicts with the source build, which
-            # --noconfirm would refuse to replace it with, so it goes first.
-            # makepkg -si installs paru-bin-debug beside it, which owns the
-            # same /usr/lib/debug path as paru-debug — so both go.
-            if [ "$_src" = paru-bin ]; then
-                mapfile -t _rm < <(pacman -Qq paru-bin paru-bin-debug 2>/dev/null)
-                [ "${#_rm[@]}" -gt 0 ] && sudo pacman -Rns --noconfirm "${_rm[@]}" &>/dev/null
-                unset _rm
+            rm -rf "$RUN_TMPDIR/$_pkg"
+            if "$_h" --version &>/dev/null; then
+                success "${_h} installed"
+            else
+                substep "${C_YELLOW}${_h} did not install, or cannot start${C_RESET}"
             fi
-            substep "${C_YELLOW}${_src} did not install, or cannot start${C_RESET}"
         done
-
-        rm -rf "$_paru_build"
-        unset _paru_build _src
+        unset _h _pkg _rm
 
         # Not fatal: everything from the official repos still installs, and each
         # AUR item then fails on its own line ("No AUR helper available").
-        if paru --version &>/dev/null; then
-            AUR_HELPER="paru"
-            success "paru installed"
-        else
-            error "paru installation failed — AUR packages will be skipped"
-        fi
+        for _h in paru yay; do
+            "$_h" --version &>/dev/null && { AUR_HELPER="$_h"; break; }
+        done
+        unset _h
+        [ -n "$AUR_HELPER" ] || error "No AUR helper could be built — AUR packages will be skipped"
     fi
 else
     # Always, on apt: every vendor repo and PPA below needs a fresh index, and

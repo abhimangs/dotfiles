@@ -142,7 +142,7 @@ merge is deliberately conservative:
 - **Private mode**: a toggle on the menu's review tab, remove the repo scaffolding *and* scrub your name, address and URLs from what stays (see below)
 - **Idempotent**: safe to re-run; stow uses `-D` before re-stowing, and tools installed outside the package manager (starship, lazygit) are detected rather than reinstalled. The interactive CLIs go further: an already-installed Claude Code, Codex, Cursor, Antigravity CLI, Devin, ORI or Hermes is *updated in place* with its own `<tool> update` command, and the ones that ship no update subcommand (Opencode, Kimi Code, Muse Code, Grok, Mistral, Ollama) rerun their installer, which is what fetches the current release for them. Each one then prints how to launch it
 - **Repo before AUR**: on Arch every install checks the official repos first and only falls back to the AUR helper for AUR-only packages
-- **paru or yay**: whichever is already installed is used; if neither is, and the run has something headed for the AUR, paru is bootstrapped after you confirm the plan (`paru-bin` first, so there is no rust toolchain to compile)
+- **paru or yay**: whichever is already installed (and starts) is used; if neither is, and the run has something headed for the AUR, both are bootstrapped after you confirm the plan, newest release each: yay from `yay-bin` (seconds), paru from its AUR source package as its README does (a few minutes; `paru-bin` 2.1.0 cannot start on pacman 7.1). yay has no libalpm dependency, so when a pacman update stops paru the installer falls back to yay, which can rebuild it (`yay -S paru`)
 - **Shell change**: switches the default shell to zsh when zsh is selected, falling back to `usermod` where `chsh` cannot authenticate
 - **Reversible**: `~/.bashrc` is copied once before anything touches it, and `--restore-bash` puts it back byte for byte along with your login shell (see below)
 - **Headless aware**: on a machine with no display server, GUI configs and apps are hidden (see below)
@@ -372,7 +372,7 @@ Pass `--gui` to override the detection.
 
 What is *not* supported is `sudo bash install.sh`: under sudo the configs would be stowed into root's home, or into yours owned by root, depending on the sudoers policy. The installer detects that case and tells you which of the two supported ways to use instead.
 
-One caveat on Arch: `makepkg` refuses to build as root, so paru cannot be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Vicinae, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
+One caveat on Arch: `makepkg` refuses to build as root, so no AUR helper can be bootstrapped there. Repo packages install normally and AUR-only items (ulauncher, Vicinae, Notion, Brave, VS Code, Antigravity, the Maple font) are reported as skipped. For AUR support on Arch, create a normal user with sudo rights and run the installer as that user.
 
 **Shell change.** `chsh` authenticates through PAM and refuses on accounts with no local password (SSH-key-only login), and can exit 0 without changing anything at all. The installer therefore reads `/etc/passwd` back after each attempt, falls through to `usermod` if the entry did not change, and only reports success once the shell really is zsh; otherwise it prints the exact command to run. The change applies at the next login, or run `exec zsh` to switch the current session immediately.
 
