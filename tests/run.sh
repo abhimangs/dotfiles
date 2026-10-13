@@ -2680,10 +2680,10 @@ fi
 
 # doctor.sh's pcl() is a bare `awk -F'\t'` over this output — a row missing a
 # field is silently misread, not rejected, so the field count is the contract.
-bad_lines=$(awk -F'\t' 'NF != 6' "$porcelain_out" | wc -l)
+bad_lines=$(awk -F'\t' 'NF != 7' "$porcelain_out" | wc -l)
 [ "$bad_lines" -eq 0 ] \
-    && note list-porcelain "every line has exactly 6 tab-separated fields" \
-    || bad  list-porcelain "$bad_lines line(s) do not have 6 fields"
+    && note list-porcelain "every line has exactly 7 tab-separated fields" \
+    || bad  list-porcelain "$bad_lines line(s) do not have 7 fields"
 # The sixth field is the directory, which is not always the key: the neovim
 # app stows into nvim. Asserted on the record itself, since doctor.sh and every
 # other reader trust it rather than re-deriving it.

@@ -5704,47 +5704,56 @@ list_items() {
 }
 
 # The same three lists, for something that is not a person. One record per
-# line, tab-separated, six fields, never coloured and never padded:
+# line, tab-separated, seven fields, never coloured and never padded:
 #
-#   <section>  <name>  <probe>  <where-or-type>  <flags>  <config-dir>
+#   <section>  <name>  <probe>  <where-or-type>  <flags>  <config-dir>  <how>
 #
-#   config  kitty        kitty          ~/.config/kitty/  -            kitty
-#   config  zsh          zsh            ~/.zshrc          -            -
-#   tool    fd           fd-find        -                 -            -
-#   tool    bat          bat            ~/.config/bat/    hasconfig    bat
-#   app     neovim       neovim         pacman            hasconfig    nvim
-#   app     claude-code  claude         curl              interactive  -
-#   var     CURL_APP_PATH  <value>      -                 -            -
+#   config  kitty        kitty          ~/.config/kitty/  -            kitty  pacman
+#   config  zsh          zsh            ~/.zshrc          -            -      pacman
+#   tool    fd           fd-find        -                 -            -      apt
+#   tool    bat          bat            ~/.config/bat/    hasconfig    bat    pacman
+#   app     neovim       neovim         pacman            hasconfig    nvim   pacman
+#   app     claude-code  claude         curl              interactive  -      curl <url>
+#   var     CURL_APP_PATH  <value>      -                 -            -      -
 #
 # <probe> is what item_probe would ask about — a package name, or a binary for
 # the curl CLIs. <flags> is a comma-separated set, "-" when empty.
 # <config-dir> is the directory under $XDG_CONFIG_HOME the entry stows into,
 # by name, "-" when it stows none there. It is the sixth field rather than a
 # change to the fourth because an app's fourth is its install type, and
-# because the name is not always the key: neovim's is nvim.
+# because the name is not always the key: neovim's is nvim. <how> is the
+# details pane's "installs" line (item_how): pacman or AUR on Arch, the
+# mechanism on apt — free text with spaces, so it is the last field.
 # The lists are already distro- and headless-filtered, so this describes the
 # machine it runs on, which is the whole reason doctor.sh reads it rather than
 # keeping its own copy.
 list_porcelain() {
-    local n t f c
+    local n t f c h p=() i=0
+    for n in "${CONFIGS[@]}";   do p+=("$(item_probe dotfiles "$n")"); done
+    for n in "${DEPS_LIST[@]}"; do p+=("$(item_probe tools "$n")"); done
+    for n in "${APPS_LIST[@]}"; do p+=("$(item_probe apps "$n")"); done
+    scan_sync_repos "${p[@]}"   # item_how's pacman-or-AUR answer
     for n in "${CONFIGS[@]}"; do
         t="$(config_target "$n")"
         c="-"; [[ "$t" == */ ]] && c="$n"
-        printf 'config\t%s\t%s\t%s\t-\t%s\n' "$n" "$(item_probe dotfiles "$n")" "$t" "$c"
+        item_how h dotfiles "$n" "${p[i]}"
+        printf 'config\t%s\t%s\t%s\t-\t%s\t%s\n' "$n" "${p[i++]}" "$t" "$c" "$h"
     done
     for n in "${DEPS_LIST[@]}"; do
         t="-"; f="-"; c="-"
         has_side_config "$n" && { c="$(side_config_dir "$n")"; t="${XDG_SHOWN}/${c}/"; f="hasconfig"; }
-        printf 'tool\t%s\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe tools "$n")" "$t" "$f" "$c"
+        item_how h tools "$n" "${p[i]}"
+        printf 'tool\t%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "${p[i++]}" "$t" "$f" "$c" "$h"
     done
     for n in "${APPS_LIST[@]}"; do
         f=""; c="-"
         [ -n "${APP_UPDATE[$n]+x}" ] && f="interactive"
         has_side_config "$n" && { f="${f:+$f,}hasconfig"; c="$(side_config_dir "$n")"; }
         f="${f:--}"
-        printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$n" "$(item_probe apps "$n")" "$(app_type_resolved "$n")" "$f" "$c"
+        item_how h apps "$n" "${p[i]}"
+        printf 'app\t%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "${p[i++]}" "$(app_type_resolved "$n")" "$f" "$c" "$h"
     done
-    printf 'var\tCURL_APP_PATH\t%s\t-\t-\t-\n' "$CURL_APP_PATH"
+    printf 'var\tCURL_APP_PATH\t%s\t-\t-\t-\t-\n' "$CURL_APP_PATH"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
