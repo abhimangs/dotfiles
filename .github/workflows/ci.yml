@@ -144,6 +144,22 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo \
             "${{ matrix.image }}" bash .github/smoke.sh
 
+  # Omarchy is Arch with its own packages, /etc/skel and os-release (ID=omarchy,
+  # ID_LIKE=arch). This builds the user-facing part of it from Omarchy's real
+  # signed repo and runs the installer as that user, to prove the two coexist.
+  # What it does and does not install is written at the top of the script.
+  omarchy:
+    name: omarchy (real archlinux:base + omarchy-settings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build an Omarchy user, install over it, check what survived
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            archlinux:base bash .github/omarchy.sh
+
   linux-sh-unchanged:
     name: linux.sh deploy reminder
     runs-on: ubuntu-latest

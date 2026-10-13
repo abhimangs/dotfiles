@@ -119,6 +119,10 @@ build_root() {          # build_root <root> <distro>
     case "$distro" in
         arch)   : > "$root/etc/arch-release"
                 printf 'ID=arch\nNAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\n' > "$root/etc/os-release" ;;
+        # Omarchy: /etc/arch-release stays (the filesystem package owns it) but
+        # os-release is rewritten to ID=omarchy, so only ID_LIKE says "arch".
+        omarchy) : > "$root/etc/arch-release"
+                printf 'NAME="Omarchy"\nID=omarchy\nID_LIKE=arch\n' > "$root/etc/os-release" ;;
         ubuntu) printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\n' > "$root/etc/os-release"
                 printf 'deb http://archive.ubuntu.com/ubuntu noble main\n' > "$root/etc/apt/sources.list" ;;
         debian) printf 'ID=debian\nVERSION_CODENAME=bookworm\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n' > "$root/etc/os-release"

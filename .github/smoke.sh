@@ -12,6 +12,12 @@
 # exercises end to end either.
 set -uo pipefail
 
+# The omarchy job (.github/omarchy.sh) runs this same script as an unprivileged
+# user from a copy of the repo, with its own selection. Defaults are the plain
+# smoke job's.
+REPO="${SMOKE_REPO:-/repo}"
+SMOKE_INSTALL="${SMOKE_INSTALL:---configs=git --tools=bat}"
+
 step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 fail() { printf '\nFAIL: %s\n' "$1" >&2; exit 1; }
 
@@ -38,15 +44,15 @@ run_installer "--dry-run --configs=all --tools=all --apps=all" | tee /tmp/plan.l
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the dry run exited non-zero"
 grep -q 'dry run' /tmp/plan.log || fail "the dry run never reached the plan"
 
-step "installing two entries for real"
-run_installer "--configs=git --tools=bat" | tee /tmp/install.log
+step "installing for real ($SMOKE_INSTALL)"
+run_installer "$SMOKE_INSTALL" | tee /tmp/install.log
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail "the real install exited non-zero"
 
 step "checking the filesystem, not the transcript"
 # The transcript says what the installer believes; these say what happened.
 [ -L "$HOME/.gitconfig" ] || fail "~/.gitconfig is not a symlink"
 link=$(readlink -f "$HOME/.gitconfig")
-[ "$link" = /repo/git/.gitconfig ] || fail "~/.gitconfig points at $link"
+[ "$link" = "$REPO/git/.gitconfig" ] || fail "~/.gitconfig points at $link"
 # bat is batcat on Debian/Ubuntu, which is the whole reason PKG_BIN and
 # ensure_bat_shim exist — either name is a pass.
 command -v bat >/dev/null || command -v batcat >/dev/null \
