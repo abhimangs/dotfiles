@@ -247,6 +247,14 @@ want    arch-aur-parubin 'Removing .*paru-bin, paru-bin-debug' 'the broken paru-
 [ "$(tr '\n' ' ' < "$WORK/run/arch-aur-parubin/state/removed" 2>/dev/null)" = 'paru-bin paru-bin-debug ' ] \
     && note arch-aur-parubin 'paru-bin and paru-bin-debug are removed' || bad arch-aur-parubin 'paru-bin and paru-bin-debug are removed'
 
+# A PPA that Launchpad does not hand over on the first try: add_ppa retries
+# instead of failing the entry (ulauncher on Ubuntu 24.04, one CI run).
+RUN_ARGS=--gui run ppa-retry ubuntu "$WORK/k-sel" DOTFILES_CONFIGS=ulauncher STUB_PPA_FAILS=1
+check   ppa-retry 0
+want    ppa-retry 'ulauncher installed'           'ulauncher installs on the second try'
+[ "$(cat "$WORK/run/ppa-retry/state/ppa-calls" 2>/dev/null)" = 2 ] \
+    && note ppa-retry 'add-apt-repository was tried twice' || bad ppa-retry 'add-apt-repository was not retried'
+
 # ChatGPT: OpenAI's script configures its repo and stops at pacman's prompt;
 # the install is then a non-interactive -Syu of ours. Without the repo (the
 # script failed before adding it) nothing is attempted.
@@ -520,6 +528,9 @@ for b in .local/bin/claude .local/bin/codex .local/bin/agent .opencode/bin/openc
                    || bad  curlapps "no ${b##*/} at ~/$b"
 done
 nowant  curlapps 'is not on PATH'    'every installer produced its binary'
+[ "$(cat "$WORK/run/curlapps/state/opencode-version" 2>/dev/null)" = 1.2.3 ] \
+    && note curlapps 'opencode is handed VERSION from the /latest redirect, not the API' \
+    || bad  curlapps 'opencode was not handed the latest version'
 nowant  curlapps 'Failed \('         'nothing failed'
 # Tailscale is the exception to the line above it: no bin dir under $HOME, a
 # system one, because its installer drives the package manager as root instead

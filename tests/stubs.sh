@@ -207,8 +207,13 @@ w apt-cache <<'EOF'
     printf '%s:\n  Installed: (none)\n  Candidate: %s\n' "${2:-}" "$STUB_APT_CANDIDATE"; }
 exit 0
 EOF
-w add-apt-repository   <<< '#!/bin/sh
-exit 0'
+# STUB_PPA_FAILS=n: the first n calls fail, as when Launchpad times out.
+w add-apt-repository <<'EOF'
+#!/bin/sh
+n=$(cat "$STUB_STATE/ppa-calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STUB_STATE/ppa-calls"
+[ "$n" -le "${STUB_PPA_FAILS:-0}" ] && exit 1
+exit 0
+EOF
 # Logged, not merely swallowed: `systemctl --user enable …` runs unprivileged,
 # so sudo.log — where every other service call in this suite is asserted — never
 # sees it, and the user-unit branches would have been untestable.
@@ -437,6 +442,13 @@ for a in "$@"; do
     esac
 done
 case "$url" in *deb.debian.org|*archive.ubuntu.com) exit 0 ;; esac
+# The /latest redirect github_latest_tag reads (a -w write-out,
+# printed whatever -o says), for the one repo whose
+# installer is handed a version from it.
+case "$url" in
+    https://github.com/anomalyco/opencode/releases/latest)
+        printf 'https://github.com/anomalyco/opencode/releases/tag/v1.2.3'; exit 0 ;;
+esac
 if [ -n "$out" ]; then
     # STUB_BINARY_DL=<url glob> [STUB_BINARY_DL_TIMES=n]: serve NUL-laden bytes
     # (a CDN handing back a body that is not the script) for the first n
@@ -608,6 +620,7 @@ case " $* " in
     *" --no-modify-path "*) ;;
     *) echo '# STUB PATH BLOCK (opencode)' >> "$HOME/.zshrc" ;;
 esac
+echo "${VERSION:-}" > "$STUB_STATE/opencode-version"
 mkdir -p "$HOME/.opencode/bin"
 printf '#!/bin/sh\necho opencode stub\n' > "$HOME/.opencode/bin/opencode"
 chmod +x "$HOME/.opencode/bin/opencode"

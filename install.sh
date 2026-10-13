@@ -2040,9 +2040,19 @@ ensure_cmd() {                  # ensure_cmd <tool>
 # refresh starts complaining about this PPA specifically, take it back out
 # before falling through to whatever the caller's fallback is.
 add_ppa() {
-    local ppa="$1" owner name
+    local ppa="$1" owner name try
     ensure_apt_deps
-    sudo add-apt-repository -y "$ppa" &>/dev/null 2>&1 || return 1
+    # It asks Launchpad for the PPA's signing key, and Launchpad times out
+    # often enough that one try failed ulauncher on a CI run that the next
+    # run passed.
+    for try in 1 2 3; do
+        sudo add-apt-repository -y "$ppa" &>/dev/null && break
+        if [ "$try" -eq 3 ]; then
+            substep "${C_YELLOW}Could not add ${ppa} — Launchpad did not answer${C_RESET}"
+            return 1
+        fi
+        sleep 5
+    done
     APT_UPDATED=0
     apt_update_once && return 0
 
@@ -2108,6 +2118,13 @@ apt_add_fallback_mirror() {
 }
 
 # GitHub "latest release" asset lookup — no jq dependency
+# The latest release's tag from the /latest redirect: no API, so no 60/hour
+# per-IP limit. Empty if GitHub does not redirect to a tag.
+github_latest_tag() {           # github_latest_tag <owner/repo>
+    curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" 2>/dev/null \
+        | sed -n 's#.*/tag/##p'
+}
+
 github_latest_asset_url() {
     local repo="$1" pattern="$2" url tag
     url=$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
@@ -2119,8 +2136,7 @@ github_latest_asset_url() {
     # NAT, or on a second run, it returns a 403 and the lookup came back empty
     # with no explanation. The release page has no such limit: resolve the tag
     # from the /latest redirect, then read that tag's asset list.
-    tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-              "https://github.com/${repo}/releases/latest" 2>/dev/null | sed 's#.*/tag/##')
+    tag=$(github_latest_tag "$repo")
     [ -n "$tag" ] || return 1
     curl -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" 2>/dev/null \
         | grep -oP 'href="\K[^"]+' \
@@ -2233,6 +2249,9 @@ ensure_kitty_deb() {
     fi
 
     ensure_cmd curl || return 1
+    # Its .txz is unpacked with tar -J, and a minimal Debian has no xz until
+    # some later package happens to pull xz-utils in.
+    command -v xz &>/dev/null || apt_install xz-utils
     # sh -c "$(curl)" rather than `| sh`, so </dev/null does not replace the script.
     sh -c "$(curl -fsSL https://sw.kovidgoyal.net/kitty/installer.sh)" kitty-installer launch=n &>/dev/null 2>&1 </dev/null
     [ -x "$app/bin/kitty" ] || return 1
@@ -7023,6 +7042,12 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     substep "Running installer..."
                     _cenv=()  ; [ -n "${APP_CURL_ENV[$app]:-}" ]  && read -ra _cenv  <<< "${APP_CURL_ENV[$app]}"
                     _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
+                    # OpenCode's script asks the rate-limited GitHub API for the
+                    # latest version and gives up without it (a CI run failed on
+                    # it); handed VERSION, it never asks.
+                    if [ "$app" = opencode ] && _v=$(github_latest_tag anomalyco/opencode) && [ -n "$_v" ]; then
+                        _cenv+=("VERSION=${_v#v}")
+                    fi
                     # </dev/null: a vendor installer must never read this
                     # script's stdin — under `curl … | bash` that is the rest of
                     # the download stream, and on a terminal it is the keys the
@@ -7060,7 +7085,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     FAILED+=("$_lbl")
                 fi
                 rm -f "$_tmpsh"
-                unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok _dlok _try
+                unset _tmpsh _curl_url _shell _cenv _cargs _rc _ok _dlok _try _v
             fi
         else
             _pkg="${RESOLVED_APP_PKG[$app]}"
