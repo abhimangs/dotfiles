@@ -2449,20 +2449,13 @@ else
 fi
 
 # ── Omarchy ──────────────────────────────────────────────────────────────────
-# A fake OMARCHY_PATH tree, built from Omarchy v4.0.4's real files when the
-# clone is around and from stand-ins of the same shape when it is not (CI).
+# A fake OMARCHY_PATH tree: stand-ins shaped like Omarchy v4's files. The real
+# ones are exercised by the CI omarchy job, against Omarchy's own package.
 echo "── Omarchy ──────────────────────────────────────────────"
-OMC=/tmp/claude-1000/-home-abhi-dotfiles/6d3c9104-1121-4efe-9194-74e8a9611f6d/scratchpad/omarchy-src
 mkdir -p "$WORK/omarchy/config/kitty" "$WORK/omarchy/config/tmux"
-if [ -f "$OMC/config/starship.toml" ]; then
-    cp "$OMC/config/starship.toml" "$WORK/omarchy/config/starship.toml"
-    cp "$OMC/config/kitty/kitty.conf" "$WORK/omarchy/config/kitty/kitty.conf"
-    cp "$OMC/config/tmux/tmux.conf" "$WORK/omarchy/config/tmux/tmux.conf"
-else
-    printf 'add_newline = false\nformat = "$directory$character"\n' > "$WORK/omarchy/config/starship.toml"
-    printf 'include ~/.local/state/omarchy/current/theme/kitty.conf\n' > "$WORK/omarchy/config/kitty/kitty.conf"
-    printf 'set -g prefix C-Space\n' > "$WORK/omarchy/config/tmux/tmux.conf"
-fi
+printf 'add_newline = false\nformat = "$directory$character"\n' > "$WORK/omarchy/config/starship.toml"
+printf 'include ~/.local/state/omarchy/current/theme/kitty.conf\n' > "$WORK/omarchy/config/kitty/kitty.conf"
+printf 'set -g prefix C-Space\n' > "$WORK/omarchy/config/tmux/tmux.conf"
 omarchy_home() {        # omarchy_home <name> <distro> [starship-text]
     build_root "$WORK/run/$1" "$2"
     local oh="$WORK/run/$1/home"

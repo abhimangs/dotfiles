@@ -1,0 +1,12 @@
+# Vendors the smoke job tolerates failing, and why. EMPTY ON PURPOSE: a vendor
+# installer that cannot run in CI should break the build, loudly, until a
+# person decides otherwise here.
+#
+# One line per entry:   <ERE> # <reason>
+# The regex must match a whole name: the label printed in the installer's
+# "Failed (n): ..." row (e.g. "Devin CLI"), or the key the detection check
+# reports (e.g. "devin"). An entry with no reason is ignored. An allowed
+# failure still prints a warning (and a GitHub annotation) on every run.
+#
+# Example, not active:
+#   Devin CLI|devin # installer insists on an interactive login in CI
