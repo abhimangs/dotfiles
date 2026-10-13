@@ -96,7 +96,9 @@ check_install() {       # check_install <name>
             [ -n "$it" ] || continue
             if why=$(allowed "$it"); then warn_allowed "$it" "$why"
             else unallowed=1; flunk "$1: $it failed to install"; fi
-        done < <(printf '%s' "$items" | sed 's/, /\n/g')
+        # %s\n: read drops a last line with no newline, which made a single
+        # failed item pass as "only allow-listed failures".
+        done < <(printf '%s\n' "$items" | sed 's/, /\n/g')
     fi
     if [ "$RC" -eq 0 ]; then pass "$1: exits 0"
     elif [ -n "$line" ] && [ "$unallowed" -eq 0 ]; then pass "$1: exit $RC, but only for allow-listed failures"
@@ -299,15 +301,19 @@ check_starts() {        # check_starts <configs> <tools> <apps>
 }
 
 # Run under a terminal, as a person would: an interactive shell without one
-# prints job-control noise that is not ours.
-tty_out() { timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
+# prints job-control noise that is not ours. A terminal also sets TERM, which a
+# CI step does not, and zsh-you-should-use's tput calls complain without it.
+tty_out() { TERM=xterm-256color timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
 
 # Linked is not loaded: each config, read by the version of its program this
 # distro actually installed (Debian 12's tmux, kitty and Neovim are years
 # behind Arch's). Only programs that can read their config without a display;
 # Alacritty, WezTerm, rofi and ulauncher are covered by check_starts alone.
 check_configs_load() {
-    local x="${XDG_CONFIG_HOME:-$HOME/.config}" out bat
+    local x="${XDG_CONFIG_HOME:-$HOME/.config}" out bat rc
+    # Where the curl CLIs and per-user installs (kitty.app) put their binaries,
+    # none of which existed when this login shell set PATH.
+    local PATH="$PATH:$(awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{print $3}' "$LOGS/porcelain.txt")"
     if [ -L "$HOME/.zshrc" ] && command -v zsh >/dev/null; then
         tty_out 'zsh -i -c exit' >/dev/null     # the first start clones Zinit and its plugins
         out=$(tty_out 'zsh -i -c exit')
