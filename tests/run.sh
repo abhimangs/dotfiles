@@ -791,22 +791,24 @@ check   deb-newtools-again 0
 want    deb-newtools-again 'lazydocker already installed' 'lazydocker found outside dpkg'
 want    deb-newtools-again 'atuin already installed'      'and so is atuin'
 
-# 15o. The new apps on Arch: five from extra, LocalSend through the AUR as
-#      localsend-bin, and Ollama through its own installer, tailscale-style —
+# 15o. The new apps on Arch: five from extra, LocalSend (localsend-bin) and
+#      Claude Desktop through the AUR, and Ollama through its own installer, tailscale-style —
 #      root via the cached sudo, the binary in a system bin, the unit enabled
 #      by the installer. --gui because four of them need a display.
 RUN_ARGS=--gui run arch-newapps arch "$WORK/k-sel" \
-    DOTFILES_APPS="zed,uv,bitwarden,keepassxc,localsend,syncthing,ollama"
+    DOTFILES_APPS="zed,uv,bitwarden,keepassxc,localsend,syncthing,ollama,claude-desktop"
 check   arch-newapps 0
 nowant  arch-newapps 'Failed \('  'every new app installed'
 d="$WORK/run/arch-newapps"
-for p in zed uv bitwarden-bin keepassxc syncthing localsend-bin; do
+for p in zed uv bitwarden-bin keepassxc syncthing localsend-bin claude-desktop; do
     grep -qxF "$p" "$d/state/installed" && note arch-newapps "$p installed" \
                                          || bad  arch-newapps "$p missing"
 done
-grep -qxF localsend-bin "$d/state/aur-installed" 2>/dev/null \
-    && note arch-newapps "localsend-bin came through the AUR helper" \
-    || bad  arch-newapps "localsend-bin never reached the AUR fallback"
+for p in localsend-bin claude-desktop; do
+    grep -qxF "$p" "$d/state/aur-installed" 2>/dev/null \
+        && note arch-newapps "$p came through the AUR helper" \
+        || bad  arch-newapps "$p never reached the AUR fallback"
+done
 [ -x "$d/bin/ollama" ] && note arch-newapps "ollama installed by its own installer" \
                        || bad  arch-newapps "no ollama on PATH after its installer ran"
 grep -q 'systemctl enable ollama' "$d/state/sudo.log" \

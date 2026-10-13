@@ -136,7 +136,7 @@ merge is deliberately conservative:
 
 - **One menu**: dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab**: bat, eza, fd, fzf, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux, jq, yazi, atuin, lazydocker, ncdu (the ones `.zshrc` calls come automatically with zsh, see below)
-- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Zed, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Ollama, Postman CLI, Bun, uv, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, Bitwarden, KeePassXC, LocalSend, Syncthing, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop† (\*Arch only, †Debian/Ubuntu only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
+- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Zed, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Ollama, Postman CLI, Bun, uv, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, Bitwarden, KeePassXC, LocalSend, Syncthing, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop (\*Arch only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it: both are required for it to work, not optional extras
 - **Confirmation plan**: shows exactly what will be installed before proceeding, and nothing touches the machine before you say yes to it: the AUR helper, the apt refresh and `stow` are the plan's first rows, not something that already happened
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
 - **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
@@ -265,7 +265,7 @@ path:
 
 ### Debian/Ubuntu-only items
 
-`claude-desktop` runs the other way around: Anthropic ships an official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) but there is no Arch package, so it only appears in the app menu on Debian/Ubuntu. The installer adds the signing key and repo, then installs it via apt.
+`claude-desktop` comes from Anthropic's official apt repo (`downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64) on Debian/Ubuntu: the installer adds the signing key and repo, then installs it via apt. On Arch and Omarchy it is the AUR's `claude-desktop`, which repackages that same `.deb` (checksums pinned) and, like apt's default, pulls in QEMU and OVMF for Cowork's sandbox VM.
 
 ### Where the newer tools and apps come from
 

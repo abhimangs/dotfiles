@@ -4055,7 +4055,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli bun uv vicinae notion obsidian chatgpt slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4068,16 +4068,13 @@ if [[ "$DISTRO" == "debian" ]]; then
     # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
     # Slack is neither: it has a working apt repo, just not one every apt
     # distro can resolve — see the strip below and ensure_slack_deb.
-    # Claude Desktop is the inverse case: an official Anthropic apt repo exists,
-    # but there is no Arch package — so it is Debian/Ubuntu-only.
-    # Strip + append, never a second literal list — see the CONFIGS note above.
+    # Strip, never a second literal list — see the CONFIGS note above.
     strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt
     # Slack splits the two: Ubuntu still has libappindicator3-1 in universe and
     # takes Slack's own apt repo, Debian dropped the library and cannot resolve
     # the package at all. The only entry that is Ubuntu-only rather than
     # apt-wide — see ensure_slack_deb.
     [ "$IS_UBUNTU" -eq 1 ] || strip_items APPS_LIST slack
-    APPS_LIST+=(claude-desktop)
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -4183,6 +4180,9 @@ APP_TYPE[chatgpt]="chatgpt"
 APP_TYPE[slack]="paru"
 # Canary is AUR-only — only the stable "discord" is in the official repos
 APP_TYPE[discord-canary]="paru"
+# The AUR's claude-desktop repackages the .deb from Anthropic's own apt repo
+# (checksums pinned); Debian/Ubuntu take that repo directly.
+APP_TYPE[claude-desktop]="paru"
 APP_TYPE[vlc]="pacman"
 APP_TYPE[obs-studio]="pacman"
 # AUR-only, like vicinae — no zoom in the official repos
@@ -4223,6 +4223,7 @@ APP_PKG[obsidian]="obsidian"
 APP_PKG[chatgpt]="chatgpt-bin"
 APP_PKG[slack]="slack-desktop"
 APP_PKG[discord-canary]="discord-canary"
+APP_PKG[claude-desktop]="claude-desktop"
 APP_PKG[vlc]="vlc"
 # v4l2loopback-dkms (virtual camera) and qt6-wayland (Wayland rendering) are
 # pulled in as a post-install step, same shape as docker's compose/buildx:

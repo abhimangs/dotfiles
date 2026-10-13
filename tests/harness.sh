@@ -202,6 +202,7 @@ zed
 uv
 bitwarden
 bitwarden-bin
+claude-desktop
 keepassxc
 syncthing
 localsend-bin
@@ -210,7 +211,7 @@ PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
     # AUR fallback for them, which is how they install on a real Arch box.
-    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\nlocalsend-bin\nbitwarden-bin\n' > "$root/state/aur-only"
+    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\nlocalsend-bin\nbitwarden-bin\nclaude-desktop\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 
