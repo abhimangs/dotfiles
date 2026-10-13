@@ -41,12 +41,19 @@ if command -v pacman >/dev/null; then
 else
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq sudo || fail "could not install sudo"
-    # No systemd in a container. proton-vpn-daemon's postinst calls systemctl
-    # directly, fails, and leaves dpkg half-configured, so every apt install
-    # after it fails too. On a real machine that call works; here it is a no-op.
-    # (/usr/local/sbin comes first on the PATH dpkg gives maintainer scripts.)
-    printf '#!/bin/sh\nexit 0\n' > /usr/local/sbin/systemctl
-    chmod 0755 /usr/local/sbin/systemctl
+    # No systemd in a container. proton-vpn-daemon's postinst runs systemctl
+    # daemon-reload/enable/start, fails, and leaves dpkg half-configured, so
+    # every apt install after it fails too. On a real machine that works; here
+    # it is a no-op, diverted into place so it wins however the script finds
+    # systemctl (a copy earlier on PATH did not) and stays put when systemd is
+    # pulled in later: dpkg writes the real one to .real. Both spellings, since
+    # bookworm's systemd still ships /bin/systemctl.
+    for f in /usr/bin/systemctl /bin/systemctl; do
+        dpkg-divert --local --divert "$f.real" --add "$f" >/dev/null || fail "dpkg-divert $f"
+    done
+    [ -e /usr/bin/systemctl ] && mv /usr/bin/systemctl /usr/bin/systemctl.real
+    printf '#!/bin/sh\nexit 0\n' > /usr/bin/systemctl
+    chmod 0755 /usr/bin/systemctl
 fi
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then

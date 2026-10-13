@@ -6222,20 +6222,27 @@ if [[ "$DISTRO" == "arch" ]]; then
             # paru-bin lags pacman's libalpm soname: it installs fine and then
             # cannot start. It also conflicts with the source build, which
             # --noconfirm would refuse to replace it with, so it goes first.
-            [ "$_src" = paru-bin ] && pacman -Q paru-bin &>/dev/null \
-                && sudo pacman -Rns --noconfirm paru-bin &>/dev/null
+            # makepkg -si installs paru-bin-debug beside it, which owns the
+            # same /usr/lib/debug path as paru-debug — so both go.
+            if [ "$_src" = paru-bin ]; then
+                mapfile -t _rm < <(pacman -Qq paru-bin paru-bin-debug 2>/dev/null)
+                [ "${#_rm[@]}" -gt 0 ] && sudo pacman -Rns --noconfirm "${_rm[@]}" &>/dev/null
+                unset _rm
+            fi
             substep "${C_YELLOW}${_src} did not install, or cannot start${C_RESET}"
         done
 
         rm -rf "$_paru_build"
         unset _paru_build _src
 
-        if ! paru --version &>/dev/null; then
-            error "paru installation failed — no working paru after the build."
-            exit 1
+        # Not fatal: everything from the official repos still installs, and each
+        # AUR item then fails on its own line ("No AUR helper available").
+        if paru --version &>/dev/null; then
+            AUR_HELPER="paru"
+            success "paru installed"
+        else
+            error "paru installation failed — AUR packages will be skipped"
         fi
-        AUR_HELPER="paru"
-        success "paru installed"
     fi
 else
     # Always, on apt: every vendor repo and PPA below needs a fresh index, and
@@ -6505,13 +6512,22 @@ for cfg in "${SELECTED[@]}"; do
         # deliberately not in this repo, since it is runtime state rather than
         # config. Re-running is how it comes back after stow_config has moved a
         # populated ~/.config/micro aside, so this stays in the normal path.
+        # Installed into a throwaway config dir and only plug/ copied across:
+        # micro 2.0.13 (Ubuntu 24.04) rewrites settings.json when it installs a
+        # plugin — keys re-sorted, defaults dropped — and ours is a link into
+        # this repo, so the rewrite landed in the tracked file.
         if [[ "$cfg" == "micro" ]]; then
             substep "Installing micro plugins..."
-            if micro -plugin install filemanager &>/dev/null 2>&1; then
+            _mcfg="$(mktemp -d -p "$RUN_TMPDIR" micro_XXXXXX)"
+            if [ -d "$XDG_CONFIG/micro/plug/filemanager" ] \
+                || { MICRO_CONFIG_HOME="$_mcfg" micro -plugin install filemanager &>/dev/null \
+                     && mkdir -p "$XDG_CONFIG/micro/plug" \
+                     && { [ ! -d "$_mcfg/plug" ] || cp -a "$_mcfg/plug/." "$XDG_CONFIG/micro/plug/"; }; }; then
                 substep "${C_DIM}Tree view: ${C_ACCENT}> tree${C_RESET}"
             else
                 substep "${C_YELLOW}Could not install the filemanager plugin${C_RESET}"
             fi
+            rm -rf "$_mcfg"; unset _mcfg
         fi
         ;;
 
