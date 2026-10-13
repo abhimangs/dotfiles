@@ -257,6 +257,13 @@ want_keys() {           # want_keys <configs> <tools> <apps>
     done
 }
 
+# install.sh's PKG_BIN: the binary a package-named probe goes by when it was
+# installed outside the package manager (ripgrep is rg, neovim is nvim).
+declare -A BIN_OF=()
+while read -r _k _v; do BIN_OF[$_k]=$_v; done \
+    < <(sed -nE 's/^PKG_BIN\[([^]]+)\]="([^"$]+)".*/\1 \2/p' install.sh)
+unset _k _v
+
 pkg_files() {           # pkg_files <package> — every path it installed, or nothing
     if command -v pacman >/dev/null; then pacman -Qlq "$1" 2>/dev/null
     else dpkg -L "$1" 2>/dev/null; fi
@@ -287,7 +294,7 @@ check_starts() {        # check_starts <configs> <tools> <apps>
         mapfile -t files < <(pkg_files "$probe")
         # A tarball or install-script tool has no package: its binary it is.
         if [ "${#files[@]}" -eq 0 ]; then
-            b=$(PATH="$PATH:$cpath" command -v "$probe") || { skipped+=("$name"); continue; }
+            b=$(PATH="$PATH:$cpath" command -v "${BIN_OF[$probe]:-$probe}") || { skipped+=("$name"); continue; }
             files=("$(readlink -f "$b")")
         fi
         own=()
@@ -397,7 +404,7 @@ record_versions() {     # record_versions <configs> <tools> <apps>
                     END { if (!found) print "local .deb" }')
             fi
         fi
-        if [ -z "$v" ] && b=$(PATH="$PATH:$cpath" command -v "$probe"); then
+        if [ -z "$v" ] && b=$(PATH="$PATH:$cpath" command -v "${BIN_OF[$probe]:-$probe}"); then
             v=$(timeout 15 "$b" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
             src="${b%/*}"; src="${src/#$HOME/\~}"
         fi
