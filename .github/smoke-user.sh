@@ -52,6 +52,7 @@ fi
 step "every program starts, and our configs load in the versions installed"
 check_starts "$CONFIGS" "$TOOLS" "$APPS"
 check_configs_load
+record_versions "$CONFIGS" "$TOOLS" "$APPS"
 check_doctor doctor
 
 step "the same install again: nothing new, nothing broken"

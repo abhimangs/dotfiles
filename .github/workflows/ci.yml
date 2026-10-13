@@ -199,14 +199,17 @@ jobs:
         run: |
           [ -s "$LOGS/porcelain.txt" ] || exit 0
           {
-            printf '### How each entry installs on %s\n\n| section | entry | how |\n|---|---|---|\n' "$TITLE"
-            awk -F'\t' '$1!="var"{printf "| %s | %s | %s |\n", $1, $2, $7}' "$LOGS/porcelain.txt"
+            printf '### How each entry installs on %s\n\n| section | entry | how | version |\n|---|---|---|---|\n' "$TITLE"
+            awk -F'\t' 'NR==FNR{v[$1"/"$2]=$3; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s |\n", $1, $2, $7, (k in v ? v[k] : "-")}' \
+              "$LOGS/versions.txt" "$LOGS/porcelain.txt"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: table-${{ matrix.name }}-${{ matrix.mode }}
-          path: ${{ runner.temp }}/smoke-logs/porcelain.txt
+          path: |
+            ${{ runner.temp }}/smoke-logs/porcelain.txt
+            ${{ runner.temp }}/smoke-logs/versions.txt
           if-no-files-found: ignore
           retention-days: 30
 

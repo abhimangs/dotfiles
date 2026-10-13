@@ -358,3 +358,26 @@ check_configs_load() {
         git config --global --list >/dev/null 2>&1 && pass "git: .gitconfig parses" || flunk "git: .gitconfig does not parse"
     fi
 }
+
+# What each entry actually is on this distro, for the per-distro table: the
+# package manager's version, or the binary's own --version for anything
+# installed outside it (curl CLIs, release tarballs, kitty.app).
+record_versions() {     # record_versions <configs> <tools> <apps>
+    local pf="$LOGS/porcelain.txt" sec name probe where _f _d _h v b
+    local -A WANT=()
+    want_keys "$1" "$2" "$3"
+    local cpath; cpath=$(awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{print $3}' "$pf")
+    : > "$LOGS/versions.txt"
+    while IFS=$'\t' read -r sec name probe where _f _d _h; do
+        [ -n "${WANT["$sec/$name"]:-}" ] || continue
+        v=""
+        if [ "$where" != curl ]; then
+            if command -v pacman >/dev/null; then v=$(pacman -Q "$probe" 2>/dev/null | awk '{print $2}')
+            else v=$(dpkg-query -W -f '${Version}' "$probe" 2>/dev/null); fi
+        fi
+        if [ -z "$v" ] && b=$(PATH="$PATH:$cpath" command -v "$probe"); then
+            v=$(timeout 15 "$b" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+        fi
+        printf '%s\t%s\t%s\n' "$sec" "$name" "${v:--}" >> "$LOGS/versions.txt"
+    done < "$pf"
+}
