@@ -616,6 +616,12 @@ rerun   curlapps-updretry curlapps "$WORK/k-sel" \
 check   curlapps-updretry 0
 want    curlapps-updretry 'Retrying the update'     'a failed update is tried again'
 nowant  curlapps-updretry 'Update failed'           'and a second try that works is no failure'
+# uv already on disk (Mistral's installer pins one into ~/.local/bin first) is
+# brought to the latest by its own self-updater, not left where it was.
+run     uv-first ubuntu "$WORK/k-sel" DOTFILES_APPS="uv"
+rerun   uv-again uv-first "$WORK/k-sel" DOTFILES_APPS="uv"
+check   uv-again 0
+want    uv-again 'uv self update'                   'a uv that is already there self-updates'
 
 # 15h2b. Tailscale's own version of the Devin shape. The real installer runs
 #        under `set -eu` and its pacman arm does not guard `systemctl enable
@@ -742,14 +748,14 @@ check   kitty-new 0
 [ -e "$WORK/run/kitty-new/home/.local/kitty.app" ] \
     && bad  kitty-new "used kitty's installer although the archive's 0.41 is new enough" \
     || note kitty-new "a new-enough archive kitty is taken as it is"
-# 15m. eza reads the Catppuccin theme.yml from 0.20 on. Debian 13's archive has
-#      0.21, Ubuntu 24.04's has 0.18 — which installs fine and then ignores the
-#      theme without a word. The archive's candidate decides which it gets.
+# 15m. eza comes from eza's own apt repo, upstream's latest, whatever the
+#      archive has: Debian 13's 0.21 and Ubuntu 24.04's 0.18 alike (the user
+#      chose upstream's latest for the dev tools over the archive's).
 run     eza-archive ubuntu "$WORK/k-sel" DOTFILES_TOOLS="eza" STUB_APT_CANDIDATE="0.21.0-1+b1"
 check   eza-archive 0
-[ -e "$WORK/run/eza-archive/etc/apt/sources.list.d/gierens.list" ] \
-    && bad  eza-archive "added eza's repo although the archive's 0.21 is new enough" \
-    || note eza-archive "a new-enough archive eza is taken as it is"
+grep -qs 'deb.gierens.de' "$WORK/run/eza-archive/etc/apt/sources.list.d/gierens.list" \
+    && note eza-archive "even the archive's 0.21 is passed over for eza's own repo" \
+    || bad  eza-archive "eza did not come from its own repo"
 [ -L "$WORK/run/eza-archive/home/.config/eza/theme.yml" ] \
     && note eza-archive "and its theme stowed" || bad eza-archive "no theme.yml symlink"
 run     eza-old ubuntu "$WORK/k-sel" DOTFILES_TOOLS="eza" STUB_APT_CANDIDATE="0.18.2-1"
@@ -761,8 +767,8 @@ grep -qs 'deb.gierens.de' "$WORK/run/eza-old/etc/apt/sources.list.d/gierens.list
 # 15n. The new tools with no .deb anywhere: lazydocker and atuin are release
 #      tarballs (atuin only where the archive lacks it, as on Ubuntu 24.04 —
 #      hence the sed), unpacked into /usr/local/bin, which the harness points
-#      at this scenario's own bin. yazi is a release .deb; jq and ncdu are the
-#      plain archive packages they are everywhere.
+#      at this scenario's own bin. yazi is a release .deb, jq upstream's bare
+#      binary, and ncdu the plain archive package.
 build_root "$WORK/run/deb-newtools" ubuntu
 sed -i '/^atuin$/d' "$WORK/run/deb-newtools/state/available"
 RUN_ARGS="--tools=jq,yazi,atuin,lazydocker,ncdu" install_pass \
@@ -770,11 +776,11 @@ RUN_ARGS="--tools=jq,yazi,atuin,lazydocker,ncdu" install_pass \
 check   deb-newtools 0
 nowant  deb-newtools 'Failed \('  'every new tool installed'
 d="$WORK/run/deb-newtools"
-for b in lazydocker atuin; do
+for b in lazydocker atuin jq; do
     [ -x "$d/bin/$b" ] && note deb-newtools "$b unpacked from its release tarball into /usr/local/bin" \
                        || bad  deb-newtools "no $b binary after the tarball install"
 done
-for p in jq ncdu yazi; do
+for p in ncdu yazi; do
     grep -qxF "$p" "$d/state/installed" && note deb-newtools "$p installed" \
                                          || bad  deb-newtools "$p missing"
 done
@@ -794,7 +800,7 @@ RUN_ARGS=--gui run arch-newapps arch "$WORK/k-sel" \
 check   arch-newapps 0
 nowant  arch-newapps 'Failed \('  'every new app installed'
 d="$WORK/run/arch-newapps"
-for p in zed uv bitwarden keepassxc syncthing localsend-bin; do
+for p in zed uv bitwarden-bin keepassxc syncthing localsend-bin; do
     grep -qxF "$p" "$d/state/installed" && note arch-newapps "$p installed" \
                                          || bad  arch-newapps "$p missing"
 done
@@ -838,10 +844,9 @@ grep -qs 'ajeetdsouza/zoxide/.*zoxide_1.0_amd64.deb' "$WORK/run/zoxide-old/state
     || bad  zoxide-old "zoxide 0.4.3 was not replaced by the release .deb"
 run     zoxide-new ubuntu "$WORK/k-sel" DOTFILES_TOOLS="zoxide" STUB_APT_CANDIDATE="0.9.3-1"
 check   zoxide-new 0
-grep -qxF zoxide "$WORK/run/zoxide-new/state/installed" \
-    && [ ! -s "$WORK/run/zoxide-new/state/deb_urls" ] \
-    && note zoxide-new "a 0.9.3 archive candidate is taken from apt" \
-    || bad  zoxide-new "zoxide 0.9.3 did not come from apt"
+grep -qs 'ajeetdsouza/zoxide/.*zoxide_1.0_amd64.deb' "$WORK/run/zoxide-new/state/deb_urls" \
+    && note zoxide-new "a 0.9.3 archive candidate is passed over too: upstream's latest" \
+    || bad  zoxide-new "zoxide 0.9.3 came from the archive, not upstream's .deb"
 
 # 15p3. LocalSend's .deb omits the tray library it links; it must be pulled.
 grep -qxF libayatana-appindicator3-1 "$WORK/run/debian-newapps/state/installed" \
@@ -2885,7 +2890,7 @@ echo "── release asset patterns ──────────────�
 # right after it report a perfectly good install as a failure. Run against the
 # real asset names, so it does not depend on what this machine has installed.
 inst_src="$HERE/../install.sh"
-delta_pat=$(sed -n 's|.*install_release_deb "dandavison/delta" "\(.*\)".*|\1|p' "$inst_src")
+delta_pat=$(sed -n 's|.*upstream_deb git-delta dandavison/delta "\(.*\)".*|\1|p' "$inst_src")
 delta_pat=${delta_pat//\$(deb_arch)/amd64}
 if [ -z "$delta_pat" ]; then
     bad  delta-asset "no dandavison/delta pattern found in install.sh"
@@ -2907,7 +2912,7 @@ unset delta_pat picked
 asset_pick() {          # asset_pick <label> <sed-extracting-the-pattern> <var> <value> <want> <asset...>
     local label=$1 expr=$2 var=$3 val=$4 want=$5 pat got; shift 5
     pat=$(sed -n "$expr" "$inst_src" | head -1)
-    pat=${pat//\$\{$var\}/$val}
+    pat=${pat//\$\{$var\}/$val}; pat=${pat//\$($var)/$val}
     if [ -z "$pat" ]; then bad "$label" "no pattern found in install.sh"; return; fi
     got=$(printf '%s\n' "$@" | sed 's#^#https://github.com/o/r/releases/download/v1/#' \
         | grep -Ei "$pat" | head -1)
@@ -2920,7 +2925,7 @@ asset_pick() {          # asset_pick <label> <sed-extracting-the-pattern> <var> 
 asset_pick yazi-asset 's|.*install_release_deb sxyazi/yazi "\([^"]*\)".*|\1|p' a x86_64 \
     yazi-x86_64-unknown-linux-musl.deb \
     yazi-aarch64-unknown-linux-gnu.deb yazi-x86_64-unknown-linux-gnu.deb yazi-x86_64-unknown-linux-musl.deb
-asset_pick atuin-asset 's|.*install_release_bin atuinsh/atuin "\([^"]*\)".*|\1|p' a x86_64 \
+asset_pick atuin-asset 's|.*upstream_bin atuin atuinsh/atuin "\([^"]*\)".*|\1|p' rust_arch x86_64 \
     atuin-x86_64-unknown-linux-musl.tar.gz \
     atuin-server-x86_64-unknown-linux-musl.tar.gz atuin-server-x86_64-unknown-linux-musl.tar.gz.sha256 \
     atuin-x86_64-unknown-linux-gnu.tar.gz atuin-x86_64-unknown-linux-musl.tar.gz
@@ -2930,6 +2935,29 @@ asset_pick lazydocker-asset 's|.*install_release_bin jesseduffield/lazydocker "\
 asset_pick lazydocker-x86 's|.*install_release_bin jesseduffield/lazydocker "\([^"]*\)".*|\1|p' apat x86 \
     lazydocker_0.25.2_Linux_x86.tar.gz \
     checksums.txt lazydocker_0.25.2_Linux_x86_64.tar.gz lazydocker_0.25.2_Linux_x86.tar.gz
+# The tools that follow upstream's latest on Debian/Ubuntu, against their real
+# release pages (2026-10): musl beside gnu, -musl .debs, appimages, checksums.
+asset_pick ripgrep-asset 's|.*upstream_bin rg BurntSushi/ripgrep "\([^"]*\)".*|\1|p' rust_arch x86_64 \
+    ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz \
+    ripgrep-15.2.0-aarch64-unknown-linux-gnu.tar.gz ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz.sha256 \
+    ripgrep_15.2.0-1_amd64.deb ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
+asset_pick btop-asset 's|.*upstream_bin btop aristocratos/btop "\([^"]*\)".*|\1|p' rust_arch x86_64 \
+    btop-x86_64-unknown-linux-musl.tar.gz \
+    btop-aarch64-unknown-linux-musl.tar.gz btop-i686-unknown-linux-musl.tar.gz btop-x86_64-unknown-linux-musl.tar.gz
+asset_pick starship-asset 's|.*upstream_bin starship starship/starship "\([^"]*\)".*|\1|p' rust_arch x86_64 \
+    starship-x86_64-unknown-linux-musl.tar.gz \
+    starship-x86_64-unknown-linux-gnu.tar.gz starship-x86_64-unknown-linux-musl.tar.gz.sha256 \
+    starship-x86_64-unknown-linux-musl.tar.gz
+asset_pick fd-asset 's|.*upstream_deb fd sharkdp/fd "\([^"]*\)".*|\1|p' deb_arch amd64 \
+    fd_10.5.0_amd64.deb  fd-musl_10.5.0_amd64.deb fd_10.5.0_arm64.deb fd_10.5.0_amd64.deb
+asset_pick bat-asset 's|.*upstream_deb bat sharkdp/bat "\([^"]*\)".*|\1|p' deb_arch amd64 \
+    bat_0.26.1_amd64.deb  bat-musl_0.26.1_musl-linux-amd64.deb bat_0.26.1_arm64.deb bat_0.26.1_amd64.deb
+asset_pick fzf-asset 's|.*upstream_deb fzf junegunn/fzf "\([^"]*\)".*|\1|p' deb_arch amd64 \
+    fzf_0.74.5_amd64.deb  fzf-0.74.5-linux_amd64.tar.gz fzf_0.74.5_arm64.deb fzf_0.74.5_amd64.deb
+asset_pick jq-asset 's|.*upstream_bin jq jqlang/jq "\([^"]*\)".*|\1|p' deb_arch amd64 \
+    jq-linux-amd64  jq-linux64 jq-linux-arm64 sha256sum.txt jq-linux-amd64
+asset_pick gh-asset 's|.*upstream_deb gh cli/cli "\([^"]*\)".*|\1|p' deb_arch amd64 \
+    gh_2.102.0_linux_amd64.deb  gh_2.102.0_linux_amd64.tar.gz gh_2.102.0_linux_arm64.deb gh_2.102.0_linux_amd64.deb
 unset -f asset_pick
 
 # A stale-database retry upgrades (-Syu); a bare -Sy then -S is a partial upgrade.

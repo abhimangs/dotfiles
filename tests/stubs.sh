@@ -40,6 +40,10 @@ for a in "$@"; do
 done
 echo "sudo $*" >> "${STUB_STATE:?}/sudo.log"
 case "$1" in
+    chown) exit 0 ;;    # to root: nothing a sandbox user can do, and nothing to check
+    mv|ln)
+        # the destination, the last argument, only ever inside the sandbox
+        case "${!#}" in "${STUB_ROOT:?}"/*) exec "$@" ;; *) exit 0 ;; esac ;;
     rm)
         # only ever inside the scenario sandbox
         for a in "$@"; do
@@ -488,6 +492,7 @@ if [ -n "$out" ]; then
             case "$url" in
                 */sxyazi/yazi/*)          p=yazi ;;
                 */localsend/localsend/*)  p=localsend ;;
+                */fastfetch-cli/fastfetch/*) p=fastfetch ;;
                 *)                        p=${b%%_*} ;;
             esac
             printf '%s\n' "$p" > "${STUB_STATE:?}/deb_pkg"
@@ -517,11 +522,26 @@ if [ -n "$out" ]; then
             # layout, and the harder of the two for the caller to find.
             n=${url#*github.com/*/}; n=${n%%/*}
             t=$(mktemp -d -p "${STUB_STATE:?}")
-            mkdir -p "$t/$n-release"
-            printf '#!/bin/sh\necho "%s stub $*"\n' "$n" > "$t/$n-release/$n"
-            chmod +x "$t/$n-release/$n"
-            tar -czf "$out" -C "$t" "$n-release"
+            case "$n" in
+                neovim)
+                    # A whole tree, as upstream ships it: the binary needs its
+                    # runtime files beside it.
+                    d="${url##*/}"; d="${d%.tar.gz}"
+                    mkdir -p "$t/$d/bin" "$t/$d/share/nvim/runtime"
+                    printf '#!/bin/sh\necho "NVIM v9.9.9"\n' > "$t/$d/bin/nvim"
+                    chmod +x "$t/$d/bin/nvim"
+                    tar -czf "$out" -C "$t" "$d" ;;
+                *)
+                    [ "$n" = ripgrep ] && n=rg
+                    mkdir -p "$t/$n-release"
+                    printf '#!/bin/sh\necho "%s stub $*"\n' "$n" > "$t/$n-release/$n"
+                    chmod +x "$t/$n-release/$n"
+                    tar -czf "$out" -C "$t" "$n-release" ;;
+            esac
             rm -rf "$t" ;;
+        */releases/download/*/jq-linux-*)
+            # jq publishes the bare binary, no archive around it.
+            printf '#!/bin/sh\necho "jq stub $*"\n' > "$out" ;;
         *nousresearch.com*)
             # The one vendor installer served for real, because Hermes is the
             # one with an argument that matters: without --skip-setup it ends
@@ -859,6 +879,28 @@ case "$url" in
                     "$dl" atuin-x86_64-unknown-linux-gnu.tar.gz \
                     "$dl" atuin-x86_64-unknown-linux-musl.tar.gz \
                     "$dl" atuin-aarch64-unknown-linux-musl.tar.gz
+                exit 0 ;;
+            starship/starship|aristocratos/btop)
+                for a in aarch64 x86_64; do
+                    printf '"browser_download_url": "%s/%s-%s-unknown-linux-musl.tar.gz"\n' "$dl" "${repo#*/}" "$a"
+                done
+                exit 0 ;;
+            BurntSushi/ripgrep)
+                for a in aarch64 x86_64; do
+                    printf '"browser_download_url": "%s/ripgrep-1.0-%s-unknown-linux-musl.tar.gz"\n' "$dl" "$a"
+                done
+                exit 0 ;;
+            micro-editor/micro)
+                printf '"browser_download_url": "%s/%s"\n' "$dl" micro-1.0-linux-arm64.tar.gz "$dl" micro-1.0-linux64-static.tar.gz
+                exit 0 ;;
+            neovim/neovim)
+                printf '"browser_download_url": "%s/%s"\n' "$dl" nvim-linux-arm64.tar.gz "$dl" nvim-linux-x86_64.tar.gz
+                exit 0 ;;
+            jqlang/jq)
+                printf '"browser_download_url": "%s/%s"\n' "$dl" jq-linux-arm64 "$dl" jq-linux-amd64 "$dl" sha256sum.txt
+                exit 0 ;;
+            fastfetch-cli/fastfetch)
+                printf '"browser_download_url": "%s/%s"\n' "$dl" fastfetch-linux-aarch64.deb "$dl" fastfetch-linux-amd64.deb
                 exit 0 ;;
             jesseduffield/lazygit|jesseduffield/lazydocker)
                 printf '"browser_download_url": "%s/%s"\n' "$dl" checksums.txt

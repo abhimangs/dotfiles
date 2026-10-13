@@ -686,22 +686,20 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
                     ghostty)            _h="the ghostty-ubuntu install script" ;;
                     protonvpn)          _h="ProtonVPN's own apt repo" ;;
                     fresh|pay-respects) _h="the upstream release .deb" ;;
-                    gh|delta)           _h="apt, else the upstream release .deb" ;;
-                    lazygit)            _h="apt, else the upstream release tarball" ;;
                     kitty)              _h="apt when it is 0.37+, else kitty's own installer" ;;
-                    eza)                _h="apt when it is 0.20+, else the eza apt repo" ;;
-                    zoxide)             _h="apt when it is 0.9+, else the upstream release .deb" ;;
-                    atuin)              _h="apt, else the upstream release tarball" ;;
+                    gh|delta|zoxide|fzf|fd|bat|fastfetch)
+                                        _h="upstream's latest release .deb, updated on every run" ;;
+                    lazygit|atuin|ripgrep|btop|jq|starship|micro)
+                                        _h="upstream's latest release binary, updated on every run" ;;
+                    neovim)             _h="upstream's latest release in /opt/nvim, updated on every run" ;;
+                    eza)                _h="eza's own apt repo (upstream's latest)" ;;
                     lazydocker)         _h="the upstream release tarball" ;;
                     yazi)               _h="the upstream musl release .deb" ;;
                     localsend)          _h="the upstream release .deb" ;;
                     bitwarden)          _h="bitwarden.com's .deb" ;;
                     syncthing)          _h="Syncthing's own apt repo" ;;
-                    starship)           _h="apt, else the starship.rs install script" ;;
                     alacritty)          _h="apt, else a PPA" ;;
                     discord-canary)     _h="Discord's own .deb" ;;
-                    fastfetch) if [ "$IS_UBUNTU" -eq 1 ]; then _h="apt, else a PPA"
-                               else _h="apt, else the upstream release .deb"; fi ;;
                     ulauncher) if [ "$IS_UBUNTU" -eq 1 ]; then _h="a PPA"
                                else _h="the upstream release .deb"; fi ;;
                     *) if [ "${_t:-apt}" = apt ]; then _h="apt"; else _h="the vendor's own apt repo"; fi ;;
@@ -1516,6 +1514,10 @@ PKG_BIN[git-delta]="delta"
 # of them — the binary is the only way a re-run can tell they are there.
 PKG_BIN[lazydocker]="lazydocker"
 PKG_BIN[atuin]="atuin"
+PKG_BIN[jq]="jq"
+PKG_BIN[btop]="btop"
+PKG_BIN[micro]="micro"
+PKG_BIN[neovim]="nvim"
 
 pkg_installed() {
     local pkg="$1"
@@ -2125,11 +2127,22 @@ github_latest_tag() {           # github_latest_tag <owner/repo>
         | sed -n 's#.*/tag/##p'
 }
 
+# The latest release's version, from its first digit on: v1.2.3 and jq-1.8.2
+# both come back as plain numbers.
+github_latest_version() {       # github_latest_version <owner/repo>
+    github_latest_tag "$1" | sed 's/^[^0-9]*//'
+}
+
+# Is version $1 at least $2? sort -V, after dropping a Debian epoch.
+version_ge() {                  # version_ge <have> <want>
+    [ "$(printf '%s\n' "$2" "${1#*:}" | sort -V | head -1)" = "$2" ]
+}
+
 github_latest_asset_url() {
     local repo="$1" pattern="$2" url tag
     url=$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null \
         | grep -oP '"browser_download_url":\s*"\K[^"]+' \
-        | grep -Ei "$pattern" | head -1)
+        | grep -Ei -m1 -e "$pattern")
     [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
 
     # The unauthenticated API allows 60 requests/hour per IP — behind shared
@@ -2140,7 +2153,7 @@ github_latest_asset_url() {
     [ -n "$tag" ] || return 1
     curl -fsSL "https://github.com/${repo}/releases/expanded_assets/${tag}" 2>/dev/null \
         | grep -oP 'href="\K[^"]+' \
-        | grep -Ei "$pattern" | head -1 | sed 's#^/#https://github.com/#'
+        | grep -Ei -m1 -e "$pattern" | sed 's#^/#https://github.com/#'
 }
 
 # Four of the tools below have no apt package anywhere and publish a .deb per
@@ -2308,27 +2321,17 @@ ensure_wezterm_deb() {
 
 # ── fastfetch (Debian/Ubuntu) ─────────────────────────────────────────────────
 ensure_fastfetch_deb() {
-    apt_pkg_installed fastfetch && return 0
-    apt_install fastfetch
-    apt_pkg_installed fastfetch && return 0
-
-    if [ "$IS_UBUNTU" -eq 1 ]; then
-        add_ppa ppa:zhangsongcui3371/fastfetch
-        apt_install fastfetch
-    else
-        local apat
-        # Upstream names 32-bit ARM builds armv7l/armv6l, never Debian's
-        # armhf/armel, so those need translating or nothing matches.
-        case "$(deb_arch)" in
-            amd64) apat='amd64|x86_64' ;;
-            arm64) apat='arm64|aarch64' ;;
-            armhf) apat='armv7l' ;;
-            armel) apat='armv6l' ;;
-            *)     apat="$(deb_arch)" ;;
-        esac
-        install_release_deb "fastfetch-cli/fastfetch" "linux-(${apat})\.deb$"
-    fi
-    apt_pkg_installed fastfetch
+    local apat
+    # Upstream names 32-bit ARM builds armv7l/armv6l, never Debian's
+    # armhf/armel, so those need translating or nothing matches.
+    case "$(deb_arch)" in
+        amd64) apat='amd64|x86_64' ;;
+        arm64) apat='arm64|aarch64' ;;
+        armhf) apat='armv7l' ;;
+        armel) apat='armv6l' ;;
+        *)     apat="$(deb_arch)" ;;
+    esac
+    upstream_deb fastfetch fastfetch-cli/fastfetch "linux-(${apat})\.deb$"
 }
 
 # ── ulauncher (Debian/Ubuntu) ─────────────────────────────────────────────────
@@ -2368,25 +2371,17 @@ ensure_pay_respects_deb() {
 # repo would work; the release .deb is one fewer third-party source on the
 # machine, and it is named the way install_release_deb already expects.
 ensure_gh_deb() {
-    apt_pkg_installed gh && return 0
-    apt_install gh
-    apt_pkg_installed gh && return 0
-    install_release_deb "cli/cli" "_$(deb_arch)\.deb$"
-    apt_pkg_installed gh
+    upstream_deb gh cli/cli "_$(deb_arch)\.deb$"
 }
 
 # ── git-delta (Debian/Ubuntu) ────────────────────────────────────────────────
 # Same story as gh: Ubuntu 23.04+ and Debian trixie have it, bookworm does not.
 ensure_delta_deb() {
-    apt_pkg_installed git-delta && return 0
-    apt_install git-delta
-    apt_pkg_installed git-delta && return 0
     # Two assets end in _<arch>.deb here — git-delta_ and git-delta-musl_ —
     # and github_latest_asset_url takes the first match, which is the musl one.
     # It installs under the package name git-delta-musl, so the check below
     # then calls a good install a failure. The prefix is what separates them.
-    install_release_deb "dandavison/delta" "git-delta_.*_$(deb_arch)\.deb$"
-    apt_pkg_installed git-delta
+    upstream_deb git-delta dandavison/delta "git-delta_.*_$(deb_arch)\.deb$"
 }
 
 # ── One binary out of a GitHub release tarball (Debian/Ubuntu) ──────────────
@@ -2404,34 +2399,66 @@ install_release_bin() {
     url=$(github_latest_asset_url "$1" "$2")
     [ -n "$url" ] || return 1
     tmp=$(mktemp -d -p "$RUN_TMPDIR" "${3}_XXXXXX")
-    curl -fsSL "$url" -o "$tmp/release.tar.gz" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+    curl -fsSL "$url" -o "$tmp/release" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+    # Each project names its checksum differently: <asset>.sha256 (starship,
+    # ripgrep), <asset>.sha (micro), or one list for the release (lazygit's
+    # checksums.txt, jq's sha256sum.txt).
     want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
-    [ -n "$want" ] || want=$(curl -fsSL "${url%/*}/checksums.txt" 2>/dev/null \
-        | grep -F "${url##*/}" | grep -oiE '^[0-9a-f]{64}' | head -1)
-    got=$(sha256sum "$tmp/release.tar.gz" 2>/dev/null | cut -d' ' -f1)
+    [ -n "$want" ] || want=$(curl -fsSL "${url}.sha" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
+    for f in checksums.txt sha256sum.txt; do
+        [ -n "$want" ] || want=$(curl -fsSL "${url%/*}/$f" 2>/dev/null \
+            | grep -F "${url##*/}" | grep -oiE '^[0-9a-f]{64}' | head -1)
+    done
+    got=$(sha256sum "$tmp/release" 2>/dev/null | cut -d' ' -f1)
     if [ -n "$want" ] && [ "$got" != "$want" ]; then
         substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
         substep "${C_DIM}expected ${want} · got ${got:-nothing, sha256sum failed}${C_RESET}"
         error "Refusing to install it — that binary would go in as root"
         rm -rf "$tmp"; return 1
     fi
-    tar -xzf "$tmp/release.tar.gz" -C "$tmp" 2>/dev/null
-    f=$(find "$tmp" -type f -name "$3" | head -1)
+    if tar -tf "$tmp/release" &>/dev/null; then
+        tar -xf "$tmp/release" -C "$tmp" 2>/dev/null
+        f=$(find "$tmp" -type f -name "$3" | head -1)
+    else
+        f="$tmp/release"        # a bare binary: jq publishes one per arch
+    fi
     [ -n "$f" ] && sudo install -m755 "$f" "/usr/local/bin/$3"
     rm -rf "$tmp"
     command -v "$3" &>/dev/null
 }
 
+# Debian/Ubuntu: upstream's latest release for the dev tools, not the
+# archive's — Debian 12 shipped gh 2.23, fzf 0.38 and Neovim 0.7. Already at or
+# past the latest tag: nothing to do. Behind it, which is how every re-run
+# keeps them current: replaced. GitHub not answering is never a reason to
+# touch something that works.
+upstream_deb() {                # upstream_deb <package> <owner/repo> <asset regex>
+    local have want
+    want=$(github_latest_version "$2")
+    if apt_pkg_installed "$1"; then
+        have=$(dpkg-query -W -f '${Version}' "$1" 2>/dev/null)
+        { [ -z "$want" ] || version_ge "$have" "$want"; } && return 0
+        substep "${C_DIM}${1} ${have} → ${want}${C_RESET}"
+    fi
+    install_release_deb "$2" "$3" && apt_pkg_installed "$1"
+}
+
+upstream_bin() {                # upstream_bin <binary> <owner/repo> <asset regex>
+    local have want
+    want=$(github_latest_version "$2")
+    have=$("$1" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+    if [ -n "$have" ]; then
+        { [ -z "$want" ] || version_ge "$have" "$want"; } && return 0
+        substep "${C_DIM}${1} ${have} → ${want}${C_RESET}"
+    fi
+    install_release_bin "$2" "$3" "$1"
+}
+
+# Rust/Go projects name builds by target triple, Debian by its own arch.
+rust_arch() { case "$(deb_arch)" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) uname -m ;; esac; }
+
 # ── lazygit (Debian/Ubuntu) ───────────────────────────────────────────────────
 ensure_lazygit_deb() {
-    apt_pkg_installed lazygit && return 0
-    apt_install lazygit
-    apt_pkg_installed lazygit && return 0
-
-    # No PPA step here on purpose. ppa:lazygit-team/release last published for
-    # hirsute in 2021 — on any supported release it adds a source with no
-    # Release file, which then breaks every apt-get update on the machine.
-    # The upstream release binary is the only working path.
     local apat
     case "$(deb_arch)" in
         amd64)        apat='x86_64' ;;
@@ -2440,7 +2467,7 @@ ensure_lazygit_deb() {
         i386)         apat='32-bit' ;;
         *)            apat="$(uname -m)" ;;
     esac
-    install_release_bin jesseduffield/lazygit "Linux_${apat}\.tar\.gz$" lazygit
+    upstream_bin lazygit jesseduffield/lazygit "Linux_${apat}\.tar\.gz$"
 }
 
 # ── lazydocker (Debian/Ubuntu) ───────────────────────────────────────────────
@@ -2467,16 +2494,7 @@ ensure_lazydocker_deb() {
 # to the rc files, and ~/.zshrc here is a stow symlink into the checkout. The
 # leading / keeps the atuin-server-* assets from matching.
 ensure_atuin_deb() {
-    apt_pkg_installed atuin && return 0
-    apt_install atuin
-    apt_pkg_installed atuin && return 0
-    local a
-    case "$(deb_arch)" in
-        amd64) a='x86_64' ;;
-        arm64) a='aarch64' ;;
-        *)     return 1 ;;
-    esac
-    install_release_bin atuinsh/atuin "/atuin-${a}-unknown-linux-musl\.tar\.gz$" atuin
+    upstream_bin atuin atuinsh/atuin "/atuin-$(rust_arch)-unknown-linux-musl\.tar\.gz$"
 }
 
 # ── yazi (Debian/Ubuntu) ─────────────────────────────────────────────────────
@@ -2500,13 +2518,7 @@ ensure_yazi_deb() {
 
 # ── starship (Debian/Ubuntu) ──────────────────────────────────────────────────
 ensure_starship_deb() {
-    if apt_pkg_installed starship || command -v starship &>/dev/null; then return 0; fi
-    apt_install starship
-    command -v starship &>/dev/null && return 0
-    # -f, like every other download here. Without it an HTTP error page is
-    # piped into sh instead of being treated as a failure.
-    curl -fsSL https://starship.rs/install.sh | sh -s -- -y &>/dev/null 2>&1
-    command -v starship &>/dev/null
+    upstream_bin starship starship/starship "/starship-$(rust_arch)-unknown-linux-musl\.tar\.gz$"
 }
 
 # ── Keyring install, checked ─────────────────────────────────────────────────
@@ -2573,16 +2585,11 @@ apt_write_source_line() {
 # Debian 12 has none. Both of those take eza's own repo instead. sort -V rather
 # than dpkg --compare-versions only to keep the stub dpkg dumb; eza has no epoch.
 ensure_eza_deb() {
-    apt_pkg_installed eza && return 0
-    local cand
-    apt_update_once
-    cand=$(apt-cache policy eza 2>/dev/null | sed -n 's/^ *Candidate: *//p')
-    if [ -n "$cand" ] && [ "$cand" != "(none)" ] \
-       && [ "$(printf '%s\n' 0.20 "$cand" | sort -V | head -1)" = 0.20 ]; then
-        apt_install eza
-        apt_pkg_installed eza && return 0
+    # eza's own apt repo is upstream's latest; apt then keeps it current, and
+    # re-running this upgrades an archive eza (Debian 13's 0.21) onto it.
+    if [ -f /etc/apt/sources.list.d/gierens.list ] && apt_pkg_installed eza; then
+        apt_install eza; return      # already on the repo: this upgrades when it has moved on
     fi
-
     ensure_apt_deps
     apt_install_keyring https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
         /etc/apt/keyrings/gierens.gpg || return 1
@@ -2599,17 +2606,51 @@ ensure_eza_deb() {
 # alias turns into a parse error on every shell start; 0.9+ is fine (Ubuntu
 # 24.04 has 0.9.3). Older candidates take upstream's release .deb (amd64/arm64).
 ensure_zoxide_deb() {
-    apt_pkg_installed zoxide && return 0
-    local cand
-    apt_update_once
-    cand=$(apt-cache policy zoxide 2>/dev/null | sed -n 's/^ *Candidate: *//p')
-    if [ -n "$cand" ] && [ "$cand" != "(none)" ] \
-       && [ "$(printf '%s\n' 0.9 "$cand" | sort -V | head -1)" = 0.9 ]; then
-        apt_install zoxide
-        apt_pkg_installed zoxide && return 0
+    upstream_deb zoxide ajeetdsouza/zoxide "_$(deb_arch)\.deb$"
+}
+
+ensure_fzf_deb()  { upstream_deb fzf junegunn/fzf "/fzf_.*_$(deb_arch)\.deb$"; }
+# fd's and bat's own .debs ship the real names, so no fdfind/batcat shim needed.
+ensure_fd_deb()   { upstream_deb fd sharkdp/fd "/fd_.*_$(deb_arch)\.deb$"; }
+ensure_bat_deb()  { upstream_deb bat sharkdp/bat "/bat_.*_$(deb_arch)\.deb$"; }
+ensure_ripgrep_deb() { upstream_bin rg BurntSushi/ripgrep "/ripgrep-.*-$(rust_arch)-unknown-linux-musl\.tar\.gz$"; }
+ensure_btop_deb() { upstream_bin btop aristocratos/btop "/btop-$(rust_arch)-unknown-linux-musl\.tar\.gz$"; }
+ensure_jq_deb()   { upstream_bin jq jqlang/jq "/jq-linux-$(deb_arch)$"; }
+ensure_micro_deb() {
+    case "$(deb_arch)" in
+        amd64) upstream_bin micro micro-editor/micro "/micro-.*-linux64-static\.tar\.gz$" ;;
+        arm64) upstream_bin micro micro-editor/micro "/micro-.*-linux-arm64\.tar\.gz$" ;;
+        *)     apt_pkg_installed micro || apt_install micro ;;
+    esac
+}
+
+# ── neovim (Debian/Ubuntu) ───────────────────────────────────────────────────
+# Upstream's release is a whole tree (the runtime files sit beside the binary),
+# so it goes to /opt/nvim with the binary linked into /usr/local/bin, which
+# comes before apt's /usr/bin on PATH. No published checksum to verify against.
+ensure_neovim_deb() {
+    local a have want url tmp
+    case "$(deb_arch)" in
+        amd64) a=x86_64 ;;
+        arm64) a=arm64 ;;
+        *)     apt_pkg_installed neovim || apt_install neovim; return ;;
+    esac
+    want=$(github_latest_version neovim/neovim)
+    have=$(nvim --version </dev/null 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+    if [ -n "$have" ]; then
+        { [ -z "$want" ] || version_ge "$have" "$want"; } && return 0
+        substep "${C_DIM}neovim ${have} → ${want}${C_RESET}"
     fi
-    install_release_deb ajeetdsouza/zoxide "_$(deb_arch)\.deb$"
-    apt_pkg_installed zoxide
+    url=$(github_latest_asset_url neovim/neovim "/nvim-linux-${a}\.tar\.gz$")
+    [ -n "$url" ] || return 1
+    tmp=$(mktemp -d -p "$RUN_TMPDIR" nvim_XXXXXX)
+    if curl -fsSL "$url" -o "$tmp/nvim.tar.gz" 2>/dev/null \
+       && tar -xzf "$tmp/nvim.tar.gz" -C "$tmp" 2>/dev/null && [ -x "$tmp/nvim-linux-${a}/bin/nvim" ]; then
+        sudo rm -rf /opt/nvim && sudo mv "$tmp/nvim-linux-${a}" /opt/nvim \
+            && sudo chown -R root:root /opt/nvim && sudo ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
+    fi
+    rm -rf "$tmp"
+    [ -x /usr/local/bin/nvim ]
 }
 
 # ── proton-vpn-cli (Debian/Ubuntu) ────────────────────────────────────────────
@@ -3820,6 +3861,25 @@ DEB_INSTALLER[fresh]="ensure_fresh_deb"
 DEB_INSTALLER[protonvpn]="ensure_protonvpn_cli_deb"
 DEB_INSTALLER[starship]="ensure_starship_deb"
 DEB_INSTALLER[ulauncher]="ensure_ulauncher_deb"
+DEB_INSTALLER[micro]="ensure_micro_deb"
+
+# What the plan adds to an installed entry the run will still bring up to date.
+deb_latest_note() {             # deb_latest_note <key>
+    [[ "$DISTRO" == "debian" ]] && [ -n "${DEB_LATEST[$1]:-}" ] && printf ' — updated if upstream has a newer release'
+    return 0
+}
+
+# The Debian/Ubuntu entries that track upstream's latest release (by the user's
+# choice: the archive's are years behind on Debian 12 and Ubuntu 24.04). Their
+# installers are also run when the entry is already there, and upgrade it only
+# when upstream has moved on. Configs and dep tools; neovim is an app type.
+declare -A DEB_LATEST=(
+    [fastfetch]=ensure_fastfetch_deb [starship]=ensure_starship_deb [micro]=ensure_micro_deb
+    [bat]=ensure_bat_deb [eza]=ensure_eza_deb [fd]=ensure_fd_deb [fzf]=ensure_fzf_deb
+    [zoxide]=ensure_zoxide_deb [lazygit]=ensure_lazygit_deb [btop]=ensure_btop_deb
+    [gh]=ensure_gh_deb [ripgrep]=ensure_ripgrep_deb [delta]=ensure_delta_deb
+    [jq]=ensure_jq_deb [atuin]=ensure_atuin_deb
+)
 
 # Prints the last few lines of whichever package-manager error is populated —
 # apt's or pacman's, whichever this run actually hit — so a failed install
@@ -3854,6 +3914,9 @@ ensure_cfg_pkg() {
     # prepare_install_snapshot took — not a fresh pacman -Q/dpkg-query per config.
     if pkg_installed_snapshot "$pkg"; then
         substep "${C_ACCENT}${pkg}${C_RESET} already installed"
+        if [[ "$DISTRO" == "debian" ]] && [ -n "${DEB_LATEST[$cfg]:-}" ]; then
+            "${DEB_LATEST[$cfg]}" || substep "${C_YELLOW}Could not update ${cfg} — keeping the installed version${C_RESET}"
+        fi
         return 0
     fi
     substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
@@ -3944,7 +4007,7 @@ ZSH_TOOLS=(bat eza fd zoxide pay-respects lazygit fzf yazi)
 
 # Debian/Ubuntu apt package-name overrides (only where it differs from Arch)
 declare -A DEP_PKG_DEB
-DEP_PKG_DEB[fd]="fd-find"
+DEP_PKG_DEB[fd]="fd"
 # The AUR package is the -bin one; the .deb upstream publishes is plain.
 DEP_PKG_DEB[pay-respects]="pay-respects"
 DEP_PKG_DEB[gh]="gh"
@@ -4130,7 +4193,7 @@ APP_TYPE[docker]="pacman"
 # no archive has them — see APP_TYPE_DEB.
 APP_TYPE[zed]="pacman"
 APP_TYPE[uv]="pacman"
-APP_TYPE[bitwarden]="pacman"
+APP_TYPE[bitwarden]="paru"
 APP_TYPE[keepassxc]="pacman"
 APP_TYPE[syncthing]="pacman"
 # AUR-only; -bin is the prebuilt one, where plain `localsend` builds Flutter
@@ -4174,7 +4237,9 @@ APP_PKG[flatpak]="flatpak"
 APP_PKG[docker]="docker"
 APP_PKG[zed]="zed"
 APP_PKG[uv]="uv"
-APP_PKG[bitwarden]="bitwarden"
+# bitwarden-bin, not extra/bitwarden: the repo package sat flagged out of date at
+# 2026.3.1 for months while Bitwarden shipped 2026.9.1 (the user's choice).
+APP_PKG[bitwarden]="bitwarden-bin"
 APP_PKG[keepassxc]="keepassxc"
 APP_PKG[localsend]="localsend-bin"
 APP_PKG[syncthing]="syncthing"
@@ -4370,6 +4435,7 @@ APP_BIN[zed]="zed"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
+APP_PKG_DEB[bitwarden]="bitwarden"   # the .deb's own name; Arch takes bitwarden-bin
 APP_PKG_DEB[brave-stable]="brave-origin"
 APP_PKG_DEB[brave-beta]="brave-origin-beta"
 APP_PKG_DEB[vscode]="code"
@@ -4400,6 +4466,7 @@ APP_TYPE_DEB[ori]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
+APP_TYPE_DEB[neovim]="neovim"
 APP_TYPE_DEB[wezterm]="wezterm"
 APP_TYPE_DEB[claude-desktop]="claude-desktop"
 APP_TYPE_DEB[slack]="slack"
@@ -4552,7 +4619,7 @@ APP_DESC[syncthing]="continuous file sync between devices"
 APP_NOTE[brave-beta]="the beta channel"
 APP_NOTE[vscode-insiders]="the nightly channel"
 APP_NOTE[neovim]="a Catppuccin Mocha config: lazy.nvim, catppuccin, lualine"
-APP_NOTE[alacritty]="a Catppuccin Mocha theme is stowed with it"
+APP_NOTE[alacritty]="a Catppuccin Mocha theme is stowed with it; Debian 12's 0.11 cannot read it (TOML needs 0.13+) and opens unthemed"
 APP_NOTE[wezterm]="a multiplexer too; a Catppuccin theme and the Nerd Font symbols font come with it"
 APP_NOTE[antigravity]="the 2.0 release"
 APP_NOTE[hermes]="run 'hermes setup' after"
@@ -5048,7 +5115,7 @@ plan_body() {
                 steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}— it will not render without it${C_RESET}")
             fi
         elif pkg_installed_snapshot "$pkg"; then
-            steps+=("${C_DIM}$pkg already installed${C_RESET}")
+            steps+=("${C_DIM}$pkg already installed$(deb_latest_note "$cfg")${C_RESET}")
         else
             steps+=("${C_YELLOW}install $pkg${C_RESET}")
         fi
@@ -5190,7 +5257,7 @@ plan_body() {
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}dep tools${C_RESET}"
         for _d in "${DEPS[@]}"; do
             if pkg_installed_snapshot "${RESOLVED_DEP_PKG[$_d]}"; then
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_d} already installed$(deb_latest_note "$_d")${C_RESET}"
             else
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_d}${C_RESET}"
             fi
@@ -5221,6 +5288,7 @@ plan_body() {
                             _how="already installed — installer runs again to update"
                         fi
                     fi
+                    [ "$_a" = uv ] && _how="already installed — will update (uv self update)"
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} ${_how}${C_RESET}"
                 else
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
@@ -6500,8 +6568,9 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
     if [[ "$DISTRO" == "debian" ]]; then
         _batch_apt=()
         for _dep in "${DEPS[@]}"; do
+            [ -n "${DEB_LATEST[$_dep]:-}" ] && continue
             case "$_dep" in
-                eza|zoxide|gh|delta|lazygit|pay-respects|yazi|atuin|lazydocker) ;;
+                pay-respects|yazi|lazydocker) ;;
                 *)
                     if [ -z "${_dep_was_installed[$_dep]:-}" ]; then
                         _batch_apt+=("${RESOLVED_DEP_PKG[$_dep]}")
@@ -6540,6 +6609,9 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         dep_pkg="${RESOLVED_DEP_PKG[$dep]}"
         if [ -n "${_dep_was_installed[$dep]:-}" ]; then
             substep "${_dep_n} ${C_ACCENT}${dep}${C_RESET} ${C_DIM}already installed${C_RESET}"
+            if [[ "$DISTRO" == "debian" ]] && [ -n "${DEB_LATEST[$dep]:-}" ]; then
+                "${DEB_LATEST[$dep]}" || substep "${C_YELLOW}Could not update ${dep} — keeping the installed version${C_RESET}"
+            fi
         elif pkg_installed "$dep_pkg"; then
             substep "${_dep_n} ${C_ACCENT}${dep}${C_RESET} ${C_GREEN}installed${C_RESET}"
         else
@@ -6549,16 +6621,11 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
                 arch_install "$dep_pkg" || _dep_ok=0
             else
                 case "$dep" in
-                    eza)          ensure_eza_deb          || _dep_ok=0 ;;
-                    zoxide)       ensure_zoxide_deb       || _dep_ok=0 ;;
-                    gh)           ensure_gh_deb           || _dep_ok=0 ;;
-                    delta)        ensure_delta_deb        || _dep_ok=0 ;;
-                    lazygit)      ensure_lazygit_deb      || _dep_ok=0 ;;
                     pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
                     yazi)         ensure_yazi_deb         || _dep_ok=0 ;;
-                    atuin)        ensure_atuin_deb        || _dep_ok=0 ;;
                     lazydocker)   ensure_lazydocker_deb   || _dep_ok=0 ;;
-                    *)            apt_install "$dep_pkg"  || _dep_ok=0 ;;
+                    *)  if [ -n "${DEB_LATEST[$dep]:-}" ]; then "${DEB_LATEST[$dep]}" || _dep_ok=0
+                        else apt_install "$dep_pkg" || _dep_ok=0; fi ;;
                 esac
             fi
             if [ "$_dep_ok" -eq 0 ]; then
@@ -6996,6 +7063,12 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             _have=0; curl_app_installed "$_bin" && _have=1
             if [ "$_have" -eq 1 ] && [ -z "${APP_UPDATE[$app]+x}" ]; then
                 substep "${C_ACCENT}${_lbl}${C_RESET} already installed"
+                # Mistral's installer drops its own pinned uv into ~/.local/bin
+                # before this loop reaches uv, which then never got past that
+                # version. uv's self-updater takes it to the latest.
+                if [ "$app" = uv ] && PATH="${CURL_APP_PATH}:$PATH" uv self update </dev/null &>/dev/null; then
+                    substep "${C_DIM}uv self update — now $(PATH="${CURL_APP_PATH}:$PATH" uv --version 2>/dev/null)${C_RESET}"
+                fi
                 # No-op for every app but tailscale — the rest have no
                 # APP_UPDATE key, which is exactly what this branch means.
                 app_open_hint "$app"
@@ -7116,6 +7189,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     ;;
                 vscode|vscode-insiders) ensure_vscode_deb "$_pkg" ;;
                 alacritty) ensure_alacritty_deb ;;
+                neovim) ensure_neovim_deb ;;
                 wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
                 chatgpt) ensure_chatgpt_arch ;;

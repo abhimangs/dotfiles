@@ -28,6 +28,7 @@ sandbox_repo() {        # sandbox_repo <root>
         -e "s#/usr/share/wayland-sessions#$share/wayland-sessions#g" \
         -e "s#/run/systemd/system#$run/systemd/system#g" \
         -e "s#/usr/local/bin#$root/bin#g" \
+        -e "s#/opt/nvim#$root/opt/nvim#g" \
         "$f"
     # The replacement paths end in /etc/… themselves, so verify by counting the
     # sandboxed form rather than by absence of the original.
@@ -90,6 +91,7 @@ build_root() {          # build_root <root> <distro>
     # assertions. The suite has to test the repo, not whatever is beside it.
     rm -rf "$root/home/dotfiles/.claude"
     : > "$root/state/installed"
+    mkdir -p "$root/opt"
     printf '/bin/sh\n/bin/bash\n' > "$root/etc/shells"
 
     # Every Debian/Ubuntu home ships one, and the bash scenarios need something
@@ -199,6 +201,7 @@ lazydocker
 zed
 uv
 bitwarden
+bitwarden-bin
 keepassxc
 syncthing
 localsend-bin
@@ -207,7 +210,7 @@ PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the
     # AUR fallback for them, which is how they install on a real Arch box.
-    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\nlocalsend-bin\n' > "$root/state/aur-only"
+    printf 'vicinae-bin\nzoom\ndeepseek-harness-bin\nstably-orca-bin\nslack-desktop\ndiscord-canary\nlocalsend-bin\nbitwarden-bin\n' > "$root/state/aur-only"
 
     sandbox_repo "$root"
 

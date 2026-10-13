@@ -72,26 +72,26 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 
 | Config | Stow target | Arch package | Debian/Ubuntu |
 |--------|------------|---------|---------|
-| `fastfetch/` | `~/.config/fastfetch/` | `fastfetch` | apt / PPA / GitHub `.deb` |
+| `fastfetch/` | `~/.config/fastfetch/` | `fastfetch` | upstream's latest release `.deb` |
 | `ghostty/` | `~/.config/ghostty/` | `ghostty` | official install script (**not on Debian 12**: bookworm has GTK4 4.8, ghostty needs 4.14+) |
 | `kitty/` | `~/.config/kitty/` | `kitty` | apt when it is 0.37+ (the config uses `cursor_trail`), else kitty's own binary installer into `~/.local/kitty.app`, linked into `~/.local/bin` with its `.desktop` files |
 | `rofi/` | `~/.config/rofi/` | `rofi` | **Arch only** (Debian/Ubuntu still ship the 1.7.x X11-only build) |
-| `starship/` | `~/.config/starship.toml` | `starship` | apt / official install script (**pulled in automatically with zsh**, which draws its whole prompt with it) |
+| `starship/` | `~/.config/starship.toml` | `starship` | upstream's latest release binary (**pulled in automatically with zsh**, which draws its whole prompt with it) |
 | `ulauncher/` | `~/.config/ulauncher/` | `ulauncher` *(AUR)* | PPA (Ubuntu) / GitHub `.deb` (Debian) |
-| `bat/` | `~/.config/bat/` | `bat` *(dep)* | apt (`batcat`, shimmed to `bat`) |
-| `btop/` | `~/.config/btop/` | `btop` *(dep)* | apt |
+| `bat/` | `~/.config/bat/` | `bat` *(dep)* | upstream's latest release `.deb` (installs as `bat`, not Debian's `batcat`) |
+| `btop/` | `~/.config/btop/` | `btop` *(dep)* | upstream's latest release binary |
 | `tmux/` | `~/.config/tmux/` | `tmux` *(dep)* | apt — needs tmux 3.1+, older builds read only `~/.tmux.conf` |
-| `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | apt / GitHub tarball — renders diffs through `delta` when it is installed |
-| `eza/` | `~/.config/eza/theme.yml` | `eza` *(dep)* | apt when it is 0.20+ (Debian 13), else eza's own repo (Debian 12, Ubuntu 24.04's 0.18 cannot read the theme) |
-| zoxide *(dep)* | - | `zoxide` | apt when it is 0.9+, else the upstream release `.deb` (Debian 12's 0.4.3 breaks `zoxide init zsh` under Zinit's `zi` alias) |
+| `lazygit/` | `~/.config/lazygit/` | `lazygit` *(dep)* | upstream's latest release binary — renders diffs through `delta` when it is installed |
+| `eza/` | `~/.config/eza/theme.yml` | `eza` *(dep)* | eza's own apt repo, upstream's latest (the archives' 0.18–0.21 lag it; 0.18 cannot read the theme) |
+| zoxide *(dep)* | - | `zoxide` | upstream's latest release `.deb` (Debian 12's own 0.4.3 broke `zoxide init zsh` under Zinit's `zi` alias) |
 | `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
 | `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |
-| `nvim/` | `~/.config/nvim/` | `neovim` *(app)* | apt — lazy.nvim + catppuccin + lualine on 0.8+; Debian 12's 0.7.2 gets the plain options only |
+| `nvim/` | `~/.config/nvim/` | `neovim` *(app)* | upstream's latest release in `/opt/nvim`, linked into `/usr/local/bin` (the archives carry 0.7–0.11) — lazy.nvim + catppuccin + lualine |
 | `wallpapers/` | `~/.config/wallpapers/` | - | - |
 | `bash/` | `~/.bashrc` | `bash` | apt (plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash)) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
 | `git/` | `~/.gitconfig` | `git` | apt |
-| `micro/` | `~/.config/micro/` | `micro` | apt |
+| `micro/` | `~/.config/micro/` | `micro` | upstream's latest release binary |
 | `fresh/` | `~/.config/fresh/` | `fresh-editor-bin` *(AUR)* | GitHub `.deb` |
 | `ccstatusline/` | `~/.config/ccstatusline/` | - *(needs `bun`)* | - *(needs `bun`)* |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
@@ -269,18 +269,21 @@ path:
 
 ### Where the newer tools and apps come from
 
+**Debian and Ubuntu get upstream's latest release of the dev tools**, not the archive's: gh, delta, zoxide, fzf, fd and bat as upstream's own `.deb`; ripgrep, btop, jq, lazygit, atuin, starship and micro as upstream's release binary in `/usr/local/bin` (checksum-verified where the project publishes one); Neovim as upstream's release tree in `/opt/nvim`; eza from eza's own apt repo; fastfetch as its release `.deb`. Debian 12's archive shipped gh 2.23, fzf 0.38, Neovim 0.7.2 and btop 1.2. Every re-run compares each one with upstream's latest tag and upgrades it when it is behind; the plan says so. System pieces (bash, zsh, git, tmux, tree, VLC, flatpak, KeePassXC, OBS) stay on the distro's packages.
+
 None of these is Arch-only: every one has a real path on Debian 12, Debian 13 and Ubuntu 24.04, so none is stripped there.
 
 | Entry | Arch | Debian / Ubuntu |
 |-------|------|-----------------|
-| `jq`, `ncdu` *(tools)* | extra | apt, same name everywhere (ncdu over dust for exactly that: dust is in neither Debian 12 nor Ubuntu 24.04) |
+| `jq` *(tool)* | extra | upstream's latest release binary |
+| `ncdu` *(tool)* | extra | apt, same name everywhere (ncdu over dust for exactly that: dust is in neither Debian 12 nor Ubuntu 24.04) |
 | `yazi` *(tool)* | extra | GitHub release `.deb`, the **musl** build: the gnu one needs glibc 2.39, which Debian 12 lacks. Its preview helpers (ffmpeg, imagemagick, …) are recommends and are not installed |
-| `atuin` *(tool)* | extra | apt on Debian 13, the static musl release tarball elsewhere (not `setup.atuin.sh`, which edits the rc files) |
+| `atuin` *(tool)* | extra | upstream's latest static musl release binary (not `setup.atuin.sh`, which edits the rc files) |
 | `lazydocker` *(tool)* | extra | release tarball into `/usr/local/bin`, lazygit's route, checksum verified |
 | Zed | extra | Zed's own installer into `~/.local/zed.app`, which writes no rc file |
 | Ollama | Ollama's installer | Ollama's installer — on Arch too, like Tailscale: it detects the GPU, fetches the matching runtime and creates `ollama.service`, where `extra/ollama` is the CPU build. Rerunning it is its upgrade |
-| uv | extra | Astral's installer with `UV_NO_MODIFY_PATH=1` |
-| Bitwarden | extra | the `.deb` bitwarden.com links to (amd64 only upstream) |
+| uv | extra | Astral's installer with `UV_NO_MODIFY_PATH=1`; one already there (Mistral's installer pins its own) is brought up with `uv self update` |
+| Bitwarden | AUR `bitwarden-bin` (extra's sat flagged out of date for months) | the `.deb` bitwarden.com links to (amd64 only upstream) |
 | KeePassXC | extra | apt |
 | LocalSend | AUR `localsend-bin` | GitHub release `.deb`, plus `libayatana-appindicator3-1` (its `.deb` does not depend on the tray library it links) |
 | Syncthing | extra | Syncthing's own apt repo, `stable-v2` — the archives carry 1.19 (Debian 12) and 1.27 (Ubuntu 24.04). It is not started for you: `systemctl --user enable --now syncthing` |
