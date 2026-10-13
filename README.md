@@ -415,7 +415,38 @@ The installer works on an [Omarchy](https://github.com/omacom/omarchy) machine (
 - **The plan names what it replaces.** For alacritty, btop, ghostty, kitty, lazygit and tmux, a row reads `replaces Omarchy's themed copy — Omarchy's theme switcher won't recolour it`, next to the usual backup row.
 - **starship.toml.** A file byte-identical to the one Omarchy ships is treated as Omarchy's: it is backed up and replaced. Any edited one is kept, as everywhere ("keep your existing starship.toml").
 - **Write-through caveat.** One line in the plan and one in the summary: `Omarchy's refresh and font commands copy over ~/.config files, so on these links they can write into ~/dotfiles or replace the link with a plain file; doctor.sh reports it.` Run `bash doctor.sh` to see which links are still ours.
-- **CI.** The `omarchy` job installs `omarchy-settings` from Omarchy's signed repo into `archlinux:base` and runs the installer there as a non-root user. It does not install the full desktop.
+- **CI.** The `omarchy` job installs `omarchy-settings` from Omarchy's signed repo into `archlinux:base` and runs the installer there as a non-root user. It does not install the full desktop. See [CI](#ci).
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request, and weekly as a canary for upstream renames.
+
+| Job | What it answers |
+|-----|-----------------|
+| `lint` | shellcheck (errors fail; findings on touched lines are annotated) and actionlint. |
+| `suite (ubuntu-22.04, 24.04)` | `tests/run.sh`: the whole installer against stubbed package managers, on bash 5.1 and 5.2. |
+| `real <name>` | The real thing, in a container, once per row below. |
+
+The real jobs run `.github/smoke.sh` (the same script for all of them) as a user with passwordless sudo, from a repo copy that user owns:
+
+| Name | Image |
+|------|-------|
+| archlinux | `archlinux:base` |
+| debian-12, debian-13 | `debian:12`, `debian:13` |
+| ubuntu-24.04, ubuntu-26.04 | `ubuntu:24.04`, `ubuntu:26.04` |
+| omarchy | `archlinux:base` with `omarchy-settings` from Omarchy's repo, a user created from its `/etc/skel` |
+
+Each one:
+
+1. Plans every entry, GUI ones included (`--dry-run --gui --configs=all --tools=all --apps=all`); fails if it exits non-zero or any row says a package cannot be resolved.
+2. Installs everything a headless box can take (`--configs=all --tools=all --apps=all --backup-mode=backup`; the installer drops the GUI entries itself). Fails on a non-zero exit, a `Failed (n)` summary, an unsigned AUR install, a failed self-update or a shell error.
+3. Asks the installer what it sees (`--configs=installed --tools=installed --apps=installed`) and fails with the names of anything installed but not detected. Then plans the same selection again: no row may say `install`.
+4. Checks the disk: every stowed config resolves into the repo copy with no dangling link, `~/.gitconfig` and `~/.bashrc` are the repo's, and `doctor.sh` exits 0 and says `no drift`.
+5. Runs the install a second time: it must exit 0 and print no `Installing ...` for any package.
+
+The `omarchy` job adds: every file Omarchy seeded and our configs replace (`tmux`, `lazygit`, `btop`, `starship.toml`, `.bashrc`) is in `.bak` byte for byte; `~/.bashrc.orig` is Omarchy's; `OMARCHY_PATH` still reaches login and interactive shells; `/etc/os-release` is Omarchy's (`ID=omarchy`, `ID_LIKE=arch`) and the installer still took the Arch path; the plan printed the three Omarchy notices.
+
+A vendor that cannot run in CI fails the build until someone decides otherwise: `.github/smoke-allow.txt` is the allow-list (a regex and a reason per line, empty today). An allowed failure still prints a warning on every run. On failure the transcripts are uploaded as the `smoke-<name>` artifact. `.github/smoke-checks.sh` holds the assertions.
 
 ## Theme
 

@@ -123,42 +123,58 @@ jobs:
           path: ${{ runner.temp }}/transcripts
           retention-days: 7
 
+  # Every distro gets the same script, run the way a person runs it: as a user
+  # with passwordless sudo, from a repo copy it owns, installing EVERYTHING a
+  # headless box can take (all configs, all tools, all CLI apps; the GUI ones
+  # are stripped by the installer's own headless filter, and are only planned,
+  # via --gui, in the dry run). It then checks the installer's own detection
+  # against what is on disk, and runs it a second time to prove nothing moves.
+  # Assertions are listed at the top of .github/smoke-checks.sh.
+  #
+  # "omarchy" is the same job on archlinux:base with Omarchy's user-facing
+  # package installed first (see .github/omarchy.sh for how faithful that is).
   smoke:
-    name: real ${{ matrix.image }}
+    name: real ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Ollama, the AUR and ~45 apps from their vendors, installed twice.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        image: ['archlinux:base', 'debian:12', 'ubuntu:24.04']
+        include:
+          - { name: archlinux,    image: 'archlinux:base' }
+          - { name: debian-12,    image: 'debian:12' }
+          - { name: debian-13,    image: 'debian:13' }
+          - { name: ubuntu-24.04, image: 'ubuntu:24.04' }
+          - { name: ubuntu-26.04, image: 'ubuntu:26.04' }
+          - { name: omarchy,      image: 'archlinux:base', flavor: omarchy }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The stubbed suite proves the branches; this proves the assumptions
       # underneath them — that the package names still exist, that real
-      # pacman/apt accept the flags we hand them, and that stow lands where the
-      # plan said it would. Nothing else in this repo runs against a real
-      # distro, which is exactly where an installer breaks.
-      - name: Plan everything, then install some of it for real
+      # pacman/apt accept the flags we hand them, that every vendor installer
+      # still works, and that stow lands where the plan said it would. The repo
+      # is mounted read-only: the container works on a copy it owns.
+      - name: Install everything for real, twice, and check what landed
+        env:
+          LOGS: ${{ runner.temp }}/smoke-logs
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo \
+          mkdir -p "$LOGS"
+          docker run --rm \
+            -v "$PWD:/repo:ro" -v "$LOGS:/logs" -w /repo \
+            -e SMOKE_FLAVOR="${{ matrix.flavor }}" \
             "${{ matrix.image }}" bash .github/smoke.sh
 
-  # Omarchy is Arch with its own packages, /etc/skel and os-release (ID=omarchy,
-  # ID_LIKE=arch). This builds the user-facing part of it from Omarchy's real
-  # signed repo and runs the installer as that user, to prove the two coexist.
-  # What it does and does not install is written at the top of the script.
-  omarchy:
-    name: omarchy (real archlinux:base + omarchy-settings)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build an Omarchy user, install over it, check what survived
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo \
-            archlinux:base bash .github/omarchy.sh
+      # Every assertion reads a transcript inside the container, and the
+      # container dies with the step — the same reason the suite job keeps its
+      # own. The raw pty capture is kept too: it is what the terminal showed.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: smoke-${{ matrix.name }}
+          path: ${{ runner.temp }}/smoke-logs
+          retention-days: 7
 
   linux-sh-unchanged:
     name: linux.sh deploy reminder
