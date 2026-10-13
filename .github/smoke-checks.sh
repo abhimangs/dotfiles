@@ -105,7 +105,15 @@ check_install() {       # check_install <name>
     else flunk "$1: exited $RC"; fi
     for l in 'Installed WITHOUT signature verification' 'Update failed, kept the installed version' \
              'Nothing was installed' 'unbound variable' 'install\.sh: line [0-9]+'; do
-        grep -qE -- "$l" "$f" && flunk "$1: transcript says '$l'" "$(grep -nE -- "$l" "$f" | head -3)"
+        grep -qE -- "$l" "$f" || continue
+        # A vendor's own updater asking the GitHub API from a shared runner
+        # address (Hermes does) is refused for the hour; keeping the installed
+        # version is then right, and a token here would reach vendor scripts.
+        if [[ "$l" == Update* ]] && grep -qi 'API rate limit' "$f"; then
+            printf '  WARN  %s: a self-update hit the GitHub API rate limit: %s\n' "$1" "$(grep -E -- "$l" "$f" | head -1 | sed 's/.*version ([0-9]*): *//')"
+            continue
+        fi
+        flunk "$1: transcript says '$l'" "$(grep -nE -- "$l" "$f" | head -3)"
     done
     return 0
 }
