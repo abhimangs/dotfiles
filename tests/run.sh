@@ -2448,6 +2448,86 @@ else
     bad  uninst-gui2 "kitty was left stowed, or not restored from its .bak"
 fi
 
+# ── Omarchy ──────────────────────────────────────────────────────────────────
+# A fake OMARCHY_PATH tree, built from Omarchy v4.0.4's real files when the
+# clone is around and from stand-ins of the same shape when it is not (CI).
+echo "── Omarchy ──────────────────────────────────────────────"
+OMC=/tmp/claude-1000/-home-abhi-dotfiles/6d3c9104-1121-4efe-9194-74e8a9611f6d/scratchpad/omarchy-src
+mkdir -p "$WORK/omarchy/config/kitty" "$WORK/omarchy/config/tmux"
+if [ -f "$OMC/config/starship.toml" ]; then
+    cp "$OMC/config/starship.toml" "$WORK/omarchy/config/starship.toml"
+    cp "$OMC/config/kitty/kitty.conf" "$WORK/omarchy/config/kitty/kitty.conf"
+    cp "$OMC/config/tmux/tmux.conf" "$WORK/omarchy/config/tmux/tmux.conf"
+else
+    printf 'add_newline = false\nformat = "$directory$character"\n' > "$WORK/omarchy/config/starship.toml"
+    printf 'include ~/.local/state/omarchy/current/theme/kitty.conf\n' > "$WORK/omarchy/config/kitty/kitty.conf"
+    printf 'set -g prefix C-Space\n' > "$WORK/omarchy/config/tmux/tmux.conf"
+fi
+omarchy_home() {        # omarchy_home <name> <distro> [starship-text]
+    build_root "$WORK/run/$1" "$2"
+    local oh="$WORK/run/$1/home"
+    mkdir -p "$oh/.config/kitty" "$oh/.config/tmux"
+    cp "$WORK/omarchy/config/kitty/kitty.conf" "$oh/.config/kitty/kitty.conf"
+    cp "$WORK/omarchy/config/tmux/tmux.conf" "$oh/.config/tmux/tmux.conf"
+    if [ -n "${3:-}" ]; then printf '%s\n' "$3" > "$oh/.config/starship.toml"
+    else cp "$WORK/omarchy/config/starship.toml" "$oh/.config/starship.toml"; fi
+}
+ONOTE="replaces Omarchy's themed copy"
+OWT="Omarchy's refresh and font commands copy over"
+
+omarchy_home om-plan omarchy
+RUN_ARGS="--dry-run --gui --configs=kitty,starship --tools=tmux --backup-mode=backup" install_pass \
+    "$WORK/run/om-plan" "$WORK/run/om-plan" "$WORK/k-sel" OMARCHY_PATH="$WORK/omarchy"
+check  om-plan 0
+want   om-plan "$ONOTE"                         'kitty and tmux are marked as replacing Omarchy copies'
+if [ "$(grep -c "$ONOTE" "$WORK/run/om-plan/clean.txt")" = 2 ]; then
+    note om-plan "once for each of the two"
+else
+    bad  om-plan "wrong number of Omarchy rows"
+fi
+want   om-plan "replaces Omarchy's stock starship\.toml" 'an unedited starship.toml is called Omarchy'"'"'s'
+if [ "$(grep -c "$OWT" "$WORK/run/om-plan/clean.txt")" = 1 ]; then
+    note om-plan "the write-through warning appears once"
+else
+    bad  om-plan "write-through warning missing or repeated"
+fi
+
+omarchy_home om-not arch
+RUN_ARGS="--dry-run --gui --configs=kitty,starship --tools=tmux --backup-mode=backup" install_pass \
+    "$WORK/run/om-not" "$WORK/run/om-not" "$WORK/k-sel"
+check  om-not 0
+nowant om-not "Omarchy"                         'no Omarchy wording on a machine without it'
+want   om-not 'keep your existing starship\.toml' 'and an unedited starship.toml is just a user file there'
+
+omarchy_home om-real omarchy
+cp "$WORK/run/om-real/home/.config/starship.toml" "$WORK/seed/omarchy-starship"
+RUN_ARGS="--configs=starship --tools=tmux --backup-mode=backup" install_pass \
+    "$WORK/run/om-real" "$WORK/run/om-real" "$WORK/k-sel" OMARCHY_PATH="$WORK/omarchy"
+check  om-real 0
+oh="$WORK/run/om-real/home/.config"
+if [ -L "$oh/starship.toml" ] && cmp -s "$WORK/seed/omarchy-starship" "$oh/starship.toml.bak"; then
+    note om-real "stock starship.toml replaced, the original kept as .bak"
+else
+    bad  om-real "stock starship.toml was not replaced and backed up"
+fi
+if [ "$(grep -c "$OWT" "$WORK/run/om-real/clean.txt")" = 2 ]; then
+    note om-real "the warning is in the plan once and the summary once"
+else
+    bad  om-real "write-through warning not exactly once in each of plan and summary"
+fi
+
+omarchy_home om-edit omarchy '# MINE, edited'
+RUN_ARGS="--configs=starship --backup-mode=backup" install_pass \
+    "$WORK/run/om-edit" "$WORK/run/om-edit" "$WORK/k-sel" OMARCHY_PATH="$WORK/omarchy"
+check  om-edit 0
+want   om-edit 'Keeping your existing .*starship\.toml' 'an edited starship.toml is kept'
+nowant om-edit "$OWT" 'and nothing was stowed, so no write-through warning'
+if [ ! -L "$WORK/run/om-edit/home/.config/starship.toml" ] && grep -q 'MINE, edited' "$WORK/run/om-edit/home/.config/starship.toml"; then
+    note om-edit "the edited file is untouched"
+else
+    bad  om-edit "the edited starship.toml was replaced"
+fi
+
 # The one side config whose directory is not its key: the app is `neovim`,
 # Neovim reads ~/.config/nvim. Install, plan, --backups and --uninstall all go
 # through side_config_dir, and a ~/.config/neovim appearing anywhere is the

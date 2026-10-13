@@ -222,6 +222,15 @@ if [ -z "$DISTRO" ]; then
     exit 1
 fi
 
+# Omarchy (Arch + Hyprland). Display and plan logic only: nothing that gets
+# installed depends on it. The first tree with a config/ dir wins, so OMARCHY_PATH
+# can point a test at a fake one; v4 is /usr/share/omarchy, v3 lived in $HOME.
+OMARCHY_DIR=""
+for _d in "${OMARCHY_PATH:-}" /usr/share/omarchy "$HOME/.local/share/omarchy"; do
+    [ -n "$_d" ] && [ -d "$_d/config" ] && { OMARCHY_DIR="${_d%/}"; break; }
+done
+unset _d
+
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 START_TS=$SECONDS
 
@@ -4592,6 +4601,49 @@ plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
     fi
 }
 
+# ── Omarchy ──────────────────────────────────────────────────────────────────
+# Omarchy ships its own, theme-linked copy of these and rewrites them from its
+# refresh and font commands. Rows only; the install is the same everywhere.
+omarchy_themed() { case "$1" in alacritty|btop|ghostty|kitty|lazygit|tmux) return 0 ;; esac; return 1; }
+OMARCHY_WT_MSG="Omarchy's refresh and font commands copy over ~/.config files, so on these links they can write into ~/dotfiles or replace the link with a plain file; doctor.sh reports it"
+
+omarchy_row() {         # omarchy_row <steps-array> <key>
+    [ -n "$OMARCHY_DIR" ] && omarchy_themed "$2" || return 0
+    local -n _or="$1"
+    dir_target_conflicts "$XDG_CONFIG/$(side_config_dir "$2")" \
+        && _or+=("${C_YELLOW}replaces Omarchy's themed copy${C_RESET} ${C_DIM}— Omarchy's theme switcher won't recolour it${C_RESET}")
+    return 0
+}
+
+# A starship.toml byte-identical to what Omarchy ships is Omarchy's, not the
+# user's, and may be replaced. Anything else is theirs and is kept.
+omarchy_stock_starship() {      # omarchy_stock_starship <file>
+    local ref
+    [ -n "$OMARCHY_DIR" ] && [ -f "$1" ] && [ ! -L "$1" ] || return 1
+    for ref in "$OMARCHY_DIR/config/starship.toml" /etc/skel/.config/starship.toml; do
+        [ -f "$ref" ] && cmp -s "$1" "$ref" && return 0
+    done
+    return 1
+}
+starship_state() {      # ours | stock | keep | fresh — plan and loop share it
+    local t="$XDG_CONFIG/starship.toml"
+    if is_repo_link "$t"; then echo ours
+    elif [ -e "$t" ] || [ -L "$t" ]; then
+        if omarchy_stock_starship "$t"; then echo stock; else echo keep; fi
+    else echo fresh; fi
+}
+
+# True when this run stows into a path Omarchy's tools rewrite.
+omarchy_wt_wanted() {
+    [ -n "$OMARCHY_DIR" ] || return 1
+    local k
+    for k in "${SELECTED[@]}" "${DEPS[@]}" "${APPS[@]}"; do
+        omarchy_themed "$k" && return 0
+        [ "$k" = starship ] && [ "$(starship_state)" != keep ] && return 0
+    done
+    return 1
+}
+
 # The rows a tool or app that also carries a config adds under itself in the
 # plan. It reaches stow_config, which in delete mode rm -rf's ~/.config/<name>
 # with no .bak — the plan used to say only "already installed" and then delete
@@ -4605,6 +4657,7 @@ plan_side_config() {    # plan_side_config <name>
     local steps=()
     d="$(side_config_dir "$1")"
     dir_target_conflicts "$XDG_CONFIG/$d" && plan_replace_row steps "$XDG_CONFIG/$d"
+    omarchy_row steps "$1"
     steps+=("${C_GREEN}stow → ${XDG_SHOWN}/$d/${C_RESET} ${C_DIM}(theme)${C_RESET}")
     for _r in "${steps[@]}"; do echo -e "$row $_r"; done
 }
@@ -4873,6 +4926,7 @@ plan_body() {
             if dir_target_conflicts "$target"; then
                 plan_dir_diff steps "$target" "$DOTFILES_DIR/$cfg"
                 plan_replace_row steps "$target"
+                omarchy_row steps "$cfg"
                 steps+=("${C_GREEN}stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
             elif [ -e "$target" ]; then
                 steps+=("${C_GREEN}re-stow → ${XDG_SHOWN}/${cfg}/${C_RESET}")
@@ -4949,13 +5003,14 @@ plan_body() {
             # here any more: an existing starship.toml is never moved, so
             # promising a .bak we will not take would be worse than silence.
             target="$XDG_CONFIG/starship.toml"
-            if is_repo_link "$target"; then
-                steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}")
-            elif [ -e "$target" ] || [ -L "$target" ]; then
-                steps+=("${C_DIM}keep your existing starship.toml — ours not installed${C_RESET}")
-            else
-                steps+=("${C_GREEN}stow ${XDG_SHOWN}/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}")
-            fi
+            case "$(starship_state)" in
+              ours)  steps+=("${C_ACCENT}re-stow config${C_RESET} ${C_DIM}(unlink + relink)${C_RESET}") ;;
+              stock) plan_replace_row steps "$target"
+                     steps+=("${C_YELLOW}replaces Omarchy's stock starship.toml${C_RESET} ${C_DIM}— unedited, so it is treated as Omarchy's, not yours${C_RESET}")
+                     steps+=("${C_GREEN}stow ${XDG_SHOWN}/starship.toml${C_RESET}") ;;
+              keep)  steps+=("${C_DIM}keep your existing starship.toml — ours not installed${C_RESET}") ;;
+              *)     steps+=("${C_GREEN}stow ${XDG_SHOWN}/starship.toml${C_RESET} ${C_DIM}(fresh)${C_RESET}") ;;
+            esac
             ;;
           git)
             plan_home_file steps "$HOME/.gitconfig"
@@ -5050,6 +5105,12 @@ plan_body() {
            && ! printf '%s\n' "${cfgs[@]}" | grep -qx ccstatusline; then
             echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}point Claude Code at ccstatusline${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}"
         fi
+    fi
+
+    if omarchy_wt_wanted; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}omarchy${C_RESET}"
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}${OMARCHY_WT_MSG}${C_RESET}"
     fi
 
     if [ "$STRIP_REPO" -eq 1 ]; then
@@ -6630,7 +6691,16 @@ for cfg in "${SELECTED[@]}"; do
         # is_repo_link, not a fourth hand-written copy of it. There were three,
         # and the one in restore_bash had already drifted into deleting links
         # it did not own before anyone noticed they were meant to agree.
-        if is_repo_link "$_st"; then
+        _st_state="$(starship_state)"
+        if [ "$_st_state" = stock ]; then
+            # Omarchy's unedited default: replaced like any other config.
+            backup_file "$_st"
+            if ! stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
+                error "Stow failed for starship — check for conflicts in ${XDG_SHOWN}/"
+                FAILED+=(starship)
+                continue
+            fi
+        elif [ "$_st_state" = ours ]; then
             # ours from an earlier run — refresh the link
             stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" -D "starship" &>/dev/null 2>&1 || true
             if ! stow --target "$XDG_CONFIG" --dir "$DOTFILES_DIR" "starship" &>/dev/null 2>&1; then
@@ -6638,12 +6708,12 @@ for cfg in "${SELECTED[@]}"; do
                 FAILED+=(starship)
                 continue
             fi
-        elif [ -e "$_st" ] || [ -L "$_st" ]; then
+        elif [ "$_st_state" = keep ]; then
             # Deliberately doing nothing is not installing: without the continue
             # this fell through to the loop tail and reported "starship
             # installed" for a file it had just decided to leave alone.
             substep "${C_DIM}Keeping your existing ${XDG_SHOWN}/starship.toml — ours not installed${C_RESET}"
-            unset _st
+            unset _st _st_state
             success "${C_ACCENT}starship${C_RESET} left as-is"
             continue
         else
@@ -6653,7 +6723,7 @@ for cfg in "${SELECTED[@]}"; do
                 continue
             fi
         fi
-        unset _st
+        unset _st _st_state
         ;;
 
       # ── git ──────────────────────────────────────────────────────────────
@@ -6991,6 +7061,9 @@ if [ "${#UPDATE_FAILED[@]}" -gt 0 ]; then
 fi
 if [ "${#AUR_SIG_SKIPPED[@]}" -gt 0 ]; then
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_RED}${C_BOLD}${G_FAIL} ${C_RESET}${C_RED}${C_BOLD}Installed WITHOUT signature verification (${#AUR_SIG_SKIPPED[@]}): ${C_RESET}${C_RED}$(join_list "${AUR_SIG_SKIPPED[@]}")${C_RESET}"
+fi
+if [ "${#INSTALLED[@]}" -gt 0 ] && omarchy_wt_wanted; then
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT} ${C_RESET}${C_YELLOW}${OMARCHY_WT_MSG}${C_RESET}"
 fi
 _elapsed=$(( SECONDS - START_TS ))
 echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}${G_DOT} ${C_RESET}${C_DIM}took $(( _elapsed / 60 ))m $(( _elapsed % 60 ))s${C_RESET}"

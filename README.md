@@ -408,6 +408,15 @@ The one difference is fonts. Your terminal on WSL is a Windows program, so a fon
 
 amd64 and arm64 are fully supported on all three distros; 32-bit ARM (`armhf`/`armel`) and `i386` work for everything that publishes builds for them. Upstream projects name these inconsistently (fastfetch ships `armv7l`/`armv6l`, lazygit ships `armv6`/`32-bit`), so the installer translates Debian's architecture names to whatever each project actually publishes.
 
+## Omarchy
+
+The installer works on an [Omarchy](https://github.com/omacom/omarchy) machine (Arch + Hyprland). It detects the tree in `$OMARCHY_PATH`, `/usr/share/omarchy` (v4) or `~/.local/share/omarchy` (v3), whichever has a `config/` directory; that only changes what the plan says, never what is installed.
+
+- **The plan names what it replaces.** For alacritty, btop, ghostty, kitty, lazygit and tmux, a row reads `replaces Omarchy's themed copy — Omarchy's theme switcher won't recolour it`, next to the usual backup row.
+- **starship.toml.** A file byte-identical to the one Omarchy ships is treated as Omarchy's: it is backed up and replaced. Any edited one is kept, as everywhere ("keep your existing starship.toml").
+- **Write-through caveat.** One line in the plan and one in the summary: `Omarchy's refresh and font commands copy over ~/.config files, so on these links they can write into ~/dotfiles or replace the link with a plain file; doctor.sh reports it.` Run `bash doctor.sh` to see which links are still ours.
+- **CI.** The `omarchy` job installs `omarchy-settings` from Omarchy's signed repo into `archlinux:base` and runs the installer there as a non-root user. It does not install the full desktop.
+
 ## Theme
 
 [Catppuccin Mocha](https://github.com/catppuccin/catppuccin) throughout: ghostty, kitty, starship, bat, btop, eza, Neovim.
