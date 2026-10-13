@@ -271,6 +271,10 @@ detect_headless() {
 }
 detect_headless && IS_HEADLESS=1
 [ "$FORCE_GUI" -eq 1 ] && IS_HEADLESS=0
+# --uninstall and --backups walk CONFIGS/APPS_LIST, which are filtered by this
+# flag at their declaration. A box provisioned with --gui and reached later over
+# a bare tty left ghostty and kitty stowed, and unlisted, by a plain --uninstall.
+{ [ "$UNINSTALL" -eq 1 ] || [ -n "$BACKUPS_MODE" ]; } && IS_HEADLESS=0
 
 # Remove every listed item from the named array (headless GUI filtering)
 strip_items() {

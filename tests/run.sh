@@ -2424,6 +2424,30 @@ else
     bad  uninst-named "~/.config/tmux still there after unstowing its only file"
 fi
 
+# A box provisioned with --gui has no display of its own when it is next
+# reached (a tty, ssh). --uninstall walked the headless-filtered config list, so
+# kitty stayed stowed, unlisted and unmentioned, and its .bak never came back.
+# The file is shaped like Omarchy's shipped kitty.conf (v4.0.4): a theme
+# include under ~/.local/state/omarchy and a font line, which an Omarchy user
+# would be handing back.
+build_root "$WORK/run/uninst-gui" ubuntu
+h="$WORK/run/uninst-gui/home"
+mkdir -p "$h/.config/kitty"
+printf 'include ~/.local/state/omarchy/current/theme/kitty.conf\nfont_family JetBrainsMono Nerd Font\n' \
+    > "$h/.config/kitty/kitty.conf"
+cp "$h/.config/kitty/kitty.conf" "$WORK/seed/omarchy-kitty"
+RUN_ARGS="--gui --configs=kitty --backup-mode=backup" install_pass \
+    "$WORK/run/uninst-gui" "$WORK/run/uninst-gui" "$WORK/k-sel"
+check uninst-gui 0
+RUN_ARGS="--uninstall" rerun uninst-gui2 uninst-gui "$WORK/k-yes"
+check  uninst-gui2 0
+want   uninst-gui2 'unstow ~/\.config/kitty' 'lists kitty although no display is attached'
+if [ ! -L "$h/.config/kitty/kitty.conf" ] && cmp -s "$WORK/seed/omarchy-kitty" "$h/.config/kitty/kitty.conf"; then
+    note uninst-gui2 "the user's own kitty config is back from .bak, byte for byte"
+else
+    bad  uninst-gui2 "kitty was left stowed, or not restored from its .bak"
+fi
+
 # The one side config whose directory is not its key: the app is `neovim`,
 # Neovim reads ~/.config/nvim. Install, plan, --backups and --uninstall all go
 # through side_config_dir, and a ~/.config/neovim appearing anywhere is the
