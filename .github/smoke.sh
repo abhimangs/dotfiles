@@ -78,8 +78,8 @@ if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then omarchy_snapshot; fi
 step "smoke-user.sh, as $U"
 # runuser -l is a login shell: profile.d runs, HOME and PATH are the user's,
 # which is how Omarchy's /etc/profile.d/omarchy.sh reaches the installer too.
-runuser -l "$U" -c "$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q bash .github/smoke-user.sh' \
-    "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}")"
+runuser -l "$U" -c "$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q SMOKE_GUI=%q bash .github/smoke-user.sh' \
+    "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}" "${SMOKE_GUI:-}")"
 rc=$?
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then

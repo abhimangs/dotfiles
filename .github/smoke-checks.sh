@@ -183,7 +183,7 @@ check_links() {         # check_links <repo-copy> <configs> <tools> <apps>  (sel
         [ -n "$sel" ] && [ "$sel" != - ] || continue
         while IFS= read -r name; do want["$sec/$name"]=1; done < <(expected_names "$sec" "$sel" "$pf")
     done
-    while IFS=$'\t' read -r sec name _probe where _flags dir; do
+    while IFS=$'\t' read -r sec name _probe where _flags dir _how; do
         [ -n "${want["$sec/$name"]:-}" ] || continue
         t=""
         case $sec in
@@ -233,4 +233,122 @@ check_no_new_installs() {   # check_no_new_installs <name>
         | grep -vE 'Installing (dep tools|applications|native|micro plugins|an AUR|build dep|prebuilt)' | head -20)
     [ -z "$hits" ] && pass "$1: installed nothing new" \
         || flunk "$1: a second run installed something" "$hits"
+}
+
+# The entries a selection names, as "section/name" keys of the caller's WANT.
+want_keys() {           # want_keys <configs> <tools> <apps>
+    local pf="$LOGS/porcelain.txt" sec sel name
+    [ -s "$pf" ] || porcelain > "$pf"
+    WANT=()
+    for sec in config tool app; do
+        case $sec in config) sel=$1 ;; tool) sel=$2 ;; app) sel=$3 ;; esac
+        [ -n "$sel" ] && [ "$sel" != - ] || continue
+        while IFS= read -r name; do WANT["$sec/$name"]=1; done < <(expected_names "$sec" "$sel" "$pf")
+    done
+}
+
+pkg_files() {           # pkg_files <package> — every path it installed, or nothing
+    if command -v pacman >/dev/null; then pacman -Qlq "$1" 2>/dev/null
+    else dpkg -L "$1" 2>/dev/null; fi
+}
+
+# Installed is not working: paru-bin installed cleanly and could not start
+# (libalpm.so.15). Every ELF executable an entry put on the machine has to find
+# all of its shared libraries. ldd, so nothing is run and no display is needed,
+# which is what lets the GUI apps be checked too. A library the package ships
+# itself does not count as missing: Zoom and Slack point LD_LIBRARY_PATH at
+# their own copies from a launcher. A curl CLI has no package, so its binary is
+# run with --version instead; any exit but "cannot execute" (126/127) passes.
+check_starts() {        # check_starts <configs> <tools> <apps>
+    local pf="$LOGS/porcelain.txt" sec name probe where _f _d _h f b out rc lib n=0 skipped=()
+    local -A WANT=() own=()
+    want_keys "$1" "$2" "$3"
+    local cpath; cpath=$(awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{print $3}' "$pf")
+    while IFS=$'\t' read -r sec name probe where _f _d _h; do
+        [ -n "${WANT["$sec/$name"]:-}" ] || continue
+        if [ "$where" = curl ]; then
+            if ! b=$(PATH="$PATH:$cpath" command -v "$probe"); then flunk "$sec $name: $probe is not on PATH"; continue; fi
+            out=$(timeout 30 "$b" --version </dev/null 2>&1); rc=$?
+            if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ] || grep -q 'error while loading shared libraries' <<< "$out"; then
+                flunk "$sec $name: $b cannot start (exit $rc)" "$(head -3 <<< "$out")"
+            fi
+            n=$((n+1)); continue
+        fi
+        mapfile -t files < <(pkg_files "$probe")
+        # A tarball or install-script tool has no package: its binary it is.
+        if [ "${#files[@]}" -eq 0 ]; then
+            b=$(PATH="$PATH:$cpath" command -v "$probe") || { skipped+=("$name"); continue; }
+            files=("$(readlink -f "$b")")
+        fi
+        own=()
+        for f in "${files[@]}"; do [ -n "${f##*/}" ] && own["${f##*/}"]=1; done
+        for f in "${files[@]}"; do
+            # Programs, not libraries: Arch installs plugin .so files
+            # executable, and their optional dependencies are optional.
+            case "${f##*/}" in *.so|*.so.*) continue ;; esac
+            [ -f "$f" ] && [ -x "$f" ] && [ "$(head -c4 "$f" 2>/dev/null | tr -d '\0')" = $'\x7fELF' ] || continue
+            while read -r lib; do
+                [ -n "${own[$lib]:-}" ] && continue
+                flunk "$sec $name: $f needs $lib, which is not installed"
+            done < <(ldd "$f" 2>/dev/null | awk '/=> not found/{print $1}')
+        done
+        n=$((n+1))
+    done < "$pf"
+    pass "checked that $n entries' programs can load (ldd, or --version for a curl CLI)"
+    [ "${#skipped[@]}" -eq 0 ] || printf '  NOTE  no package or binary to check for: %s\n' "${skipped[*]}"
+}
+
+# Run under a terminal, as a person would: an interactive shell without one
+# prints job-control noise that is not ours.
+tty_out() { timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
+
+# Linked is not loaded: each config, read by the version of its program this
+# distro actually installed (Debian 12's tmux, kitty and Neovim are years
+# behind Arch's). Only programs that can read their config without a display;
+# Alacritty, WezTerm, rofi and ulauncher are covered by check_starts alone.
+check_configs_load() {
+    local x="${XDG_CONFIG_HOME:-$HOME/.config}" out bat
+    if [ -L "$HOME/.zshrc" ] && command -v zsh >/dev/null; then
+        tty_out 'zsh -i -c exit' >/dev/null     # the first start clones Zinit and its plugins
+        out=$(tty_out 'zsh -i -c exit')
+        [ -z "$out" ] && pass "zsh: our .zshrc starts silently" || flunk "zsh: a warm start of our .zshrc prints" "$(head -10 <<< "$out")"
+    fi
+    if [ -L "$HOME/.bashrc" ]; then
+        out=$(tty_out 'bash -i -c exit' | grep -E 'command not found|No such file|syntax error|unbound variable|[Ee]rror')
+        [ -z "$out" ] && pass "bash: our .bashrc starts without errors" || flunk "bash: our .bashrc prints errors" "$(head -10 <<< "$out")"
+    fi
+    if [ -e "$x/nvim/init.lua" ] && command -v nvim >/dev/null; then
+        timeout 600 nvim --headless '+Lazy! sync' +qa >/dev/null 2>&1   # plugins install on the first start
+        out=$(timeout 120 nvim --headless +qa 2>&1)
+        [ -z "$out" ] && pass "nvim: init.lua loads in $(nvim --version | head -1)" || flunk "nvim: init.lua prints on a warm start" "$(head -10 <<< "$out")"
+    fi
+    if [ -e "$x/tmux/tmux.conf" ] && command -v tmux >/dev/null; then
+        out=$(timeout 30 tmux -L smoke -f /dev/null start-server \; source-file "$x/tmux/tmux.conf" 2>&1)
+        rc=$?; tmux -L smoke kill-server 2>/dev/null
+        [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "tmux: tmux.conf loads in $(tmux -V)" || flunk "tmux: tmux.conf does not load in $(tmux -V)" "$out"
+    fi
+    if [ -e "$x/kitty/kitty.conf" ] && command -v kitty >/dev/null; then
+        out=$(timeout 60 kitty +runpy 'import sys; from kitty.config import load_config; load_config(sys.argv[-1])' "$x/kitty/kitty.conf" 2>&1)
+        [ -z "$out" ] && pass "kitty: kitty.conf loads in $(kitty --version)" || flunk "kitty: kitty.conf has lines $(kitty --version) rejects" "$(head -10 <<< "$out")"
+    fi
+    if [ -e "$x/ghostty/config" ] && command -v ghostty >/dev/null; then
+        out=$(timeout 60 ghostty +validate-config 2>&1) && [ -z "$out" ] \
+            && pass "ghostty: config validates" || flunk "ghostty: +validate-config rejects our config" "$(head -10 <<< "$out")"
+    fi
+    if [ -L "$x/starship.toml" ] && command -v starship >/dev/null; then
+        out=$(timeout 60 starship prompt 2>&1 >/dev/null | grep -v 'timed out')
+        [ -z "$out" ] && pass "starship: starship.toml loads" || flunk "starship: starship.toml warns" "$(head -10 <<< "$out")"
+    fi
+    if [ -e "$x/fastfetch/config.jsonc" ] && command -v fastfetch >/dev/null; then
+        out=$(timeout 60 fastfetch --pipe 2>&1 >/dev/null)
+        [ -z "$out" ] && pass "fastfetch: config loads" || flunk "fastfetch: config prints errors" "$(head -10 <<< "$out")"
+    fi
+    bat=$(command -v bat || command -v batcat)
+    if [ -e "$x/bat/config" ] && [ -n "$bat" ]; then
+        out=$(echo x | timeout 60 "$bat" --paging=never 2>&1 >/dev/null)
+        [ -z "$out" ] && pass "bat: config and theme load" || flunk "bat: config or theme rejected" "$(head -10 <<< "$out")"
+    fi
+    if [ -L "$HOME/.gitconfig" ]; then
+        git config --global --list >/dev/null 2>&1 && pass "git: .gitconfig parses" || flunk "git: .gitconfig does not parse"
+    fi
 }

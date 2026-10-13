@@ -31,7 +31,7 @@ bash install.sh
 | `--restore-bash` | Undoes the zsh setup (rc files, the `.bashrc` hand-off hook, and the login shell). Runs alone, skipping every menu |
 | `--uninstall[=LIST]` | Unstows the configs this repo installed and moves any `.bak` back into place. `LIST` is comma-separated — any config, or a tool or app that carries one (`tmux`, `alacritty`, `neovim`) — or all of them when left out. Runs alone, prints its plan first, and defaults to *no*. **Removes no packages** — that is a separate decision it does not make for you, and the login shell stays where it is (`--restore-bash` owns that) |
 | `--backups[=M]` | `list` (the default) shows every `.bak` and `.old.bak` the installer has left behind, with sizes. `prune` deletes the older `.old.bak` generation of each, keeping `.bak`. The pristine copies (`.bashrc.orig`, `settings.json.orig`) are never pruned |
-| `--porcelain` | `--list` as tab-separated records instead of the human table (implies `--list`) — six fields, `<section> <name> <probe> <where-or-type> <flags> <config-dir>`, the last being the directory under `~/.config` the entry stows into (`nvim` for `neovim`), or `-`. `doctor.sh` reads this rather than keeping its own copy of the lists |
+| `--porcelain` | `--list` as tab-separated records instead of the human table (implies `--list`) — seven fields, `<section> <name> <probe> <where-or-type> <flags> <config-dir> <how>`: `<config-dir>` is the directory under `~/.config` the entry stows into (`nvim` for `neovim`), or `-`; `<how>` is how this machine would install it (`pacman`, `AUR`, `apt`, a vendor repo, `curl <url>` …). `doctor.sh` reads this rather than keeping its own copy of the lists |
 | `--list` | Prints every config, tool and app *this machine* can install (the names the three flags below take) and exits. Installs nothing, asks nothing, and needs no terminal, so it pipes: `bash install.sh --list \| grep ori` |
 | `--ascii` | Plain ASCII instead of box-drawing and Nerd Font glyphs |
 | `--no-color` | No ANSI colour (`NO_COLOR` in the environment does the same) |
@@ -425,7 +425,7 @@ The installer works on an [Omarchy](https://github.com/omacom/omarchy) machine (
 |-----|-----------------|
 | `lint` | shellcheck (errors fail; findings on touched lines are annotated) and actionlint. |
 | `suite (ubuntu-22.04, 24.04)` | `tests/run.sh`: the whole installer against stubbed package managers, on bash 5.1 and 5.2. |
-| `real <name>` | The real thing, in a container, once per row below. |
+| `real <name> <mode>` | The real thing, in a container, for every row below in two modes: `cli` (what a headless box is offered) and `gui` (everything, desktop apps and fonts included, as on a desktop). |
 
 The real jobs run `.github/smoke.sh` (the same script for all of them) as a user with passwordless sudo, from a repo copy that user owns:
 
@@ -439,14 +439,15 @@ The real jobs run `.github/smoke.sh` (the same script for all of them) as a user
 Each one:
 
 1. Plans every entry, GUI ones included (`--dry-run --gui --configs=all --tools=all --apps=all`); fails if it exits non-zero or any row says a package cannot be resolved.
-2. Installs everything a headless box can take (`--configs=all --tools=all --apps=all --backup-mode=backup`; the installer drops the GUI entries itself). Fails on a non-zero exit, a `Failed (n)` summary, an unsigned AUR install, a failed self-update or a shell error.
+2. Installs everything for real (`--configs=all --tools=all --apps=all --backup-mode=backup`): in `cli` mode the installer drops the GUI entries itself, in `gui` mode `DOTFILES_GUI=1` keeps them, so every desktop app and both fonts install too (installing needs no display, only running does). Fails on a non-zero exit, a `Failed (n)` summary, an unsigned AUR install, a failed self-update or a shell error.
 3. Asks the installer what it sees (`--configs=installed --tools=installed --apps=installed`) and fails with the names of anything installed but not detected. Then plans the same selection again: no row may say `install`.
 4. Checks the disk: every stowed config resolves into the repo copy with no dangling link, `~/.gitconfig` and `~/.bashrc` are the repo's, and `doctor.sh` exits 0 and says `no drift`.
-5. Runs the install a second time: it must exit 0 and print no `Installing ...` for any package.
+5. Checks that it works, not just that it landed: every executable an entry installed finds all its shared libraries (`ldd`, so GUI apps are covered without a display; a curl CLI runs `--version` instead), and each config loads in the version this distro installed: a warm `zsh -i` prints nothing, `bash -i` prints no errors, `nvim --headless`, `tmux source-file`, kitty's own config loader, `ghostty +validate-config`, `starship prompt`, `fastfetch`, `bat` and `git config` accept ours.
+6. Runs the install a second time: it must exit 0 and print no `Installing ...` for any package.
 
 The `omarchy` job adds: every file Omarchy seeded and our configs replace (`tmux`, `lazygit`, `btop`, `starship.toml`, `.bashrc`) is in `.bak` byte for byte; `~/.bashrc.orig` is Omarchy's; `OMARCHY_PATH` still reaches login and interactive shells; `/etc/os-release` is Omarchy's (`ID=omarchy`, `ID_LIKE=arch`) and the installer still took the Arch path; the plan printed the three Omarchy notices.
 
-A vendor that cannot run in CI fails the build until someone decides otherwise: `.github/smoke-allow.txt` is the allow-list (a regex and a reason per line, empty today). An allowed failure still prints a warning on every run. On failure the transcripts are uploaded as the `smoke-<name>` artifact. `.github/smoke-checks.sh` holds the assertions.
+A vendor that cannot run in CI fails the build until someone decides otherwise: `.github/smoke-allow.txt` is the allow-list (a regex and a reason per line, empty today). An allowed failure still prints a warning on every run. On failure the transcripts are uploaded as the `smoke-<name>-<mode>` artifact. Every run also writes, per job, a table of how each entry installs on that distro (the porcelain's `<how>` field) to the run's summary page and the `table-<name>-<mode>` artifact. `.github/smoke-checks.sh` holds the assertions.
 
 ## Theme
 

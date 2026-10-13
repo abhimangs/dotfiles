@@ -137,13 +137,18 @@ jobs:
   # "omarchy" is the same job on archlinux:base with Omarchy's user-facing
   # package installed first (see .github/omarchy.sh for how faithful that is).
   smoke:
-    name: real ${{ matrix.name }}
+    name: real ${{ matrix.name }} ${{ matrix.mode }}
     runs-on: ubuntu-latest
-    # Ollama, the AUR and ~45 apps from their vendors, installed twice.
-    timeout-minutes: 120
+    # Ollama, the AUR and ~45 apps from their vendors, installed twice; gui
+    # adds every desktop app and the fonts, and wezterm-git compiles on Arch.
+    timeout-minutes: ${{ matrix.mode == 'gui' && 200 || 120 }}
     strategy:
       fail-fast: false
       matrix:
+        # cli: what a headless box (a server, a container) is offered. gui:
+        # everything, as on a desktop. Each distro runs both.
+        name: [archlinux, debian-12, debian-13, ubuntu-24.04, ubuntu-26.04, omarchy]
+        mode: [cli, gui]
         include:
           - { name: archlinux,    image: 'archlinux:base' }
           - { name: debian-12,    image: 'debian:12' }
@@ -162,15 +167,48 @@ jobs:
       # pacman/apt accept the flags we hand them, that every vendor installer
       # still works, and that stow lands where the plan said it would. The repo
       # is mounted read-only: the container works on a copy it owns.
+      # Every desktop app, twice, plus AUR build trees: more than the runner's
+      # free disk. These are preinstalled SDKs nothing here uses.
+      - name: Free disk space
+        if: matrix.mode == 'gui'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Install everything for real, twice, and check what landed
         env:
           LOGS: ${{ runner.temp }}/smoke-logs
+          FLAVOR: ${{ matrix.flavor }}
+          GUI: ${{ matrix.mode == 'gui' && '1' || '' }}
+          IMAGE: ${{ matrix.image }}
         run: |
           mkdir -p "$LOGS"
           docker run --rm \
             -v "$PWD:/repo:ro" -v "$LOGS:/logs" -w /repo \
-            -e SMOKE_FLAVOR="${{ matrix.flavor }}" \
-            "${{ matrix.image }}" bash .github/smoke.sh
+            -e SMOKE_FLAVOR="$FLAVOR" -e SMOKE_GUI="$GUI" \
+            "$IMAGE" bash .github/smoke.sh
+
+      # How each entry installs on this distro, from the installer itself
+      # (the porcelain's <how> field): the run's summary page shows it, and the
+      # artifact is what a cross-distro table is built from.
+      - name: Install-method table
+        if: always()
+        env:
+          LOGS: ${{ runner.temp }}/smoke-logs
+          TITLE: ${{ matrix.name }} ${{ matrix.mode }}
+        run: |
+          [ -s "$LOGS/porcelain.txt" ] || exit 0
+          {
+            printf '### How each entry installs on %s\n\n| section | entry | how |\n|---|---|---|\n' "$TITLE"
+            awk -F'\t' '$1!="var"{printf "| %s | %s | %s |\n", $1, $2, $7}' "$LOGS/porcelain.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: table-${{ matrix.name }}-${{ matrix.mode }}
+          path: ${{ runner.temp }}/smoke-logs/porcelain.txt
+          if-no-files-found: ignore
+          retention-days: 30
 
       # Every assertion reads a transcript inside the container, and the
       # container dies with the step — the same reason the suite job keeps its
@@ -178,7 +216,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: smoke-${{ matrix.name }}
+          name: smoke-${{ matrix.name }}-${{ matrix.mode }}
           path: ${{ runner.temp }}/smoke-logs
           retention-days: 7
 

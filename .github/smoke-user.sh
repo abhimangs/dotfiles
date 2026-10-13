@@ -5,10 +5,13 @@
 # installer's own detection. See smoke-checks.sh for the assertions.
 #
 # Scope: the container is headless, so install.sh strips GUI_CONFIGS and
-# GUI_APPS by itself. "all" therefore means every config, tool and CLI app a
-# headless box can take. The dry run is the one place --gui is passed, so every
-# entry, GUI ones included, is at least planned.
+# GUI_APPS by itself, and "all" means every config, tool and CLI app a headless
+# box takes. SMOKE_GUI=1 (the matrix's gui mode) exports DOTFILES_GUI=1, which
+# every install.sh call below reads: then "all" is every entry, GUI apps and
+# the fonts included, installed for real and checked the same way. Installing
+# a GUI app needs no display; only running one does.
 set -uo pipefail
+[ -n "${SMOKE_GUI:-}" ] && export DOTFILES_GUI=1
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 REPO="$(pwd -P)"
 # shellcheck source=smoke-checks.sh
@@ -45,6 +48,10 @@ if [ "$CONFIGS" = all ] || [[ ",$CONFIGS," == *,bash,* ]]; then
         && pass "~/.bashrc is the repo's" || flunk "~/.bashrc is not the repo's bash/.bashrc"
     grep -q '>>>.*>>>' "$HOME/.bashrc" && flunk "the zsh hand-off was written into a bash config that is ours"
 fi
+
+step "every program starts, and our configs load in the versions installed"
+check_starts "$CONFIGS" "$TOOLS" "$APPS"
+check_configs_load
 check_doctor doctor
 
 step "the same install again: nothing new, nothing broken"
