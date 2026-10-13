@@ -367,25 +367,40 @@ check_configs_load() {
     fi
 }
 
-# What each entry actually is on this distro, for the per-distro table: the
-# package manager's version, or the binary's own --version for anything
-# installed outside it (curl CLIs, release tarballs, kitty.app).
+# What each entry actually is on this distro, for the per-distro table: its
+# version and where it came from. A package: the repo that holds the installed
+# version (core/extra or AUR on Arch; on apt the host apt-cache policy names,
+# or "local .deb" when only dpkg's status knows it — a release download).
+# Anything else: its binary's own --version and the directory it landed in.
 record_versions() {     # record_versions <configs> <tools> <apps>
-    local pf="$LOGS/porcelain.txt" sec name probe where _f _d _h v b
+    local pf="$LOGS/porcelain.txt" sec name probe where _f _d _h v src b
     local -A WANT=()
     want_keys "$1" "$2" "$3"
     local cpath; cpath=$(awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{print $3}' "$pf")
     : > "$LOGS/versions.txt"
     while IFS=$'\t' read -r sec name probe where _f _d _h; do
         [ -n "${WANT["$sec/$name"]:-}" ] || continue
-        v=""
+        v="" src=""
         if [ "$where" != curl ]; then
-            if command -v pacman >/dev/null; then v=$(pacman -Q "$probe" 2>/dev/null | awk '{print $2}')
-            else v=$(dpkg-query -W -f '${Version}' "$probe" 2>/dev/null); fi
+            if command -v pacman >/dev/null; then
+                v=$(pacman -Q "$probe" 2>/dev/null | awk '{print $2}')
+                if [ -n "$v" ]; then
+                    if pacman -Qmq "$probe" >/dev/null 2>&1; then src=AUR
+                    else src=$(LC_ALL=C pacman -Si "$probe" 2>/dev/null | sed -n 's/^Repository *: *//p' | head -1); fi
+                fi
+            else
+                v=$(dpkg-query -W -f '${Version}' "$probe" 2>/dev/null)
+                [ -n "$v" ] && src=$(LC_ALL=C apt-cache policy "$probe" 2>/dev/null | awk '
+                    /^ +\*\*\* / {mine=1; next}
+                    mine && /^ +[0-9]+ / { if ($2 ~ /^https?:/) { split($2, u, "/"); print u[3]; found=1; exit } next }
+                    mine && /^ +[^ ]/ {exit}
+                    END { if (!found) print "local .deb" }')
+            fi
         fi
         if [ -z "$v" ] && b=$(PATH="$PATH:$cpath" command -v "$probe"); then
             v=$(timeout 15 "$b" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+            src="${b%/*}"; src="${src/#$HOME/\~}"
         fi
-        printf '%s\t%s\t%s\n' "$sec" "$name" "${v:--}" >> "$LOGS/versions.txt"
+        printf '%s\t%s\t%s\t%s\n' "$sec" "$name" "${v:--}" "${src:--}" >> "$LOGS/versions.txt"
     done < "$pf"
 }

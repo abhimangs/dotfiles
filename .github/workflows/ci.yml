@@ -199,8 +199,8 @@ jobs:
         run: |
           [ -s "$LOGS/porcelain.txt" ] || exit 0
           {
-            printf '### How each entry installs on %s\n\n| section | entry | how | version |\n|---|---|---|---|\n' "$TITLE"
-            awk -F'\t' 'NR==FNR{v[$1"/"$2]=$3; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s |\n", $1, $2, $7, (k in v ? v[k] : "-")}' \
+            printf '### How each entry installs on %s\n\n| section | entry | rule | came from | version |\n|---|---|---|---|---|\n' "$TITLE"
+            awk -F'\t' 'NR==FNR{v[$1"/"$2]=$3; s[$1"/"$2]=$4; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s | %s |\n", $1, $2, $7, (k in s ? s[k] : "-"), (k in v ? v[k] : "-")}' \
               "$LOGS/versions.txt" "$LOGS/porcelain.txt"
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
