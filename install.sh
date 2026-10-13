@@ -7007,7 +7007,11 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 # is a warning here, not a failed app — but it still goes in the
                 # summary, or a run that silently failed one update looks clean.
                 read -ra _ucmd <<< "${APP_UPDATE[$app]}"
-                if ! PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null; then
+                # One retry: a vendor's update server dropping the connection
+                # ("socket hang up", Cursor on a CI run) is not a failed update.
+                if ! PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null \
+                   && ! { sleep 3; substep "${C_DIM}Retrying the update...${C_RESET}"
+                          PATH="${CURL_APP_PATH}:$PATH" "${_ucmd[@]}" </dev/null; }; then
                     substep "${C_DIM}Update failed — keeping the installed version${C_RESET}"
                     UPDATE_FAILED+=("$_lbl")
                 fi

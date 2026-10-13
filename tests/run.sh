@@ -610,6 +610,12 @@ nowant  curlapps-badupd 'Failed \('        'nothing reached the failure list'
 nowant  curlapps-badupd 'Downloading installer' 'a failed update is not a reinstall'
 want    curlapps-badupd 'Update failed, kept the installed version \(1\): .*Codex CLI' \
                                             'and the final summary carries it too, not just the inline note'
+# A dropped connection is retried once before it counts as a failed update.
+rerun   curlapps-updretry curlapps "$WORK/k-sel" \
+        DOTFILES_APPS="codex-cli" STUB_UPDATE_FAILS=once
+check   curlapps-updretry 0
+want    curlapps-updretry 'Retrying the update'     'a failed update is tried again'
+nowant  curlapps-updretry 'Update failed'           'and a second try that works is no failure'
 
 # 15h2b. Tailscale's own version of the Devin shape. The real installer runs
 #        under `set -eu` and its pacman arm does not guard `systemctl enable

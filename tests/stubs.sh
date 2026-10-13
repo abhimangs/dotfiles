@@ -595,7 +595,12 @@ mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/codex" <<'CODEX_BIN'
 #!/bin/sh
 echo "codex stub $*"
-if [ "${STUB_UPDATE_FAILS:-0}" = 1 ] && [ "$1" = update ]; then exit 1; fi
+if [ "$1" = update ]; then
+    case "${STUB_UPDATE_FAILS:-0}" in
+        1) exit 1 ;;
+        once) [ -e "$STUB_STATE/upd-failed" ] || { : > "$STUB_STATE/upd-failed"; exit 1; } ;;
+    esac
+fi
 exit 0
 CODEX_BIN
 chmod +x "$HOME/.local/bin/codex"
