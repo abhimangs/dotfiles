@@ -402,6 +402,11 @@ check   agy-first 0
 [ -x "$WORK/run/agy-first/home/.local/bin/agy" ] \
     && note agy-first "installed as agy, not as antigravity-cli" \
     || bad  agy-first "no agy binary"
+# `agy install` appends its PATH line to .bashrc/.zshrc/.profile unconditionally,
+# through our links and into the repo; the throwaway HOME is what catches it.
+grep -qs 'Added by Antigravity' "$WORK/run/agy-first/home/.bashrc" \
+    && bad  agy-first "agy's PATH line reached the real ~/.bashrc" \
+    || note agy-first "agy's rc-file write went to the throwaway HOME"
 rerun   agy-again agy-first "$WORK/k-sel" DOTFILES_APPS="antigravity-cli"
 check   agy-again 0
 want    agy-again 'Antigravity CLI already installed' 'the plan finds agy on PATH'

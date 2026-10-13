@@ -526,9 +526,15 @@ DEVIN_SH
             # entry looks like from the outside.
             cat > "$out" <<'AGY_SH'
 #!/bin/sh
-mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho agy stub "$@"\n' > "$HOME/.local/bin/agy"
-chmod +x "$HOME/.local/bin/agy"
+# --dir as the real one takes it; install.sh passes it with a throwaway HOME,
+# so HOME must not decide where the binary lands. The PATH line the real
+# `agy install` appends goes to $HOME/.bashrc, i.e. into that throwaway.
+dir="$HOME/.local/bin"
+[ "${1:-}" = --dir ] && dir="$2"
+mkdir -p "$dir" "$HOME"
+printf '#!/bin/sh\necho agy stub "$@"\n' > "$dir/agy"
+chmod +x "$dir/agy"
+printf '# Added by Antigravity CLI installer\nexport PATH="%s:$PATH"\n' "$dir" >> "$HOME/.bashrc"
 AGY_SH
             ;;
         *claude.ai/install.sh)

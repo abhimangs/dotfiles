@@ -30,6 +30,9 @@ omarchy_prepare() {     # as root, before the user exists
     local got
     got=$(gpg --show-keys --with-colons /tmp/omarchy.asc | awk -F: '/^fpr:/ {print $10; exit}')
     [ "$got" = "$OMARCHY_KEY" ] || fail "key fingerprint is $got, expected $OMARCHY_KEY"
+    # archlinux:base ships the Arch keys but no local signing key, and
+    # --lsign-key needs one ("There is no secret key available to sign with").
+    pacman-key --init || fail "pacman-key --init failed"
     pacman-key --add /tmp/omarchy.asc || fail "pacman-key --add failed"
     pacman-key --lsign-key "$OMARCHY_KEY" || fail "pacman-key --lsign-key failed"
 

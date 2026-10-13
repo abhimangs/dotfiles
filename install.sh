@@ -4119,6 +4119,21 @@ APP_CURL_ENV[mistral-cli]="UV_NO_MODIFY_PATH=1"
 # carries it. Zed's and Ollama's need nothing here — Zed's only prints the PATH
 # line it would want, and Ollama's installs into /usr/local as root.
 APP_CURL_ENV[uv]="UV_NO_MODIFY_PATH=1"
+# Codex's ends with "Start Codex now? [y/N]", read from /dev/tty — </dev/null
+# does not reach it, so every run stopped there (every CI distro hung on it).
+# CODEX_NON_INTERACTIVE is its documented "skip prompts".
+APP_CURL_ENV[codex-cli]="CODEX_NON_INTERACTIVE=1"
+# Antigravity's script hands over to `agy install`, which appends a PATH line to
+# .bashrc, .zshrc and .profile unconditionally — through our links, into this
+# repo — and the script passes it no arguments, so its --skip-path is out of
+# reach. A throwaway HOME catches those writes; --dir keeps the binary in the
+# real ~/.local/bin. shortcut: split on whitespace like every entry here, so a
+# $HOME with a space in it breaks this one.
+APP_CURL_ENV[antigravity-cli]="HOME=$RUN_TMPDIR/agy-home"
+APP_CURL_ARGS[antigravity-cli]="--dir $HOME/.local/bin"
+# Postman's only writes when its bin dir is off PATH, which CURL_APP_PATH
+# prevents; this is its documented opt-out, in case that check ever changes.
+APP_CURL_ENV[postman-cli]="POSTMAN_CLI_NO_MODIFY_PATH=1"
 
 # Where each curl app's installer comes from and which shell runs it. One case,
 # read by the apps loop to install and by the menu's details pane to say where
@@ -6859,10 +6874,14 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # </dev/null: a vendor installer must never read this
                     # script's stdin — under `curl … | bash` that is the rest of
                     # the download stream, and on a terminal it is the keys the
-                    # remaining prompts are waiting for. Devin's is the one that
-                    # would actually sit there: it ends by running `devin setup`,
-                    # an interactive login with no flag to skip it.
-                    env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}" </dev/null
+                    # remaining prompts are waiting for.
+                    # setsid for Devin: its script ends by running `devin setup`,
+                    # an interactive login with no flag to skip it, which opens
+                    # the terminal itself — </dev/null does not reach it, and it
+                    # waits forever. With no controlling terminal it says "Login
+                    # canceled" and exits 1, which the binary check below absorbs.
+                    _nott=(); [ "$app" = devin ] && _nott=(setsid -w)
+                    "${_nott[@]}" env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}" </dev/null
                     _rc=$?
                     # Verified against reality, the way the package path is, and
                     # the binary is the verdict rather than the exit status. An
