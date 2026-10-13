@@ -144,6 +144,30 @@ for cfg in $(pcl '$1!="var" && $6!="-" && $6!="" {print $6}') wallpapers; do
 done
 echo
 
+# Omarchy ships its own copy of several of the files this repo stows, and
+# which of the two a given path is changes what a bug report means. Printed only
+# where Omarchy is, so every other machine's output is unchanged.
+if [ -n "${OMARCHY_PATH:-}" ] || [ -d /usr/share/omarchy ] || command -v omarchy-version &>/dev/null; then
+    echo "── omarchy ───────────────────────────────────────────"
+    echo "version         : $(omarchy-version 2>/dev/null || echo '-')"
+    echo "OMARCHY_PATH    : ${OMARCHY_PATH:-<unset in this shell>}"
+    echo "mise            : $(command -v mise || echo '<none>')"
+    echo "mise activated  : $( [ -n "${MISE_SHELL:-}" ] && echo "yes ($MISE_SHELL)" || echo 'no (shims only, if at all)' )"
+    echo "EDITOR / BROWSER: ${EDITOR:-<unset>} / ${BROWSER:-<unset>}"
+    # "ours" = a symlink that resolves into this checkout, directly or one level
+    # inside a config directory (the way stow lays them out).
+    for t in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/git/config" \
+             "$XDG_CONFIG/starship.toml" "$XDG_CONFIG/ghostty" "$XDG_CONFIG/kitty" \
+             "$XDG_CONFIG/alacritty" "$XDG_CONFIG/btop" "$XDG_CONFIG/tmux" "$XDG_CONFIG/lazygit"; do
+        if [ ! -e "$t" ] && [ ! -L "$t" ]; then who="absent"
+        elif [ -L "$t" ] && [[ "$(readlink -f "$t")" == "$d"/* ]]; then who="ours (link into the checkout)"
+        elif [ -d "$t" ] && find "$t" -maxdepth 1 -type l -exec readlink -f {} + 2>/dev/null | grep -q "^$d/"; then who="ours (stowed inside)"
+        else who="not ours (Omarchy's or yours)"; fi
+        printf "  %-26s %s\n" "${t/#$HOME\//}" "$who"
+    done
+    echo
+fi
+
 echo "── tools ─────────────────────────────────────────────"
 echo "git version     : $(git --version 2>/dev/null || echo '<not installed>')"
 # install.sh's own CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on the

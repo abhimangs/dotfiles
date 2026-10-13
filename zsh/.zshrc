@@ -255,6 +255,16 @@ for _ed in micro nvim vim nano vi; do
 done
 unset _ed
 
+# ── mise ──────────────────────────────────────────────────────
+# Omarchy's bash rc activates mise; without this a zsh there only has the shims,
+# which sit at the END of PATH, so /usr/bin's node/ruby win over mise's versions
+# and mise.toml [env] never loads. Absent mise: nothing happens.
+command -v mise &>/dev/null && eval "$(mise activate zsh)"
+
+# Omarchy sets this in its bash rc (shell-scoped on purpose): it opens URLs
+# detached from the terminal, so closing the terminal does not kill the browser.
+[[ -z "$BROWSER" ]] && command -v omarchy-launch-browser &>/dev/null && export BROWSER=omarchy-launch-browser
+
 # ── Starship ──────────────────────────────────────────────────
 command -v starship &>/dev/null && eval "$(starship init zsh)"
 

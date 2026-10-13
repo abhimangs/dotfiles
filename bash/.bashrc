@@ -29,6 +29,20 @@ _path_prepend "$HOME/.grok/bin"
 export PATH
 unset -f _path_prepend
 
+# ── Omarchy ───────────────────────────────────────────────────
+# Stowing this file replaces the ~/.bashrc Omarchy installed, which is what
+# activates mise, sets OMARCHY_PATH for non-login shells and loads its aliases,
+# completions and key bindings. Sourced first so everything below still wins.
+# Not on Omarchy: no such file, nothing happens.
+for _om in "${OMARCHY_PATH:-}" /usr/share/omarchy "$HOME/.local/share/omarchy"; do
+    if [ -n "$_om" ] && [ -r "$_om/default/bash/rc" ]; then
+        export OMARCHY_PATH="$_om"
+        . "$_om/default/bash/rc"
+        break
+    fi
+done
+unset _om
+
 # ── History ───────────────────────────────────────────────────
 HISTFILE=~/.bash_history
 HISTSIZE=50000
