@@ -144,6 +144,45 @@ for cfg in $(pcl '$1!="var" && $6!="-" && $6!="" {print $6}') wallpapers; do
 done
 echo
 
+echo "── drift ─────────────────────────────────────────────"
+# Two ways a stowed config stops being ours without anyone asking: a tool
+# replaces a link with a plain file (Omarchy's font setter does), or writes
+# through a link into the checkout (omarchy-refresh-config does). Read-only.
+# "Installed" = at least one file of the package resolves into this checkout;
+# the single-file packages are the five stow targets that are not a directory.
+_pkgs=()
+for cfg in $(pcl '$1!="var" && $6!="-" && $6!="" {print $6}') wallpapers; do
+    _pkgs+=("$cfg:$XDG_CONFIG/$cfg")
+done
+_pkgs+=("bash:$HOME" "zsh:$HOME" "git:$HOME" "starship:$XDG_CONFIG" "proton-vpn:$HOME/scripts/pvpn")
+_drift=0 _stowed=()
+for _e in "${_pkgs[@]}"; do
+    _pkg="${_e%%:*}" _dst="${_e#*:}"
+    [ -d "$d/$_pkg" ] || continue
+    _bad=() _ok=0
+    while IFS= read -r -d '' _f; do
+        _rel="${_f#"$d/$_pkg/"}"; _t="$_dst/$_rel"
+        if [ -e "$_t" ] && [[ "$(readlink -f "$_t")" == "$d"/* ]]; then _ok=1
+        elif [ -L "$_t" ] && [ ! -e "$_t" ]; then _bad+=("$_pkg/$_rel is a broken link, not our link")
+        elif [ -L "$_t" ]; then _bad+=("$_pkg/$_rel is a link elsewhere (-> $(readlink "$_t")), not our link")
+        elif [ -e "$_t" ]; then _bad+=("$_pkg/$_rel is a plain file, not our link — something replaced it (Omarchy's font setter does this)")
+        else _bad+=("$_pkg/$_rel is missing from $_dst"); fi
+    done < <(find "$d/$_pkg" -type f -print0 2>/dev/null)
+    [ "$_ok" -eq 1 ] || continue
+    _stowed+=("$_pkg")
+    for _m in "${_bad[@]}"; do echo "  $_m"; _drift=1; done
+done
+if [ ! -e "$d/.git" ]; then
+    echo "  uncommitted-change check unavailable (no .git here — private mode strips it)"
+elif [ "${#_stowed[@]}" -gt 0 ]; then
+    while IFS= read -r _pkg; do
+        echo "  uncommitted changes in $_pkg/ — something wrote through a link (omarchy-refresh-config does this)"
+        _drift=1
+    done < <(git -C "$d" status --porcelain -- "${_stowed[@]}" 2>/dev/null | cut -c4- | sed 's/^"//' | cut -d/ -f1 | sort -u)
+fi
+[ "$_drift" -eq 0 ] && echo "  no drift$([ -e "$d/.git" ] || echo " (links only)")"
+echo
+
 # Omarchy ships its own copy of several of the files this repo stows, and
 # which of the two a given path is changes what a bug report means. Printed only
 # where Omarchy is, so every other machine's output is unchanged.
