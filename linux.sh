@@ -3,12 +3,12 @@ set -eu
 
 REPO=https://github.com/abhimangs/dotfiles.git
 
-# set -eu catches HOME being unset, but not HOME being set and empty — and an
+# set -eu catches HOME being unset, but not HOME being set and empty. An
 # empty one makes DIR "/dotfiles", pointing the rm and mv below at the root of
 # the filesystem. This script runs unattended through curl | bash, so there is
 # no prompt in front of them.
 if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
-    echo "HOME is not set to a usable directory — refusing to run." >&2
+    echo "HOME is not set to a usable directory. Refusing to run." >&2
     exit 1
 fi
 DIR="$HOME/dotfiles"
