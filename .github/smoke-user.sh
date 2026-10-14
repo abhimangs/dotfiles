@@ -6,12 +6,8 @@
 #
 # Scope: the container is headless, so install.sh strips GUI_CONFIGS and
 # GUI_APPS by itself, and "all" means every config, tool and CLI app a headless
-# box takes. SMOKE_GUI=1 (the matrix's gui mode) exports DOTFILES_GUI=1, which
-# every install.sh call below reads: then "all" is every entry, GUI apps and
-# the fonts included, installed for real and checked the same way. Installing
-# a GUI app needs no display; only running one does.
+# box takes.
 set -uo pipefail
-[ -n "${SMOKE_GUI:-}" ] && export DOTFILES_GUI=1
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 REPO="$(pwd -P)"
 # shellcheck source=smoke-checks.sh

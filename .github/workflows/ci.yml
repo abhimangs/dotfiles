@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   lint:
-    name: lint
+    name: Lint (shellcheck, actionlint)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -63,7 +63,7 @@ jobs:
           ./actionlint -color
 
   test:
-    name: suite (${{ matrix.os }})
+    name: Offline tests, bash ${{ matrix.bash }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -72,7 +72,9 @@ jobs:
       # ${var,,} and printf %-*s, so "works on my bash" is a real failure mode.
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        include:
+          - { os: ubuntu-22.04, bash: '5.1' }
+          - { os: ubuntu-24.04, bash: '5.2' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -81,9 +83,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y stow zsh
 
       # The suite stubs every package manager and sandboxes HOME, so it never
-      # touches the runner's real system. KEEP_WORK keeps the sandbox alive past
-      # the trap so a failure has something to upload.
-      - name: Run the suite
+      # touches the runner's real system: the installer's logic and its TUI menu,
+      # offline. KEEP_WORK keeps the sandbox alive past the trap so a failure
+      # has something to upload.
+      - name: Run tests/run.sh
         env:
           WORK: ${{ runner.temp }}/sandbox
           KEEP_WORK: '1'
@@ -92,7 +95,7 @@ jobs:
           mkdir -p "$WORK"
           bash tests/run.sh 2>&1 | tee "$RUNNER_TEMP/suite.log"
 
-      - name: Summarise
+      - name: Summary
         if: always()
         run: |
           {
@@ -108,7 +111,7 @@ jobs:
       # the sandbox dies with the runner — which makes a CI-only failure close to
       # undebuggable. Collect the transcripts alone: each scenario also holds a
       # full copy of the repo, so the whole tree would be a huge artifact.
-      - name: Collect transcripts
+      - name: Collect the failed scenarios' transcripts
         if: failure()
         run: |
           dest="$RUNNER_TEMP/transcripts"
@@ -119,10 +122,11 @@ jobs:
           done
           cp "$RUNNER_TEMP/suite.log" "$dest/" 2>/dev/null || true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload transcripts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: transcripts-${{ matrix.os }}
+          name: transcripts-bash-${{ matrix.bash }}
           path: ${{ runner.temp }}/transcripts
           retention-days: 7
 
@@ -130,32 +134,29 @@ jobs:
   # with passwordless sudo, from a repo copy it owns, installing EVERYTHING a
   # headless box can take (all configs, all tools, all CLI apps; the GUI ones
   # are stripped by the installer's own headless filter, and are only planned,
-  # via --gui, in the dry run). It then checks the installer's own detection
-  # against what is on disk, and runs it a second time to prove nothing moves.
+  # via --gui, in the dry run — installing every desktop app made the Arch jobs
+  # take ~55 minutes, so they are not installed here). It then checks the
+  # installer's own detection against what is on disk, and runs it a second
+  # time to prove nothing moves.
   # Assertions are listed at the top of .github/smoke-checks.sh.
   #
   # "omarchy" is the same job on archlinux:base with Omarchy's user-facing
   # package installed first (see .github/omarchy.sh for how faithful that is).
   smoke:
-    name: real ${{ matrix.name }} ${{ matrix.mode }}
+    name: Real install on ${{ matrix.label }}
     runs-on: ubuntu-latest
-    # Ollama, the AUR and ~45 apps from their vendors, installed twice; gui
-    # adds every desktop app and the fonts, and wezterm-git compiles on Arch.
-    timeout-minutes: ${{ matrix.mode == 'gui' && 200 || 120 }}
+    # Every tool and CLI app (Ollama, the AUR, ~20 vendor installers), twice.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        # cli: what a headless box (a server, a container) is offered. gui:
-        # everything, as on a desktop. Each distro runs both.
-        name: [archlinux, debian-12, debian-13, ubuntu-24.04, ubuntu-26.04, omarchy]
-        mode: [cli, gui]
         include:
-          - { name: archlinux,    image: 'archlinux:base' }
-          - { name: debian-12,    image: 'debian:12' }
-          - { name: debian-13,    image: 'debian:13' }
-          - { name: ubuntu-24.04, image: 'ubuntu:24.04' }
-          - { name: ubuntu-26.04, image: 'ubuntu:26.04' }
-          - { name: omarchy,      image: 'archlinux:base', flavor: omarchy }
+          - { name: archlinux,    label: Arch Linux,   image: 'archlinux:base' }
+          - { name: debian-12,    label: Debian 12,    image: 'debian:12' }
+          - { name: debian-13,    label: Debian 13,    image: 'debian:13' }
+          - { name: ubuntu-24.04, label: Ubuntu 24.04, image: 'ubuntu:24.04' }
+          - { name: ubuntu-26.04, label: Ubuntu 26.04, image: 'ubuntu:26.04' }
+          - { name: omarchy,      label: Omarchy,      image: 'archlinux:base', flavor: omarchy }
     steps:
       # No token in the checkout: this job runs ~20 vendors' install scripts
       # with sudo beside it.
@@ -167,25 +168,16 @@ jobs:
       # pacman/apt accept the flags we hand them, that every vendor installer
       # still works, and that stow lands where the plan said it would. The repo
       # is mounted read-only: the container works on a copy it owns.
-      # Every desktop app, twice, plus AUR build trees: more than the runner's
-      # free disk. These are preinstalled SDKs nothing here uses.
-      - name: Free disk space
-        if: matrix.mode == 'gui'
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
-
       - name: Install everything for real, twice, and check what landed
         env:
           LOGS: ${{ runner.temp }}/smoke-logs
           FLAVOR: ${{ matrix.flavor }}
-          GUI: ${{ matrix.mode == 'gui' && '1' || '' }}
           IMAGE: ${{ matrix.image }}
         run: |
           mkdir -p "$LOGS"
           docker run --rm \
             -v "$PWD:/repo:ro" -v "$LOGS:/logs" -w /repo \
-            -e SMOKE_FLAVOR="$FLAVOR" -e SMOKE_GUI="$GUI" \
+            -e SMOKE_FLAVOR="$FLAVOR" \
             "$IMAGE" bash .github/smoke.sh
 
       # How each entry installs on this distro, from the installer itself
@@ -195,7 +187,7 @@ jobs:
         if: always()
         env:
           LOGS: ${{ runner.temp }}/smoke-logs
-          TITLE: ${{ matrix.name }} ${{ matrix.mode }}
+          TITLE: ${{ matrix.label }}
         run: |
           [ -s "$LOGS/porcelain.txt" ] || exit 0
           {
@@ -203,10 +195,11 @@ jobs:
             awk -F'\t' 'NR==FNR{v[$1"/"$2]=$3; s[$1"/"$2]=$4; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s | %s |\n", $1, $2, $7, (k in s ? s[k] : "-"), (k in v ? v[k] : "-")}' \
               "$LOGS/versions.txt" "$LOGS/porcelain.txt"
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload the install-method table
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: table-${{ matrix.name }}-${{ matrix.mode }}
+          name: table-${{ matrix.name }}
           path: |
             ${{ runner.temp }}/smoke-logs/porcelain.txt
             ${{ runner.temp }}/smoke-logs/versions.txt
@@ -216,15 +209,16 @@ jobs:
       # Every assertion reads a transcript inside the container, and the
       # container dies with the step — the same reason the suite job keeps its
       # own. The raw pty capture is kept too: it is what the terminal showed.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload transcripts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: smoke-${{ matrix.name }}-${{ matrix.mode }}
+          name: smoke-${{ matrix.name }}
           path: ${{ runner.temp }}/smoke-logs
           retention-days: 7
 
   linux-sh-unchanged:
-    name: linux.sh deploy reminder
+    name: Reminder to re-deploy linux.sh
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -271,8 +271,7 @@ pkg_files() {           # pkg_files <package> — every path it installed, or no
 
 # Installed is not working: paru-bin installed cleanly and could not start
 # (libalpm.so.15). Every ELF executable an entry put on the machine has to find
-# all of its shared libraries. ldd, so nothing is run and no display is needed,
-# which is what lets the GUI apps be checked too. A library the package ships
+# all of its shared libraries. ldd, so nothing is run. A library the package ships
 # itself does not count as missing: Zoom and Slack point LD_LIBRARY_PATH at
 # their own copies from a launcher. A curl CLI has no package, so its binary is
 # run with --version instead; any exit but "cannot execute" (126/127) passes.
@@ -321,12 +320,12 @@ check_starts() {        # check_starts <configs> <tools> <apps>
 tty_out() { TERM=xterm-256color timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
 
 # Linked is not loaded: each config, read by the version of its program this
-# distro actually installed (Debian 12's tmux, kitty and Neovim are years
-# behind Arch's). Only programs that can read their config without a display;
-# Alacritty, WezTerm, rofi and ulauncher are covered by check_starts alone.
+# distro actually installed (Debian 12's tmux and Neovim are years
+# behind Arch's). Only what a headless box installs: the terminals and
+# launchers are GUI entries, never installed here.
 check_configs_load() {
     local x="${XDG_CONFIG_HOME:-$HOME/.config}" out bat rc
-    # Where the curl CLIs and per-user installs (kitty.app) put their binaries,
+    # Where the curl CLIs put their binaries,
     # none of which existed when this login shell set PATH.
     local PATH="$PATH:$(awk -F'\t' '$1=="var" && $2=="CURL_APP_PATH"{print $3}' "$LOGS/porcelain.txt")"
     if [ -L "$HOME/.zshrc" ] && command -v zsh >/dev/null; then
@@ -347,14 +346,6 @@ check_configs_load() {
         out=$(timeout 30 tmux -L smoke -f /dev/null start-server \; source-file "$x/tmux/tmux.conf" 2>&1)
         rc=$?; tmux -L smoke kill-server 2>/dev/null
         [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "tmux: tmux.conf loads in $(tmux -V)" || flunk "tmux: tmux.conf does not load in $(tmux -V)" "$out"
-    fi
-    if [ -e "$x/kitty/kitty.conf" ] && command -v kitty >/dev/null; then
-        out=$(timeout 60 kitty +runpy 'import sys; from kitty.config import load_config; load_config(sys.argv[-1])' "$x/kitty/kitty.conf" 2>&1)
-        [ -z "$out" ] && pass "kitty: kitty.conf loads in $(kitty --version)" || flunk "kitty: kitty.conf has lines $(kitty --version) rejects" "$(head -10 <<< "$out")"
-    fi
-    if [ -e "$x/ghostty/config" ] && command -v ghostty >/dev/null; then
-        out=$(timeout 60 ghostty +validate-config 2>&1) && [ -z "$out" ] \
-            && pass "ghostty: config validates" || flunk "ghostty: +validate-config rejects our config" "$(head -10 <<< "$out")"
     fi
     if [ -L "$x/starship.toml" ] && command -v starship >/dev/null; then
         out=$(timeout 60 starship prompt 2>&1 >/dev/null | grep -v 'timed out')
