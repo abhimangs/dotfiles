@@ -298,7 +298,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash photocraft)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -4055,7 +4055,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4069,7 +4069,7 @@ if [[ "$DISTRO" == "debian" ]]; then
     # Slack is neither: it has a working apt repo, just not one every apt
     # distro can resolve — see the strip below and ensure_slack_deb.
     # Strip, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft
     # Slack splits the two: Ubuntu still has libappindicator3-1 in universe and
     # takes Slack's own apt repo, Debian dropped the library and cannot resolve
     # the package at all. The only entry that is Ubuntu-only rather than
@@ -4105,6 +4105,7 @@ APP_LABEL[ori]="ORI Harness"
 APP_LABEL[deepseek-harness]="Deepseek Harness"
 APP_LABEL[orca]="Orca"
 APP_LABEL[emdash]="Emdash"
+APP_LABEL[photocraft]="PhotoCraft"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
@@ -4166,6 +4167,7 @@ APP_TYPE[tailscale]="curl"
 APP_TYPE[deepseek-harness]="paru"
 APP_TYPE[orca]="paru"
 APP_TYPE[emdash]="paru"
+APP_TYPE[photocraft]="paru"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
@@ -4217,6 +4219,7 @@ APP_PKG[antigravity]="antigravity"
 APP_PKG[deepseek-harness]="deepseek-harness-bin"
 APP_PKG[orca]="stably-orca-bin"
 APP_PKG[emdash]="emdash-bin"
+APP_PKG[photocraft]="photocraft-bin"
 APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
@@ -4594,6 +4597,7 @@ APP_DESC[ori]="OpenRouter's CLI for projects you already have"
 APP_DESC[deepseek-harness]="DeepSeek's agent harness"
 APP_DESC[orca]="Stably's agent worktree manager"
 APP_DESC[emdash]="run coding agents in parallel"
+APP_DESC[photocraft]="Photoshop alternative"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher"
@@ -4707,6 +4711,7 @@ APP_GROUP[ori]="AI agents"
 APP_GROUP[deepseek-harness]="AI agents"
 APP_GROUP[orca]="AI agents"
 APP_GROUP[emdash]="AI agents"
+APP_GROUP[photocraft]="Media"
 APP_GROUP[notion]="Chat & notes"
 APP_GROUP[obsidian]="Chat & notes"
 APP_GROUP[chatgpt]="Chat & notes"
