@@ -158,11 +158,11 @@ alias ff='fastfetch'
 # Kitty: reuse existing instance for near-instant startup
 alias kitty='kitty --single-instance'
 
-alias cc='claude --dangerously-skip-permissions'
-alias ccr='claude --dangerously-skip-permissions --resume'
-alias ccc='claude --dangerously-skip-permissions --continue'
-
-alias phonecam='scrcpy --video-source=camera --camera-facing=back --camera-size=4080x3072 --video-codec=h265 --video-bit-rate=25M --max-fps=30 --v4l2-sink=/dev/video2 --no-playback'
+# Plain claude on purpose: a shared rc must not switch off Claude Code's permission
+# prompts for whoever installs it. Add the --dangerously-skip-permissions variants to ~/.bashrc.local.
+alias cc='claude'
+alias ccr='claude --resume'
+alias ccc='claude --continue'
 
 # ── Deliberately not here ─────────────────────────────────────
 # starship, zoxide, fzf and any plugin manager. This is the plain-bash
