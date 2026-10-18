@@ -16,7 +16,8 @@ echo "SUDO_USER       : ${SUDO_USER:-<unset>}"
 echo
 
 echo "── shell: what the system thinks vs what is running ──"
-echo "passwd entry    : $(getent passwd "$(id -un)")"
+# Field 5 (GECOS) is the account's real name and often more; this gets pasted publicly.
+echo "passwd entry    : $(getent passwd "$(id -un)" | awk -F: -v OFS=: '{$5="";print}')"
 echo "login shell     : $(getent passwd "$(id -un)" | cut -d: -f7)"
 echo "\$SHELL          : ${SHELL:-<unset>}"
 echo "running shell   : $(ps -p $$ -o comm= 2>/dev/null)"
@@ -209,6 +210,15 @@ fi
 
 echo "── tools ─────────────────────────────────────────────"
 echo "git version     : $(git --version 2>/dev/null || echo '<not installed>')"
+# Name the file, never the value: this output gets pasted into public bug reports.
+_gid_missing=0
+for k in name email; do
+    o=$(git config --global --includes --show-origin --get "user.$k" 2>/dev/null | head -n1 | cut -f1)
+    o=${o#file:}
+    if [ -n "$o" ]; then o="set (${o/#$HOME\//\~/})"; else o="NOT SET"; _gid_missing=1; fi
+    printf "%-16s: %s\n" "git user.$k" "$o"
+done
+[ "$_gid_missing" -eq 0 ] || echo "  fix: git config --file ~/.gitconfig.local user.email you@example.com   (and user.name; NOT --global, which writes through the ~/.gitconfig link into the repo)"
 # install.sh's own CURL_APP_PATH. bun lands in ~/.bun/bin, which is not on the
 # PATH of a non-login shell — without this it reports as missing on a machine
 # where it is installed and working. The fallback is the two directories that
@@ -277,7 +287,7 @@ echo "── ccstatusline (Claude Code statusLine) ─────────�
 cc_statusline_cmd() {
     # No hand-parsing of that JSON, for the same reason install.sh refuses to:
     # if it does not parse, the installer leaves it alone and so does this.
-    python3 -c 'import json,sys
+    python3 -I -c 'import json,sys
 v = json.load(open(sys.argv[1])).get("statusLine")
 print((v.get("command", "<statusLine with no command>") if isinstance(v, dict) else v) if v else "<no statusLine key>")' \
         "$1" 2>/dev/null || echo "<unparseable JSON, or no python3 — install.sh will not touch it either>"

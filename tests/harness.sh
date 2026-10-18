@@ -135,6 +135,9 @@ build_root() {          # build_root <root> <distro>
     [ "${STUB_DEAD_PPA:-0}" = 1 ] && \
         printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/lazygit-team/release/ubuntu/\nSuites: noble\n' \
             > "$root/etc/apt/sources.list.d/lazygit-team-ubuntu-release-noble.sources"
+    [ "${STUB_FLAKY_DOCKER:-0}" = 1 ] && \
+        printf 'deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable\n' \
+            > "$root/etc/apt/sources.list.d/docker.list"
     [ "${STUB_BROKEN_REPO:-0}" = 1 ] && \
         printf 'deb https://apt.example.com/repo stable main\n' \
             > "$root/etc/apt/sources.list.d/thirdparty.list"

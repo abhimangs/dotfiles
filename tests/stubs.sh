@@ -107,9 +107,14 @@ fi
 
 case "$sub" in
   update)
-      dead=$(ls "${STUB_APT_SRCD:-/nonexistent}"/lazygit-team-* 2>/dev/null | head -1)
+      dead=$(ls "${STUB_APT_SRCD:-/nonexistent}"/lazygit-team-*.sources 2>/dev/null | head -1)
       if [ -n "$dead" ]; then
           echo "E: The repository 'https://ppa.launchpadcontent.net/lazygit-team/release/ubuntu noble Release' does not have a Release file." >&2
+          exit 100
+      fi
+      if [ "${STUB_FLAKY_DOCKER:-0}" = "1" ] && [ -e "${STUB_APT_SRCD:-/nonexistent}/docker.list" ]; then
+          echo "W: Failed to fetch https://download.docker.com/linux/ubuntu/dists/noble/InRelease  Could not resolve 'download.docker.com'" >&2
+          echo "E: Some index files failed to download. They have been ignored, or old ones used instead." >&2
           exit 100
       fi
       if [ "${STUB_BROKEN_REPO:-0}" = "1" ]; then

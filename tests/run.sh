@@ -306,6 +306,18 @@ STUB_DEAD_PPA=1 run ubuntu-deadppa ubuntu "$WORK/k-sel" \
 check   ubuntu-deadppa 0
 want    ubuntu-deadppa 'Removed a dead source from an earlier run' 'stale PPA cleaned up'
 want    ubuntu-deadppa '\[ok\] apt ready$'                      'index healthy afterwards'
+want    ubuntu-deadppa 'kept as .*\.bak'                         'moved aside, not deleted'
+[ -e "$WORK/run/ubuntu-deadppa/etc/apt/sources.list.d/lazygit-team-ubuntu-release-noble.sources.bak" ] \
+    && note ubuntu-deadppa 'dead source kept as .bak' \
+    || bad  ubuntu-deadppa 'dead source was deleted, not moved aside'
+
+# 9b. A flaky network is not a dead repo: the user's own docker.list stays.
+STUB_FLAKY_DOCKER=1 run ubuntu-flakydocker ubuntu "$WORK/k-sel" \
+    DOTFILES_CONFIGS="git" STUB_FLAKY_DOCKER=1
+nowant  ubuntu-flakydocker 'Removed a dead source'                'unresolvable host is not a dead repo'
+[ -e "$WORK/run/ubuntu-flakydocker/etc/apt/sources.list.d/docker.list" ] \
+    && note ubuntu-flakydocker 'docker.list still in place' \
+    || bad  ubuntu-flakydocker 'docker.list was removed over a network error'
 
 # 10. A selection on the command line means nobody is at the keyboard, same as
 # the Proceed? prompt — so the updater is stopped without asking rather than
@@ -2865,6 +2877,39 @@ if bash "$doc_src" </dev/null >"$doctor_out" 2>&1; then
 else
     bad  doctor-run "doctor.sh exited non-zero"
 fi
+
+# The passwd line is pasted into public bug reports: GECOS (field 5, the real name) is blanked.
+[ -z "$(sed -n 's/^passwd entry *: //p' "$doctor_out" | cut -d: -f5)" ] \
+    && note doctor-gecos "the passwd entry carries no GECOS field" \
+    || bad  doctor-gecos "doctor.sh prints the account's GECOS (real name) field"
+# Git identity: reported by file, never by value (the output is pasted into
+# public bug reports), and the fix it names must not be --global.
+gid_home="$WORK/gid-home"; rm -rf "$gid_home"; mkdir -p "$gid_home"
+gid_out=$(env -u GIT_CONFIG_GLOBAL HOME="$gid_home" GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$gid_home/.config" bash "$doc_src" </dev/null 2>&1 | grep -E 'git user|fix: git config')
+grep -q 'user.name *: NOT SET' <<< "$gid_out" && grep -q 'user.email *: NOT SET' <<< "$gid_out" \
+    && grep -q -- '--file ~/.gitconfig.local user.email' <<< "$gid_out" && grep -q 'NOT --global' <<< "$gid_out" \
+    && note doctor-gitid-missing "no identity: both NOT SET, and the fix names ~/.gitconfig.local, not --global" \
+    || bad  doctor-gitid-missing "missing-identity report wrong: $gid_out"
+printf '[include]\n\tpath = ~/.gitconfig.local\n' > "$gid_home/.gitconfig"
+printf '[user]\n\tname = Doctor Test\n\temail = secret-doctor@example.invalid\n' > "$gid_home/.gitconfig.local"
+gid_out=$(env -u GIT_CONFIG_GLOBAL HOME="$gid_home" GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$gid_home/.config" bash "$doc_src" </dev/null 2>&1 | grep -E 'git user|fix: git config')
+grep -q 'user.name *: set (~/.gitconfig.local)' <<< "$gid_out" && grep -q 'user.email *: set (~/.gitconfig.local)' <<< "$gid_out" \
+    && ! grep -qE 'secret-doctor|Doctor Test|fix:' <<< "$gid_out" \
+    && note doctor-gitid-set "identity via ~/.gitconfig.local: set, source named, values not printed" \
+    || bad  doctor-gitid-set "present-identity report wrong: $gid_out"
+# python3 reads the cwd first: a json.py in the directory doctor.sh is run from
+# must not execute (install.sh's statusLine merge has the same -I).
+mkdir -p "$gid_home/.claude" "$gid_home/evil"
+echo '{"statusLine":{"command":"x"}}' > "$gid_home/.claude/settings.json"
+printf 'open("%s/pwned","w").close()\n' "$gid_home" > "$gid_home/evil/json.py"
+(cd "$gid_home/evil" && env HOME="$gid_home" GIT_CONFIG_NOSYSTEM=1 bash "$doc_src" </dev/null >/dev/null 2>&1)
+[ ! -e "$gid_home/pwned" ] \
+    && note doctor-pyisolated "doctor.sh does not import a json.py from the current directory" \
+    || bad  doctor-pyisolated "doctor.sh ran a json.py planted in the current directory"
+grep -nE 'python3 +(-[^I ]*)? *(-|<<)' "$HERE/../install.sh" | grep -v -- '-I' | grep -q . \
+    && bad  installsh-pyisolated "install.sh runs python3 without -I" \
+    || note installsh-pyisolated "install.sh runs python3 -I"
+unset gid_home gid_out
 
 # The tools section: DEPS_LIST, read straight off the porcelain 'tool' records
 # rather than re-grepped from install.sh, since that output is exactly what

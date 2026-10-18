@@ -1860,6 +1860,12 @@ APT_HEALED=0
 # installer — so clean up after ourselves.
 apt_drop_own_dead_source() {
     local f base owner dropped=0
+    # Only for a repo that answered and is dead (no Release file, 404, a key
+    # that rotated). "Could not resolve" / "Connection failed" says nothing
+    # about the repo — and the same filenames (docker.list, vscode.sources...)
+    # are what the vendors' own docs and .debs write, so a flaky network must
+    # not cost anyone a source file.
+    grep -qiE 'release file|no longer has|404|NO_PUBKEY|EXPKEYSIG|not signed|expired' <<< "$APT_UPDATE_ERROR" || return 1
     for f in "$APT_SOURCES_D"/*; do
         [ -f "$f" ] || continue
         base="${f##*/}"
@@ -1881,8 +1887,10 @@ apt_drop_own_dead_source() {
             continue
         fi
         grep -qiF "$owner" <<< "$APT_UPDATE_ERROR" || continue
-        sudo rm -f "$f" || continue
-        substep "${C_YELLOW}Removed a dead source from an earlier run: ${base}${C_RESET}"
+        # Moved aside, not deleted: apt only reads *.list and *.sources, and
+        # the file may be the user's own.
+        sudo mv -f "$f" "$f.bak" || continue
+        substep "${C_YELLOW}Removed a dead source from an earlier run: ${base}${C_RESET} ${C_DIM}(kept as ${base}.bak)${C_RESET}"
         dropped=1
     done
     [ "$dropped" -eq 1 ]
@@ -3625,6 +3633,8 @@ wire_claude_statusline() {
         [ -n "$f" ] || { substep "${C_YELLOW}~/.claude/settings.json is a symlink to nowhere${C_RESET} ${C_DIM}— left untouched${C_RESET}"; return 1; }
     fi
 
+    # python3 -I: no cwd or PYTHON* on the import path, or a json.py in whatever
+    # directory this was started from would run in place of the stdlib's.
     # No hand-rolled JSON editing. sed-ing someone's settings.json is how the
     # file ends up unparseable, which is the one outcome worth avoiding here.
     if ! command -v python3 &>/dev/null; then
@@ -3650,7 +3660,7 @@ wire_claude_statusline() {
     local out rc
     out=$(CC_SETTINGS="$f" CC_CMD="$CCSTATUSLINE_CMD" CC_TMP="$tmp" \
           CC_MANAGED="${CC_MANAGED_SETTINGS:-/etc/claude-code/managed-settings.json}" \
-          python3 - <<'PY'
+          python3 -I - <<'PY'
 import json, os, sys
 from collections import OrderedDict
 
