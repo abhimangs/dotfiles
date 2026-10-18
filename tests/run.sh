@@ -1396,6 +1396,30 @@ want    flags-answers 'backup-mode=delete'     'and the destructive mode named'
 [ -e "$WORK/run/flags-answers/home/.gitconfig.bak" ] \
     && bad  flags-answers "a .bak was kept — delete mode did not run" \
     || note flags-answers "delete mode kept no .bak"
+[ "$(git config --file "$WORK/run/flags-answers/home/.gitconfig.local" user.name 2>/dev/null)" = MINE ] \
+    && note flags-answers "but their git name was read first, into ~/.gitconfig.local" \
+    || bad  flags-answers "delete mode lost their git name"
+want    flags-noprompt 'git has no identity yet' 'a name but no email: the run says how to set one'
+
+# The shipped .gitconfig names nobody: it carried its owner's name and email
+# once, so everyone who stowed it committed as him. A user's own identity moves
+# to ~/.gitconfig.local, which ours includes, and still applies.
+[ -z "$(git config --file "$HERE/../git/.gitconfig" --get-regexp '^user\.' 2>/dev/null)" ] \
+    && note git-identity "the shipped .gitconfig sets no user" \
+    || bad  git-identity "the shipped .gitconfig still sets a user"
+build_root "$WORK/run/git-identity" ubuntu
+printf '[user]\n\tname = Their Name\n\temail = them@example.com\n' > "$WORK/run/git-identity/home/.gitconfig"
+RUN_ARGS="--configs=git" install_pass "$WORK/run/git-identity" "$WORK/run/git-identity" "$WORK/k-none"
+check   git-identity 0
+want    git-identity 'moved to ~/.gitconfig.local' 'the run says where their identity went'
+h="$WORK/run/git-identity/home"
+if [ -L "$h/.gitconfig" ] \
+   && [ "$(HOME="$h" git config --global --includes --get user.email)" = them@example.com ] \
+   && [ "$(HOME="$h" git config --global --includes --get user.name)" = "Their Name" ]; then
+    note git-identity "ours is stowed and their name and email still apply"
+else
+    bad  git-identity "their git identity does not apply after the install"
+fi
 
 # Nothing of the user's in the way: the question has nothing to be about, so it
 # is not put, not even as a "not asked" line.

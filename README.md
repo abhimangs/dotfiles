@@ -320,6 +320,10 @@ Neither is tracked by the repo, and being last means anything in them wins. Move
 
 Honoured. Configs stow into `$XDG_CONFIG_HOME/<name>` when it is set, and `~/.config/<name>` when it is not, which is what the spec says unset means. The Debian/Ubuntu font downloads follow `XDG_DATA_HOME` the same way. Every path the plan prints matches wherever they actually land, and `doctor.sh` reports the same directory the installer used.
 
+### Your git name and email
+
+`~/.gitconfig` names nobody: whoever stows it would otherwise commit under the name in it. It includes `~/.gitconfig.local`, which holds your `user.name` and `user.email`. If the `~/.gitconfig` the installer replaces had them, they are moved there for you (before the old file is backed up or deleted); if not, the run says so. Set them with `git config --file ~/.gitconfig.local user.email you@example.com`, not `--global`: that writes through the symlink into the repo's file.
+
 ### The editor
 
 `~/.gitconfig` deliberately sets no `core.editor`. Git resolves `GIT_EDITOR` → `core.editor` → `VISUAL` → `EDITOR` → `vi`, so a name hardcoded there outranks `$EDITOR` on every machine, including the headless ones where the installer strips every GUI app and a graphical editor can never exist.
@@ -347,7 +351,7 @@ Privacy is its own decision, made once you have picked what to install: the **pr
 
 | File | What is removed |
 |------|-----------------|
-| `git/.gitconfig` | `user.name`, `user.email` |
+| `git/.gitconfig` | any `user.name`, `user.email` (none ship; this catches one written into it through the link) |
 | `fastfetch/config.jsonc` | the author byline: name, GitHub handle, contact address |
 | `install.sh` | any hosted bootstrap URL in its comments |
 

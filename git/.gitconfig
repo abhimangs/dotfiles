@@ -1,7 +1,3 @@
-[user]
-    name  = abhimangs
-    email = abhimangs23@gmail.com
-
 [core]
     # No core.editor on purpose. git resolves GIT_EDITOR -> core.editor ->
     # VISUAL -> EDITOR -> vi, so a name set here outranks $EDITOR on every
@@ -66,3 +62,11 @@
 [credential "https://gist.github.com"]
 	helper = 
 	helper = !gh auth git-credential
+
+# No [user] here: this file is shared, and whoever stows it would commit under
+# the name in it. Your name and email go in ~/.gitconfig.local (last, so it
+# can override anything above). Set them with
+#   git config --file ~/.gitconfig.local user.email you@example.com
+# not --global, which writes through the symlink into this file.
+[include]
+    path = ~/.gitconfig.local

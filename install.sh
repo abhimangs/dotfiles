@@ -3399,7 +3399,7 @@ PRIVATE_DELETE=(menu_temp tests .git .github .gitignore .gitattributes
 
 # file → what is taken out of it
 PRIVATE_SCRUB_FILES=(git/.gitconfig fastfetch/config.jsonc install.sh)
-PRIVATE_SCRUB_WHAT=("user.name and user.email"
+PRIVATE_SCRUB_WHAT=("any user.name and user.email"
                     "author byline (name, GitHub handle, contact address)"
                     "hosted bootstrap domain in comments")
 
@@ -6977,11 +6977,25 @@ for cfg in "${SELECTED[@]}"; do
       git)
         ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
+        # Ours names nobody and includes ~/.gitconfig.local; the identity in a
+        # ~/.gitconfig of theirs is read before backup_file moves (or deletes) it.
+        _gname=$(git config --file "$HOME/.gitconfig" --get user.name 2>/dev/null)
+        _gmail=$(git config --file "$HOME/.gitconfig" --get user.email 2>/dev/null)
         backup_file "$HOME/.gitconfig"
         if ! stow_home "git"; then
             FAILED+=(git)
             continue
         fi
+        if [ -z "$(git config --global --includes --get user.email 2>/dev/null)" ]; then
+            [ -n "$_gname" ] && git config --file "$HOME/.gitconfig.local" user.name "$_gname"
+            [ -n "$_gmail" ] && git config --file "$HOME/.gitconfig.local" user.email "$_gmail"
+            if [ -n "$_gmail" ]; then
+                substep "Your git name and email moved to ~/.gitconfig.local"
+            else
+                substep "${C_YELLOW}git has no identity yet: git config --file ~/.gitconfig.local user.name \"Your Name\" (and user.email)${C_RESET}"
+            fi
+        fi
+        unset _gname _gmail
         ;;
 
       # ── ulauncher ────────────────────────────────────────────────────────
