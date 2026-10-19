@@ -282,6 +282,14 @@ alias cc='claude'
 alias ccr='claude --resume'
 alias ccc='claude --continue'
 
+# ── Terminal title = folder name ──────────────────────────────
+# kitty's tab shows this title. The shell sets it at every prompt, so it works
+# over ssh too (the remote shell sets it), and Claude Code is told not to
+# overwrite it with its own while it runs in that folder.
+export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+_title_cwd() { print -Pn '\e]2;%1~\a'; }
+autoload -Uz add-zsh-hook && add-zsh-hook precmd _title_cwd
+
 # ── Local overrides ───────────────────────────────────────────
 # Last, so it can override anything above it. This file is a stow symlink into
 # the repo, and nvm, rustup, conda, pyenv, bun, deno and half the CLI

@@ -181,6 +181,12 @@ alias ccc='claude --continue'
 # to move such lines to, which is not tracked by the repo.
 [ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
 
+# ── Terminal title = folder name ──────────────────────────────
+# kitty's tab shows this title (see zsh/.zshrc for why).
+export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
+_title_cwd() { printf '\e]2;%s\a' "${PWD##*/}"; }
+case ";${PROMPT_COMMAND:-};" in *";_title_cwd;"*) ;; *) PROMPT_COMMAND="_title_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;; esac
+
 # ── Fastfetch ─────────────────────────────────────────────────
 command -v fastfetch &>/dev/null && fastfetch
 
