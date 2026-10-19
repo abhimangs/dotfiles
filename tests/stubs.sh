@@ -659,6 +659,11 @@ OPENCODE_SH
         *code.kimi.com/*)
             cat > "$out" <<'KIMI_SH'
 #!/bin/sh
+# STUB_INSTALL_FAILS=1|once: the version lookup fails before anything is installed.
+case "${STUB_INSTALL_FAILS:-0}" in
+    1) exit 1 ;;
+    once) [ -e "$STUB_STATE/inst-failed" ] || { : > "$STUB_STATE/inst-failed"; exit 1; } ;;
+esac
 [ "${KIMI_NO_MODIFY_PATH:-}" = 1 ] || echo '# STUB PATH BLOCK (kimi)' >> "$HOME/.zshrc"
 mkdir -p "$HOME/.kimi-code/bin"
 printf '#!/bin/sh\necho kimi stub\n' > "$HOME/.kimi-code/bin/kimi"

@@ -7168,8 +7168,17 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # waits forever. With no controlling terminal it says "Login
                     # canceled" and exits 1, which the binary check below absorbs.
                     _nott=(); [ "$app" = devin ] && _nott=(setsid -w)
-                    "${_nott[@]}" env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}" </dev/null
-                    _rc=$?
+                    # One retry, as for updates: a vendor endpoint that drops a
+                    # single request is not a failed install. Kimi's script looks
+                    # its version up with one curl and no retry, and lost it on two
+                    # distros of one CI run. An exit with the binary already in
+                    # place (Devin's cancelled login) is not retried.
+                    for _try in 1 2; do
+                        "${_nott[@]}" env PATH="${CURL_APP_PATH}:$PATH" "${_cenv[@]}" "$_shell" "$_tmpsh" "${_cargs[@]}" </dev/null
+                        _rc=$?
+                        { [ "$_rc" -eq 0 ] || { [ -n "$_bin" ] && curl_app_installed "$_bin"; } || [ "$_try" -eq 2 ]; } && break
+                        sleep 3; substep "${C_DIM}Retrying the installer...${C_RESET}"
+                    done
                     # Verified against reality, the way the package path is, and
                     # the binary is the verdict rather than the exit status. An
                     # installer that swallows its own failure and exits 0 leaves

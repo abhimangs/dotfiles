@@ -628,6 +628,15 @@ rerun   curlapps-updretry curlapps "$WORK/k-sel" \
 check   curlapps-updretry 0
 want    curlapps-updretry 'Retrying the update'     'a failed update is tried again'
 nowant  curlapps-updretry 'Update failed'           'and a second try that works is no failure'
+# The same for a fresh install: a vendor installer that fails once (Kimi's
+# version lookup, two distros of one CI run) runs again before the app fails.
+run     curl-instretry ubuntu "$WORK/k-sel" DOTFILES_APPS="kimi-code" STUB_INSTALL_FAILS=once
+check   curl-instretry 0
+want    curl-instretry 'Retrying the installer'   'a failed install is tried again'
+nowant  curl-instretry 'Failed \('                'and a second try that works is no failure'
+run     curl-instfail ubuntu "$WORK/k-sel" DOTFILES_APPS="kimi-code" STUB_INSTALL_FAILS=1
+check   curl-instfail 1
+want    curl-instfail 'Installer exited with error for' 'two failed tries are still a failed app'
 # uv already on disk (Mistral's installer pins one into ~/.local/bin first) is
 # brought to the latest by its own self-updater, not left where it was.
 run     uv-first ubuntu "$WORK/k-sel" DOTFILES_APPS="uv"
@@ -690,6 +699,7 @@ for _d in arch ubuntu; do
     check  devin-$_d 0
     want   devin-$_d 'Devin CLI installed'  'a cancelled login is not a failed install'
     nowant devin-$_d 'Failed \('            'and nothing reached the failure list'
+    nowant devin-$_d 'Retrying the installer' 'and an exit with the binary in place is not retried'
     [ -x "$WORK/run/devin-$_d/home/.local/bin/devin" ] \
         && note devin-$_d "devin binary installed" \
         || bad  devin-$_d "no devin binary"
