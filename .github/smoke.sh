@@ -35,16 +35,21 @@ if [ "${SMOKE_FLAVOR:-}" = nix ]; then
     # install.sh takes the nix path, and make sure flakes work for the user.
     printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=smoke\nPRETTY_NAME="NixOS (smoke)"\n' > /etc/os-release
     : > /etc/NIXOS
-    # script(1) lives in util-linux; skip bashInteractive — the image already
-    # has one and nix profile refuses the conflict.
-    nix --extra-experimental-features 'nix-command flakes' profile install \
-        nixpkgs#sudo nixpkgs#util-linux nixpkgs#shadow \
-        nixpkgs#which nixpkgs#stow nixpkgs#findutils \
-        || fail "could not install sudo/util-linux via nix"
-    # Profile bin may not be first on PATH yet.
+    # The image already carries which/coreutils/findutils; nix profile refuses
+    # duplicates. Install only what is missing, one attr at a time.
     case ":$PATH:" in *:/root/.nix-profile/bin:*) ;; *)
         PATH="/root/.nix-profile/bin:$PATH" ;; esac
     export PATH
+    _nix_need() { command -v "$1" >/dev/null; }
+    for _pair in sudo:sudo 'script:util-linux' useradd:shadow stow:stow; do
+        _bin="${_pair%%:*}"; _attr="${_pair#*:}"
+        _nix_need "$_bin" && continue
+        nix --extra-experimental-features 'nix-command flakes' profile install \
+            "nixpkgs#${_attr}" \
+            || fail "could not install nixpkgs#${_attr} (for ${_bin})"
+        hash -r
+    done
+    unset _pair _bin _attr
     hash -r
 elif command -v pacman >/dev/null; then
     # -Syu, not -Sy: a partial upgrade on a rolling distro is the thing the
