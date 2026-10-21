@@ -35,14 +35,36 @@ if [ "${SMOKE_FLAVOR:-}" = nix ]; then
     # install.sh takes the nix path, and make sure flakes work for the user.
     printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=smoke\nPRETTY_NAME="NixOS (smoke)"\n' > /etc/os-release
     : > /etc/NIXOS
+    # nixpkgs' zsh sources this from zshenv; a real NixOS system writes it.
+    # Without it every interactive zsh (and script(1) after chsh to zsh) dies
+    # before the command runs — detect/install2/check_configs_load all fail.
+    if [ ! -e /etc/set-environment ]; then
+        cat > /etc/set-environment <<'EOF'
+# Minimal stand-in for NixOS's /etc/set-environment (nixos/nix container).
+export NIX_PROFILES="/nix/var/nix/profiles/default ${HOME}/.nix-profile"
+if [ -z "${NIX_SSL_CERT_FILE:-}" ]; then
+    for _ca in /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt; do
+        [ -e "$_ca" ] || continue
+        export NIX_SSL_CERT_FILE="$_ca"
+        break
+    done
+    unset _ca
+fi
+case :${PATH}: in *:${HOME}/.nix-profile/bin:*) ;; *)
+    export PATH="${HOME}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${PATH}" ;; esac
+EOF
+    fi
     # The image already carries which/coreutils/findutils; nix profile refuses
     # duplicates. Install only what is missing, one attr at a time.
     case ":$PATH:" in *:/root/.nix-profile/bin:*) ;; *)
         PATH="/root/.nix-profile/bin:$PATH" ;; esac
     export PATH
     _nix_need() { command -v "$1" >/dev/null; }
-    # No useradd on this image — only what smoke-user.sh and install.sh need.
-    for _pair in sudo:sudo 'script:util-linux' stow:stow; do
+    # sed/awk/python3: install.sh, doctor.sh and smoke-checks use them; the
+    # image's PATH does not. getent is nice for doctor.sh but optional. No
+    # useradd — only what the smoke needs.
+    for _pair in sudo:sudo 'script:util-linux' stow:stow \
+                 sed:gnused awk:gawk python3:python3; do
         _bin="${_pair%%:*}"; _attr="${_pair#*:}"
         _nix_need "$_bin" && continue
         nix --extra-experimental-features 'nix-command flakes' profile install \

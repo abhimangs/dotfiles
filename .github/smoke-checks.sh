@@ -64,7 +64,12 @@ warn_allowed() {        # warn_allowed <text> <reason>
 RC=0
 run_logged() {          # run_logged <name> <install.sh args...>
     local name="$1"; shift
-    printf '\n\n\n\n\n' | script -qec "bash install.sh $* --no-color --ascii" /dev/null \
+    # script(1) runs `$SHELL -c …`. After the installer chsh's to zsh, that is
+    # zsh — and on the nixos/nix image zshenv dies without /etc/set-environment
+    # before bash install.sh ever starts. Pin SHELL to bash for the wrapper.
+    local _sh
+    _sh=$(command -v bash) || _sh=/bin/bash
+    printf '\n\n\n\n\n' | SHELL="$_sh" script -qec "$_sh install.sh $* --no-color --ascii" /dev/null \
         | tee "$LOGS/$name.raw"
     RC=${PIPESTATUS[1]}
     tr -d '\r' < "$LOGS/$name.raw" | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g' > "$LOGS/$name.log"
@@ -317,7 +322,14 @@ check_starts() {        # check_starts <configs> <tools> <apps>
 # Run under a terminal, as a person would: an interactive shell without one
 # prints job-control noise that is not ours. A terminal also sets TERM, which a
 # CI step does not, and zsh-you-should-use's tput calls complain without it.
-tty_out() { TERM=xterm-256color timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
+tty_out() {
+    # Same SHELL pin as run_logged: the command string already names the shell
+    # (zsh -i / bash -i); we only need script's outer wrapper to start.
+    local _sh
+    _sh=$(command -v bash) || _sh=/bin/bash
+    TERM=xterm-256color SHELL="$_sh" timeout 600 script -qec "$1" /dev/null </dev/null 2>&1 \
+        | tr -d '\r' | sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'
+}
 
 # Linked is not loaded: each config, read by the version of its program this
 # distro actually installed (Debian 12's tmux and Neovim are years

@@ -2212,11 +2212,22 @@ NIX_FLAGS=(--extra-experimental-features 'nix-command flakes')
 NIX_LAST_ERROR=""
 
 # Every attribute in the user's profile, one per line, whichever tool made it.
+# Pure bash on purpose: the nixos/nix smoke image has no sed until the
+# bootstrap installs gnused, and this runs during that same install.
 nix_profile_attrs() {
     command -v nix &>/dev/null || return 0
-    nix "${NIX_FLAGS[@]}" profile list --json 2>/dev/null \
-        | grep -oE '"attrPath": *"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/; s/.*\.//'
-    nix-env -q 2>/dev/null | sed -E 's/-[0-9].*$//'
+    local json line attr
+    json=$(nix "${NIX_FLAGS[@]}" profile list --json 2>/dev/null) || true
+    while IFS= read -r line; do
+        [[ "$line" =~ \"attrPath\":[[:space:]]*\"([^\"]+)\" ]] || continue
+        attr="${BASH_REMATCH[1]}"
+        printf '%s\n' "${attr##*.}"
+    done <<< "$json"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        # nix-env -q prints name-version; strip from the first -<digit>.
+        printf '%s\n' "${line%%-[0-9]*}"
+    done < <(nix-env -q 2>/dev/null)
     return 0
 }
 
@@ -4841,8 +4852,10 @@ declare -A APP_TYPE_FEDORA=(
 )
 # bun is what the ccstatusline config runs on, and the vendor build is a
 # glibc-linked binary NixOS cannot start without nix-ld: nixpkgs' bun instead.
-declare -A APP_TYPE_NIX=([bun]=nix)
+# uv is the same shape — Astral's installer is fine on apt/Fedora, nixpkgs on NixOS.
+declare -A APP_TYPE_NIX=([bun]=nix [uv]=nix)
 NIX_PKG[bun]=bun
+NIX_PKG[uv]=uv
 
 # Sets <var> rather than printing, so item_installed can ask without a fork.
 app_type_into() {               # app_type_into <var> <app>
