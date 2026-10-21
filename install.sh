@@ -43,7 +43,7 @@ FONT_PIDS=()
 
 usage() {
     cat <<'USAGE'
-Dotfiles installer — Arch Linux, Debian and Ubuntu.
+Dotfiles installer — Arch Linux, Debian, Ubuntu, Fedora and NixOS.
 
   bash install.sh [options]
 
@@ -196,6 +196,9 @@ UNATTENDED=0
 # ── Distro detection ──────────────────────────────────────────────────────────
 DISTRO=""
 IS_UBUNTU=0
+# fedora covers the RHEL family too; this is its own ID, which is what picks
+# Docker's repo directory (linux/fedora vs linux/rhel).
+OS_ID=""
 
 if [ -f /etc/arch-release ]; then
     DISTRO="arch"
@@ -213,13 +216,25 @@ else
         DISTRO="debian"; IS_UBUNTU=1
     elif [[ "$_os_id" == "debian" || "$_os_id_like" == *debian* ]]; then
         DISTRO="debian"
+    elif [[ "$_os_id" == "nixos" ]]; then
+        DISTRO="nix"
+    elif [[ "$_os_id" =~ ^(fedora|rhel|centos|rocky|almalinux|alma)$ \
+            || "$_os_id_like" == *fedora* || "$_os_id_like" == *rhel* ]]; then
+        DISTRO="fedora"
     fi
+    OS_ID="$_os_id"
     unset _os_id _os_id_like
 fi
 
 if [ -z "$DISTRO" ]; then
-    echo "This installer supports Arch Linux, Debian, and Ubuntu only." >&2
+    echo "This installer supports Arch Linux, Debian, Ubuntu, Fedora and NixOS only." >&2
     exit 1
+fi
+
+# nix profile installs land here; on NixOS it is already on PATH, a bare nix
+# install in a container or a fresh login may not have it yet.
+if [[ "$DISTRO" == "nix" ]]; then
+    case ":$PATH:" in *":$HOME/.nix-profile/bin:"*) ;; *) PATH="$HOME/.nix-profile/bin:$PATH" ;; esac
 fi
 
 # Omarchy (Arch + Hyprland). Display and plan logic only: nothing that gets
@@ -297,7 +312,7 @@ strip_items() {
     _target=("${_keep[@]}")
 }
 
-GUI_CONFIGS=(ghostty kitty rofi ulauncher)
+GUI_CONFIGS=(ghostty kitty rofi ulauncher mpv)
 GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash photocraft)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
@@ -457,6 +472,8 @@ header() {
     case "$DISTRO" in
         arch)   _distro_label="Arch Linux" ;;
         debian) [ "$IS_UBUNTU" -eq 1 ] && _distro_label="Ubuntu" || _distro_label="Debian" ;;
+        fedora) [ "$OS_ID" = fedora ] && _distro_label="Fedora" || _distro_label="Fedora-family (${OS_ID:-rhel})" ;;
+        nix)    _distro_label="NixOS" ;;
     esac
     [ "$IS_WSL" -eq 1 ] && _distro_label="${_distro_label} on WSL"
     echo -e "      ${C_DIM}${_distro_label}  ${G_DOT}  GNU Stow  ${G_DOT}  Catppuccin Mocha${C_RESET}"
@@ -620,11 +637,13 @@ item_installed() {              # item_installed <probe-name>
     [ -n "${PKG_HAVE[$p]:-}" ] && return 0
     for k in "${!APP_BIN[@]}"; do
         [ "${APP_BIN[$k]}" = "$p" ] || continue
-        t=${APP_TYPE[$k]:-}
-        [[ "$DISTRO" == "arch" ]] || t=${APP_TYPE_DEB[$k]:-apt}
+        app_type_into t "$k"
         [ "$t" = curl ] && curl_app_installed "$p" && return 0
     done
-    [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null
+    [ -n "${PKG_BIN[$p]:-}" ] && command -v "${PKG_BIN[$p]}" &>/dev/null && return 0
+    # NixOS puts system packages on PATH with no profile entry, so for a
+    # nixpkgs attribute the PATH is the answer the package manager cannot give.
+    [[ "$DISTRO" == "nix" ]] && command -v "$p" &>/dev/null
 }
 
 # Where a dotfiles entry lands. Display form — this is printed, never stowed
@@ -681,6 +700,18 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
         *)
             if [[ "$DISTRO" == "arch" ]]; then
                 if [ -n "${PKG_SYNC[$4]:-}" ]; then _h="pacman"; else _h="AUR"; fi
+            elif [[ "$DISTRO" == "fedora" ]]; then
+                case "$3:$_t" in
+                    *:brave)            _h="Brave's own yum repo" ;;
+                    *:vscode*)          _h="Microsoft's yum repo" ;;
+                    *:docker)           _h="Docker's own yum repo" ;;
+                    fresh:*|pay-respects:*) _h="the upstream release .rpm" ;;
+                    lazygit:*|lazydocker:*|starship:*)
+                                        _h="the upstream release binary, updated on every run" ;;
+                    *)                  _h="dnf" ;;
+                esac
+            elif [[ "$DISTRO" == "nix" ]]; then
+                _h="nix profile (nixpkgs#$4)"
             else
                 case "$3" in
                     ghostty)            _h="the ghostty-ubuntu install script" ;;
@@ -759,12 +790,18 @@ scan_installed_pkgs() {
     [ "$PKG_HAVE_SCANNED" -eq 1 ] && return 0
     PKG_HAVE_SCANNED=1
     local name
-    if [[ "$DISTRO" == "arch" ]]; then
-        while read -r name _; do PKG_HAVE[$name]=1; done < <(pacman -Q 2>/dev/null)
-    else
-        while read -r name _; do PKG_HAVE[$name]=1; done \
-            < <(dpkg-query -W -f '${Package} ${Status}\n' 2>/dev/null | grep ' installed$')
-    fi
+    case "$DISTRO" in
+        arch)
+            while read -r name _; do PKG_HAVE[$name]=1; done < <(pacman -Q 2>/dev/null) ;;
+        debian)
+            while read -r name _; do PKG_HAVE[$name]=1; done \
+                < <(dpkg-query -W -f '${Package} ${Status}\n' 2>/dev/null | grep ' installed$') ;;
+        fedora)
+            while read -r name; do [ -n "$name" ] && PKG_HAVE[$name]=1; done \
+                < <(rpm -qa --qf '%{NAME}\n' 2>/dev/null) ;;
+        nix)
+            while read -r name; do [ -n "$name" ] && PKG_HAVE[$name]=1; done < <(nix_profile_attrs) ;;
+    esac
 }
 
 # Which of these names the Arch sync repos carry — everything else goes to the
@@ -803,11 +840,14 @@ tui_start_upgrade_scan() {
     # race with cleanup's rm and complain about a file that is already gone.
     # Both would land on the terminal we have just put back.
     {
-        if [[ "$DISTRO" == "arch" ]]; then
-            pacman -Qu 2>/dev/null | cut -d' ' -f1 > "$tmp"
-        else
-            apt list --upgradable 2>/dev/null | cut -d/ -f1 > "$tmp"
-        fi
+        case "$DISTRO" in
+            arch)   pacman -Qu 2>/dev/null | cut -d' ' -f1 > "$tmp" ;;
+            debian) apt list --upgradable 2>/dev/null | cut -d/ -f1 > "$tmp" ;;
+            # name.arch per line, from the metadata cache only (-C): no refresh
+            # before Proceed.
+            fedora) dnf -q -C check-upgrade 2>/dev/null | awk 'NF>=3{print $1}' | sed 's/\.[^.]*$//' > "$tmp" ;;
+            *)      : > "$tmp" ;;
+        esac
         # Renamed only once complete, so a half-written file is never read.
         mv "$tmp" "$TUI_UPD_READY"
     } 2>/dev/null &
@@ -1504,7 +1544,9 @@ PKG_BIN[kitty]="$HOME/.local/kitty.app/bin/kitty"
 PKG_BIN[fastfetch]="fastfetch"
 PKG_BIN[eza]="eza"
 PKG_BIN[zoxide]="zoxide"
+# Debian/Ubuntu ship fd as fdfind; Fedora's fd-find package ships plain fd.
 PKG_BIN[fd-find]="fdfind"
+[[ "$DISTRO" == "fedora" ]] && PKG_BIN[fd-find]="fd"
 PKG_BIN[pay-respects-bin]="pay-respects"
 PKG_BIN[pay-respects]="pay-respects"
 PKG_BIN[github-cli]="gh"
@@ -1525,11 +1567,12 @@ pkg_installed() {
     # "PKG_BIN: bad array subscript", which reads like a crash in the middle of
     # an install. Treat it as "not installed" instead.
     [ -n "$pkg" ] || return 1
-    if [[ "$DISTRO" == "arch" ]]; then
-        pacman -Q "$pkg" &>/dev/null && return 0
-    else
-        apt_pkg_installed "$pkg" && return 0
-    fi
+    case "$DISTRO" in
+        arch)   pacman -Q "$pkg" &>/dev/null && return 0 ;;
+        debian) apt_pkg_installed "$pkg" && return 0 ;;
+        fedora) rpm_pkg_installed "$pkg" && return 0 ;;
+        nix)    nix_pkg_installed "$pkg" && return 0 ;;
+    esac
     local bin="${PKG_BIN[$pkg]:-}"
     [ -n "$bin" ] && command -v "$bin" &>/dev/null
 }
@@ -1545,7 +1588,8 @@ pkg_installed_snapshot() {
     [ -n "$pkg" ] || return 1
     [ -n "${PKG_HAVE[$pkg]:-}" ] && return 0
     local bin="${PKG_BIN[$pkg]:-}"
-    [ -n "$bin" ] && command -v "$bin" &>/dev/null
+    [ -n "$bin" ] && command -v "$bin" &>/dev/null && return 0
+    [[ "$DISTRO" == "nix" ]] && command -v "$pkg" &>/dev/null
 }
 
 # Last pacman error, so a failure can be shown instead of just "failed" —
@@ -2034,13 +2078,214 @@ ensure_apt_deps() {
     fi
 }
 
+# ── Fedora (dnf) package helpers ─────────────────────────────────────────────
+# The RHEL family takes this path too; anything it lacks without EPEL fails on
+# its own line rather than being guessed at.
+rpm_pkg_installed() { rpm -q "$1" &>/dev/null; }
+
+DNF_LAST_ERROR=""
+DNF_REFRESHED=0
+# install_weak_deps=False is dnf's --no-install-recommends.
+dnf_install() {
+    DNF_LAST_ERROR=""
+    local out _rc
+    spin_start
+    out=$(sudo dnf install --assumeyes --setopt=install_weak_deps=False "$@" 2>&1); _rc=$?
+    spin_stop
+    [ "$_rc" -eq 0 ] && return 0
+    # apt_install's stale index, in dnf's terms: refresh the metadata once per
+    # run and retry before calling it a failure.
+    if [ "$DNF_REFRESHED" -eq 0 ]; then
+        DNF_REFRESHED=1
+        substep "${C_YELLOW}Stale package metadata — refreshing and retrying${C_RESET}"
+        spin_start
+        out=$(sudo dnf install --assumeyes --refresh --setopt=install_weak_deps=False "$@" 2>&1); _rc=$?
+        spin_stop
+        [ "$_rc" -eq 0 ] && return 0
+    fi
+    DNF_LAST_ERROR="$out"
+    return "$_rc"
+}
+
+# A vendor's .repo file, fetched unprivileged and checked before it goes into
+# /etc/yum.repos.d as root — apt_install_keyring's rule: a captive portal page
+# or an S3 error body must never become a repo definition. The gpgkey= line in
+# it is what dnf verifies the packages against.
+dnf_add_repo_file() {           # dnf_add_repo_file <url> <file-name>
+    local url="$1" dest="/etc/yum.repos.d/$2" tmp
+    [ -s "$dest" ] && return 0
+    tmp="$(mktemp -p "$RUN_TMPDIR" repo_XXXXXX)" || return 1
+    if ! curl -fsSL "$url" -o "$tmp" 2>/dev/null || ! grep -q '^baseurl=' "$tmp" || ! grep -q '^gpgkey=' "$tmp"; then
+        substep "${C_YELLOW}What came back from ${url} is not a signed yum repo file${C_RESET}"
+        rm -f "$tmp"; return 1
+    fi
+    sudo install -m644 -D "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+}
+
+# install_release_deb's twin for the projects that attach an .rpm to every
+# release (fresh, pay-respects): the same verify-a-published-checksum rule,
+# then dnf on the local file so its dependencies resolve.
+install_release_rpm() {         # install_release_rpm <owner/repo> <asset regex>
+    local url tmp f want got rc
+    DNF_LAST_ERROR=""
+    url=$(github_latest_asset_url "$1" "$2")
+    [ -n "$url" ] || { DNF_LAST_ERROR="installer: no matching release asset was found"; return 1; }
+    tmp=$(mktemp -d -p "$RUN_TMPDIR" rpm_XXXXXX); f="$tmp/${url##*/}"
+    curl -fsSL "$url" -o "$f" 2>/dev/null || {
+        rm -rf "$tmp"; DNF_LAST_ERROR="installer: could not download ${url%%\?*}"; return 1
+    }
+    want=$(curl -fsSL "${url}.sha256" 2>/dev/null | grep -oiE '[0-9a-f]{64}' | head -1)
+    got=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$want" ] && [ "$got" != "$want" ]; then
+        substep "${C_RED}Checksum mismatch on ${url##*/}${C_RESET}"
+        rm -rf "$tmp"; DNF_LAST_ERROR="installer: refused ${url##*/}, its checksum does not match"; return 1
+    fi
+    dnf_install "$f"; rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+
+ensure_fresh_fedora() {
+    rpm_pkg_installed fresh-editor && return 0
+    install_release_rpm sinelaw/fresh "/fresh-editor-[0-9][^/]*\.$(uname -m)\.rpm$"
+    rpm_pkg_installed fresh-editor
+}
+
+ensure_pay_respects_fedora() {
+    rpm_pkg_installed pay-respects && return 0
+    install_release_rpm iffse/pay-respects "/pay-respects-[0-9][^/]*\.$(uname -m)\.rpm$"
+    rpm_pkg_installed pay-respects
+}
+
+# ── Brave (Fedora) ───────────────────────────────────────────────────────────
+# Brave's own RPM repos carry brave-origin and brave-origin-beta beside the
+# classic browser, the same names the apt repos use.
+ensure_brave_fedora() {
+    local channel="$1" pkg="$2" host file
+    rpm_pkg_installed "$pkg" && return 0
+    if [[ "$channel" == "beta" ]]; then
+        host="brave-browser-rpm-beta.s3.brave.com";    file="brave-browser-beta.repo"
+    else
+        host="brave-browser-rpm-release.s3.brave.com"; file="brave-browser.repo"
+    fi
+    dnf_add_repo_file "https://${host}/${file}" "$file" || return 1
+    dnf_install "$pkg"
+    rpm_pkg_installed "$pkg"
+}
+
+# ── VS Code (Fedora) ─────────────────────────────────────────────────────────
+# Microsoft documents this repo as a heredoc rather than a hosted .repo file.
+ensure_vscode_fedora() {
+    local pkg="$1"
+    rpm_pkg_installed "$pkg" && return 0
+    if [ ! -s /etc/yum.repos.d/vscode.repo ]; then
+        sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc &>/dev/null
+        printf '[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc\n' \
+            | sudo tee /etc/yum.repos.d/vscode.repo >/dev/null
+    fi
+    dnf_install "$pkg"
+    rpm_pkg_installed "$pkg"
+}
+
+# ── Docker Engine (Fedora) ───────────────────────────────────────────────────
+# Docker's documented order: Fedora's moby-engine and podman-docker own the
+# same paths, so they go first. RHEL clones take Docker's rhel directory.
+ensure_docker_fedora() {
+    rpm_pkg_installed docker-ce && return 0
+    local pkg host=fedora
+    [ "$OS_ID" = fedora ] || host=rhel
+    for pkg in docker docker-client docker-client-latest docker-common docker-latest \
+               docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux \
+               docker-engine moby-engine podman-docker; do
+        rpm_pkg_installed "$pkg" && sudo dnf remove --assumeyes "$pkg" &>/dev/null
+    done
+    dnf_add_repo_file "https://download.docker.com/linux/${host}/docker-ce.repo" docker-ce.repo || return 1
+    dnf_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    rpm_pkg_installed docker-ce
+}
+
+# ── NixOS (nix) package helpers ──────────────────────────────────────────────
+# Everything goes into the user's own profile from nixpkgs: no root, and
+# nothing written to configuration.nix — that file is the owner's to edit.
+NIX_FLAGS=(--extra-experimental-features 'nix-command flakes')
+NIX_LAST_ERROR=""
+
+# Every attribute in the user's profile, one per line, whichever tool made it.
+nix_profile_attrs() {
+    command -v nix &>/dev/null || return 0
+    nix "${NIX_FLAGS[@]}" profile list --json 2>/dev/null \
+        | grep -oE '"attrPath": *"[^"]*"' | sed -E 's/.*"([^"]*)"$/\1/; s/.*\.//'
+    nix-env -q 2>/dev/null | sed -E 's/-[0-9].*$//'
+    return 0
+}
+
+nix_pkg_installed() {
+    nix_profile_attrs | grep -qxF "$1" && return 0
+    command -v "${PKG_BIN[$1]:-$1}" &>/dev/null
+}
+
+# `nix profile` refuses a profile nix-env made, and nix-env one that
+# `nix profile` made. Follow whichever this user already has; a fresh account
+# gets the new kind.
+nix_profile_is_env() {
+    local p
+    for p in "$HOME/.nix-profile" "${XDG_STATE_HOME:-$HOME/.local/state}/nix/profile"; do
+        [ -e "$p/manifest.nix" ] && return 0
+    done
+    return 1
+}
+
+nix_install() {                 # nix_install <attr>...
+    NIX_LAST_ERROR=""
+    local a want=() out="" _rc=0 _o
+    for a in "$@"; do nix_pkg_installed "$a" || want+=("$a"); done
+    [ "${#want[@]}" -gt 0 ] || return 0
+    spin_start
+    if ! nix_profile_is_env; then
+        out=$(nix "${NIX_FLAGS[@]}" profile install "${want[@]/#/nixpkgs#}" </dev/null 2>&1) || _rc=$?
+    else
+        # The channel is called nixpkgs on a plain nix install and nixos for
+        # NixOS's root; with neither downloaded, the channel URL still works.
+        for a in "${want[@]}"; do
+            _o=$(nix-env -iA "nixpkgs.$a" </dev/null 2>&1) \
+                || _o=$(nix-env -iA "nixos.$a" </dev/null 2>&1) \
+                || _o=$(nix-env -f channel:nixpkgs-unstable -iA "$a" </dev/null 2>&1) \
+                || { _rc=1; out+="$_o"$'\n'; }
+        done
+    fi
+    spin_stop
+    hash -r
+    [ "$_rc" -eq 0 ] && return 0
+    NIX_LAST_ERROR="$out"
+    return "$_rc"
+}
+
+# The distro's own package manager, for the callers that only need "install
+# these names": ensure_cmd, stow, fontconfig for the fonts, the batch passes.
+sys_install() {                 # sys_install <pkg>...
+    case "$DISTRO" in
+        arch)   pacman_install "$@" ;;
+        debian) apt_install "$@" ;;
+        fedora) dnf_install "$@" ;;
+        nix)    nix_install "$@" ;;
+    esac
+}
+
+# What fetching fonts and vendor files needs first: ensure_apt_deps on apt,
+# plain curl everywhere else (gpg is apt's keyring business).
+ensure_fetch_deps() {
+    if [[ "$DISTRO" == "debian" ]]; then ensure_apt_deps; return; fi
+    command -v curl &>/dev/null || sys_install curl
+}
+
 # Vendor installers unpack an archive with a tool no base install promises:
 # unzip for the fonts and bun, zstd for ollama (its releases are .tar.zst only,
 # and its installer stops dead without one). Package and binary share the name
-# on both distros.
+# on every distro.
 ensure_cmd() {                  # ensure_cmd <tool>
     command -v "$1" &>/dev/null && return 0
-    if [[ "$DISTRO" == "arch" ]]; then arch_install "$1"; else apt_install "$1"; fi
+    if [[ "$DISTRO" == "arch" ]]; then arch_install "$1"; else sys_install "$1"; fi
 }
 
 # A PPA that has no build for the running release does not just fail to
@@ -2077,7 +2322,18 @@ add_ppa() {
     return 1
 }
 
-deb_arch() { dpkg --print-architecture; }
+# Debian's architecture names, which the release-asset patterns are written in.
+# Fedora reuses those release helpers and has no dpkg to ask.
+deb_arch() {
+    if [[ "$DISTRO" == "debian" ]]; then dpkg --print-architecture; return; fi
+    case "$(uname -m)" in
+        x86_64)  echo amd64 ;;
+        aarch64) echo arm64 ;;
+        armv7l)  echo armhf ;;
+        i?86)    echo i386 ;;
+        *)       uname -m ;;
+    esac
+}
 
 # ── apt mirror fallback ──────────────────────────────────────────────────────
 # VPS and cloud images often ship a regional mirror that is slow, half-synced or
@@ -3007,7 +3263,7 @@ vicinae_postinstall() {
     fi
 }
 
-# ── Fonts (Debian/Ubuntu — neither is packaged in apt) ───────────────────────
+# ── Fonts (everything but Arch — downloaded into ~/.local/share/fonts) ─────
 FONT_DIR_DEB="$XDG_DATA/fonts/JetBrainsMono"
 MAPLE_FONT_DIR_DEB="$XDG_DATA/fonts/MapleMono"
 SYMBOLS_FONT_DIR_DEB="$XDG_DATA/fonts/NerdFontsSymbols"
@@ -3044,9 +3300,9 @@ font_fetch_unzip() {
 # fonts land on disk but nothing can see them, so make sure it is there first.
 install_font_zip() {
     local url="$1" dir="$2"
-    ensure_apt_deps
+    ensure_fetch_deps
     ensure_cmd unzip
-    command -v fc-cache &>/dev/null || apt_install fontconfig
+    command -v fc-cache &>/dev/null || sys_install fontconfig
     font_fetch_unzip "$url" "$dir" && fc-cache -f "$dir" &>/dev/null 2>&1
 }
 
@@ -3071,11 +3327,11 @@ ensure_symbols_font_deb() {
     symbols_font_installed_deb
 }
 
-# Download and unpack both fonts in parallel on Debian/Ubuntu
+# Download and unpack both fonts in parallel, everywhere but Arch
 install_fonts_parallel_deb() {
-    ensure_apt_deps
+    ensure_fetch_deps
     ensure_cmd unzip
-    command -v fc-cache &>/dev/null || apt_install fontconfig
+    command -v fc-cache &>/dev/null || sys_install fontconfig
     FONT_PIDS=()
 
     if ! font_installed_deb; then
@@ -3859,7 +4115,28 @@ PKG_MAP[ccstatusline]="bun"
 # AUR-only on Arch, a GitHub-release .deb on Debian/Ubuntu — and the two name
 # the package differently, which every pkg_installed check here goes through.
 PKG_MAP[fresh]="fresh-editor-bin"
-[[ "$DISTRO" == "debian" ]] && PKG_MAP[fresh]="fresh-editor"
+[[ "$DISTRO" == "debian" || "$DISTRO" == "fedora" ]] && PKG_MAP[fresh]="fresh-editor"
+# Same name on all four: Arch extra, Debian/Ubuntu, Fedora and nixpkgs.
+PKG_MAP[mpv]="mpv"
+PKG_MAP[fontconfig]="fontconfig"
+
+# nixpkgs attribute per entry, configs, tools and apps alike — the three
+# sections never share a key. Only where the attribute is not the Arch name.
+declare -A NIX_PKG=(
+    [fresh]=fresh-editor [pay-respects]=pay-respects [gh]=gh [delta]=delta
+    [zed]=zed-editor
+)
+[[ "$DISTRO" == "nix" ]] && for _k in "${!PKG_MAP[@]}"; do
+    [ -n "${NIX_PKG[$_k]:-}" ] && PKG_MAP[$_k]="${NIX_PKG[$_k]}"
+done
+unset _k
+
+# Fedora install-method overrides, DEB_INSTALLER's shape: absent means dnf.
+# starship is in no Fedora repo; the release-binary helper the apt side uses
+# is distro-neutral (upstream_bin into /usr/local/bin).
+declare -A RPM_INSTALLER=(
+    [starship]=ensure_starship_deb [fresh]=ensure_fresh_fedora
+)
 
 # Debian/Ubuntu install-method overrides, same shape as DEP_PKG_DEB/APP_TYPE_DEB:
 # an entry only where a plain `apt install` will not do. Absent means apt.
@@ -3902,6 +4179,10 @@ install_error_tail() {
         err="$APT_LAST_ERROR"; label="apt"
     elif [ -n "${PACMAN_LAST_ERROR:-}" ]; then
         err="$PACMAN_LAST_ERROR"; label="pacman"
+    elif [ -n "${DNF_LAST_ERROR:-}" ]; then
+        err="$DNF_LAST_ERROR"; label="dnf"
+    elif [ -n "${NIX_LAST_ERROR:-}" ]; then
+        err="$NIX_LAST_ERROR"; label="nix"
     fi
     [ -n "$err" ] || return 0
     # install_deb_url's own one-line reasons (no apt ran, or it was refused)
@@ -3930,15 +4211,16 @@ ensure_cfg_pkg() {
         return 0
     fi
     substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
-    if [[ "$DISTRO" == "arch" ]]; then
+    case "$DISTRO" in
         # arch_install tries the official repos before the AUR — keep it that way
-        arch_install "$pkg" && return 0
-    else
-        # The ensure_*_deb functions take no arguments and ignore this one; it
-        # is here for the apt_install default, which is the whole point of the
-        # map being sparse.
-        "${DEB_INSTALLER[$cfg]:-apt_install}" "$pkg" && return 0
-    fi
+        arch)   arch_install "$pkg" && return 0 ;;
+        # The ensure_* functions take no arguments and ignore this one; it is
+        # here for the package-manager default, which is the whole point of
+        # the maps being sparse.
+        debian) "${DEB_INSTALLER[$cfg]:-apt_install}" "$pkg" && return 0 ;;
+        fedora) "${RPM_INSTALLER[$cfg]:-dnf_install}" "$pkg" && return 0 ;;
+        nix)    nix_install "$pkg" && return 0 ;;
+    esac
     error "Failed to install ${C_ACCENT}${pkg}${C_RESET} — skipping ${cfg}"
     install_error_tail
     return 1
@@ -3960,7 +4242,7 @@ needs_wallpaper() {
 # --list prints all three and must not have to reach past the privilege prompt
 # and the package installs to find one of them. Nothing here needs either —
 # only $DISTRO, $IS_HEADLESS and strip_items, all settled near the top.
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline mpv fontconfig)
 # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
 # still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
 # re-declared as a second literal list: a hand-maintained Debian copy silently
@@ -3973,6 +4255,12 @@ if [[ "$DISTRO" == "debian" && "$IS_UBUNTU" -eq 0 ]]; then
         bookworm|bullseye|buster|stretch) strip_items CONFIGS ghostty ;;
     esac
 fi
+# Fedora: no ghostty package (COPR only, which is not an official source), and
+# ProtonVPN's Fedora repo does not carry the new proton-vpn-cli. rofi stays:
+# Fedora ships 2.0, the Wayland-capable release the config is written for.
+[[ "$DISTRO" == "fedora" ]] && strip_items CONFIGS ghostty protonvpn
+# NixOS: proton-vpn-cli is not in nixpkgs. Everything else is.
+[[ "$DISTRO" == "nix" ]] && strip_items CONFIGS protonvpn
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 
 # ── Optional dep tools ───────────────────────────────────────────────────────
@@ -4023,6 +4311,22 @@ DEP_PKG_DEB[pay-respects]="pay-respects"
 DEP_PKG_DEB[gh]="gh"
 DEP_PKG_DEB[delta]="git-delta"
 
+# Fedora package-name overrides, the same sparse shape. fd-find ships the
+# binary as plain fd there, unlike Debian.
+declare -A DEP_PKG_FEDORA
+DEP_PKG_FEDORA[fd]="fd-find"
+DEP_PKG_FEDORA[pay-respects]="pay-respects"
+DEP_PKG_FEDORA[gh]="gh"
+DEP_PKG_FEDORA[delta]="git-delta"
+# In no Fedora repo: the same distro-neutral release helpers the apt side uses,
+# or upstream's .rpm. Anything not here is a dnf install.
+declare -A DEP_INSTALLER_FEDORA=(
+    [lazygit]=ensure_lazygit_deb [lazydocker]=ensure_lazydocker_deb
+    [pay-respects]=ensure_pay_respects_fedora
+)
+# yazi: no Fedora package, and upstream ships a .zip rather than an .rpm.
+[[ "$DISTRO" == "fedora" ]] && strip_items DEPS_LIST yazi
+
 # Deps that also have a config to stow into ~/.config
 DEP_HAS_CONFIG=(bat btop tmux lazygit eza)
 
@@ -4057,11 +4361,12 @@ has_side_config() {             # has_side_config <name>
 
 dep_pkg_name() {
     local dep="$1"
-    if [[ "$DISTRO" == "arch" ]]; then
-        echo "${DEP_PKG[$dep]}"
-    else
-        echo "${DEP_PKG_DEB[$dep]:-${DEP_PKG[$dep]}}"
-    fi
+    case "$DISTRO" in
+        arch)   echo "${DEP_PKG[$dep]}" ;;
+        debian) echo "${DEP_PKG_DEB[$dep]:-${DEP_PKG[$dep]}}" ;;
+        fedora) echo "${DEP_PKG_FEDORA[$dep]:-${DEP_PKG[$dep]}}" ;;
+        nix)    echo "${NIX_PKG[$dep]:-${DEP_PKG[$dep]}}" ;;
+    esac
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
@@ -4085,6 +4390,24 @@ if [[ "$DISTRO" == "debian" ]]; then
     # the package at all. The only entry that is Ubuntu-only rather than
     # apt-wide — see ensure_slack_deb.
     [ "$IS_UBUNTU" -eq 1 ] || strip_items APPS_LIST slack
+fi
+if [[ "$DISTRO" == "fedora" || "$DISTRO" == "nix" ]]; then
+    # The apt side's Arch-only set first — none of them has an official RPM
+    # repo or a nixpkgs package worth calling official either.
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft
+    # Vendors with an apt repo or .deb and no RPM repo (Claude Desktop, Slack,
+    # Discord Canary, Bitwarden, LocalSend), and WezTerm, which is COPR-only
+    # on Fedora. NixOS has community packages for some, but not official ones.
+    strip_items APPS_LIST claude-desktop slack discord-canary bitwarden localsend
+    [[ "$DISTRO" == "fedora" ]] && strip_items APPS_LIST wezterm
+fi
+if [[ "$DISTRO" == "nix" ]]; then
+    # Brave Origin and VS Code ship no Nix build of their own (nixpkgs' are
+    # repackaged, VS Code's unfree); Docker, Flatpak and Tailscale are NixOS
+    # modules that belong in configuration.nix, not a user profile, and
+    # Ollama's script installs into /usr/local with a systemd unit NixOS
+    # will not run.
+    strip_items APPS_LIST brave-beta brave-stable vscode vscode-insiders docker flatpak tailscale ollama
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -4497,22 +4820,50 @@ APP_TYPE_DEB[localsend]="localsend"
 APP_TYPE_DEB[syncthing]="syncthing"
 # vlc/flatpak/keepassxc fall through to the "apt" default below
 
+# Fedora and NixOS overrides. Unlike APP_TYPE_DEB, an absent type does not
+# mean the native package manager outright: a curl app stays curl (the vendor
+# script is the official path on every distro), anything else is dnf / nix.
+declare -A APP_PKG_FEDORA=(
+    [brave-stable]=brave-origin [brave-beta]=brave-origin-beta
+    [vscode]=code [vscode-insiders]=code-insiders [docker]=docker-ce
+)
+declare -A APP_TYPE_FEDORA=(
+    [brave-stable]=brave [brave-beta]=brave
+    [vscode]=vscode [vscode-insiders]=vscode [docker]=docker
+    # no Fedora package; Zed's own script, as on apt
+    [zed]=curl
+)
+# bun is what the ccstatusline config runs on, and the vendor build is a
+# glibc-linked binary NixOS cannot start without nix-ld: nixpkgs' bun instead.
+declare -A APP_TYPE_NIX=([bun]=nix)
+NIX_PKG[bun]=bun
+
+# Sets <var> rather than printing, so item_installed can ask without a fork.
+app_type_into() {               # app_type_into <var> <app>
+    local _t
+    case "$DISTRO" in
+        arch)   _t="${APP_TYPE[$2]:-}" ;;
+        debian) _t="${APP_TYPE_DEB[$2]:-apt}" ;;
+        fedora) _t="${APP_TYPE_FEDORA[$2]:-}"
+                [ -n "$_t" ] || { [ "${APP_TYPE[$2]:-}" = curl ] && _t=curl || _t=dnf; } ;;
+        nix)    _t="${APP_TYPE_NIX[$2]:-}"
+                [ -n "$_t" ] || { [ "${APP_TYPE[$2]:-}" = curl ] && _t=curl || _t=nix; } ;;
+    esac
+    printf -v "$1" '%s' "$_t"
+}
+
 app_pkg_name() {
     local app="$1"
-    if [[ "$DISTRO" == "arch" ]]; then
-        echo "${APP_PKG[$app]}"
-    else
-        echo "${APP_PKG_DEB[$app]:-${APP_PKG[$app]}}"
-    fi
+    case "$DISTRO" in
+        arch)   echo "${APP_PKG[$app]}" ;;
+        debian) echo "${APP_PKG_DEB[$app]:-${APP_PKG[$app]}}" ;;
+        fedora) echo "${APP_PKG_FEDORA[$app]:-${APP_PKG[$app]:-$app}}" ;;
+        nix)    echo "${NIX_PKG[$app]:-${APP_PKG[$app]:-$app}}" ;;
+    esac
 }
 
 app_type_resolved() {
-    local app="$1"
-    if [[ "$DISTRO" == "arch" ]]; then
-        echo "${APP_TYPE[$app]}"
-    else
-        echo "${APP_TYPE_DEB[$app]:-apt}"
-    fi
+    local _r; app_type_into _r "$1"; echo "$_r"
 }
 
 # dep_pkg_name/app_pkg_name/app_type_resolved were each re-invoked via command
@@ -4573,6 +4924,10 @@ CONFIG_DESC[micro]="terminal editor"
 CONFIG_DESC[fresh]="terminal IDE"
 CONFIG_DESC[ccstatusline]="Claude Code statusline"
 CONFIG_DESC[ulauncher]="app launcher"
+CONFIG_DESC[mpv]="media player"
+CONFIG_DESC[fontconfig]="fontconfig preferences"
+CONFIG_NOTE[mpv]="Catppuccin-friendly defaults — hwdec, osc, yt-dlp"
+CONFIG_NOTE[fontconfig]="prefers JetBrainsMono Nerd Font and Maple Mono"
 
 CONFIG_NOTE[ghostty]="set in JetBrainsMono Nerd Font, which comes with any config"
 CONFIG_NOTE[kitty]="set in JetBrainsMono Nerd Font, which comes with any config"
@@ -4935,6 +5290,11 @@ plan_prereqs() {
                 pre+=("${C_YELLOW}bootstrap yay and paru${C_RESET} ${C_DIM}(base-devel and git, then yay-bin and paru from the AUR — paru builds from source, a few minutes)${C_RESET}")
             fi
         fi
+    elif [[ "$DISTRO" == "fedora" ]]; then
+        pre+=("${C_YELLOW}refresh dnf's metadata${C_RESET} ${C_DIM}(only if an install finds it stale)${C_RESET}")
+        command -v curl &>/dev/null || pre+=("${C_YELLOW}install curl${C_RESET}")
+    elif [[ "$DISTRO" == "nix" ]]; then
+        pre+=("${C_DIM}packages go into your user profile from nixpkgs — configuration.nix is not touched${C_RESET}")
     else
         pre+=("${C_YELLOW}refresh the package index${C_RESET}")
         mapfile -t _need < <(apt_deps_missing)
@@ -6441,7 +6801,7 @@ if [[ "$DISTRO" == "arch" ]]; then
         unset _h
         [ -n "$AUR_HELPER" ] || error "No AUR helper could be built — AUR packages will be skipped"
     fi
-else
+elif [[ "$DISTRO" == "debian" ]]; then
     # Always, on apt: every vendor repo and PPA below needs a fresh index, and
     # a broken one is worth reporting before the first install trips on it.
     info "Preparing apt..."
@@ -6465,13 +6825,29 @@ else
         ensure_apt_deps
         success "apt ready (index refreshed with errors)"
     fi
+elif [[ "$DISTRO" == "fedora" ]]; then
+    info "Preparing dnf..."
+    substep "Checking internet connection..."
+    if ! net_reachable download.fedoraproject.org mirrors.fedoraproject.org; then
+        error "No internet connection — dnf requires internet to install packages."
+        exit 1
+    fi
+    ensure_fetch_deps
+    success "dnf ready"
+elif [[ "$DISTRO" == "nix" ]]; then
+    info "Preparing nix..."
+    if ! command -v nix &>/dev/null; then
+        error "nix is not on PATH — this installer needs the Nix package manager."
+        exit 1
+    fi
+    ensure_fetch_deps
+    success "nix ready"
 fi
 
 if stow_wanted && ! command -v stow &>/dev/null; then
     info "Installing stow..."
-    if [[ "$DISTRO" == "arch" ]]; then _stow_ok=0; pacman_install stow && _stow_ok=1
-    else _stow_ok=0; apt_install stow && _stow_ok=1
-    fi
+    _stow_ok=0
+    sys_install stow && _stow_ok=1
     if [ "$_stow_ok" -eq 0 ]; then
         error "Failed to install stow — nothing can be linked into place without it."
         install_error_tail
@@ -6523,7 +6899,7 @@ else
     font_installed && _jb_pre=1
     maple_font_installed && _maple_pre=1
 
-    if [[ "$DISTRO" == "debian" ]] && [ "$_jb_pre" -eq 0 ] && [ "$_maple_pre" -eq 0 ]; then
+    if [[ "$DISTRO" != "arch" ]] && [ "$_jb_pre" -eq 0 ] && [ "$_maple_pre" -eq 0 ]; then
         substep "Downloading fonts in parallel..."
         install_fonts_parallel_deb
     fi
@@ -6614,6 +6990,27 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
             pacman_install "${_batch_arch[@]}" || true
         fi
         unset _batch_arch _dep
+    elif [[ "$DISTRO" == "fedora" ]]; then
+        _batch_dnf=()
+        for _dep in "${DEPS[@]}"; do
+            [ -n "${DEP_INSTALLER_FEDORA[$_dep]:-}" ] && continue
+            [ -z "${_dep_was_installed[$_dep]:-}" ] && _batch_dnf+=("${RESOLVED_DEP_PKG[$_dep]}")
+        done
+        if [ "${#_batch_dnf[@]}" -gt 0 ]; then
+            substep "Installing native dependencies in batch..."
+            dnf_install "${_batch_dnf[@]}" || true
+        fi
+        unset _batch_dnf _dep
+    elif [[ "$DISTRO" == "nix" ]]; then
+        _batch_nix=()
+        for _dep in "${DEPS[@]}"; do
+            [ -z "${_dep_was_installed[$_dep]:-}" ] && _batch_nix+=("${RESOLVED_DEP_PKG[$_dep]}")
+        done
+        if [ "${#_batch_nix[@]}" -gt 0 ]; then
+            substep "Installing native dependencies in batch..."
+            nix_install "${_batch_nix[@]}" || true
+        fi
+        unset _batch_nix _dep
     fi
 
     # The counter the configs and the apps loops both print. Twelve dep tools
@@ -6633,17 +7030,24 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         else
             substep "${_dep_n} Installing ${C_ACCENT}${dep}${C_RESET}..."
             _dep_ok=1
-            if [[ "$DISTRO" == "arch" ]]; then
-                arch_install "$dep_pkg" || _dep_ok=0
-            else
-                case "$dep" in
-                    pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
-                    yazi)         ensure_yazi_deb         || _dep_ok=0 ;;
-                    lazydocker)   ensure_lazydocker_deb   || _dep_ok=0 ;;
-                    *)  if [ -n "${DEB_LATEST[$dep]:-}" ]; then "${DEB_LATEST[$dep]}" || _dep_ok=0
-                        else apt_install "$dep_pkg" || _dep_ok=0; fi ;;
-                esac
-            fi
+            case "$DISTRO" in
+                arch) arch_install "$dep_pkg" || _dep_ok=0 ;;
+                debian)
+                    case "$dep" in
+                        pay-respects) ensure_pay_respects_deb || _dep_ok=0 ;;
+                        yazi)         ensure_yazi_deb         || _dep_ok=0 ;;
+                        lazydocker)   ensure_lazydocker_deb   || _dep_ok=0 ;;
+                        *)  if [ -n "${DEB_LATEST[$dep]:-}" ]; then "${DEB_LATEST[$dep]}" || _dep_ok=0
+                            else apt_install "$dep_pkg" || _dep_ok=0; fi ;;
+                    esac ;;
+                fedora)
+                    if [ -n "${DEP_INSTALLER_FEDORA[$dep]:-}" ]; then
+                        "${DEP_INSTALLER_FEDORA[$dep]}" || _dep_ok=0
+                    else
+                        dnf_install "$dep_pkg" || _dep_ok=0
+                    fi ;;
+                nix) nix_install "$dep_pkg" || _dep_ok=0 ;;
+            esac
             if [ "$_dep_ok" -eq 0 ]; then
                 error "Failed to install ${dep} — skipping"
                 install_error_tail
@@ -6685,8 +7089,8 @@ for cfg in "${SELECTED[@]}"; do
 
     case "$cfg" in
 
-      # ── fastfetch / ghostty / kitty / rofi / micro / fresh ──────────────
-      fastfetch|ghostty|kitty|rofi|micro|fresh)
+      # ── fastfetch / ghostty / kitty / rofi / micro / fresh / mpv / fontconfig
+      fastfetch|ghostty|kitty|rofi|micro|fresh|mpv|fontconfig)
         ensure_cfg_pkg "$cfg" "$pkg" || { FAILED+=("$cfg"); continue; }
 
         if ! stow_config "$cfg"; then
@@ -7067,16 +7471,17 @@ if [ "${#APPS[@]}" -gt 0 ]; then
     for app in "${APPS[@]}"; do
         [ -n "${_app_was_installed[$app]:-}" ] && continue
         case "${RESOLVED_APP_TYPE[$app]}" in
-            pacman|apt) _batch_apps+=("${RESOLVED_APP_PKG[$app]}") ;;
+            pacman|apt|dnf|nix) _batch_apps+=("${RESOLVED_APP_PKG[$app]}") ;;
         esac
     done
     if [ "${#_batch_apps[@]}" -gt 0 ]; then
         substep "Installing native applications in batch..."
-        if [[ "$DISTRO" == "arch" ]]; then
-            pacman_install "${_batch_apps[@]}" || true
-        else
-            apt_install "${_batch_apps[@]}" || true
-        fi
+        case "$DISTRO" in
+            arch)   pacman_install "${_batch_apps[@]}" || true ;;
+            debian) apt_install "${_batch_apps[@]}" || true ;;
+            fedora) dnf_install "${_batch_apps[@]}" || true ;;
+            nix)    nix_install "${_batch_apps[@]}" || true ;;
+        esac
     fi
     unset _batch_apps
 
@@ -7220,15 +7625,29 @@ if [ "${#APPS[@]}" -gt 0 ]; then
             case "$_type" in
                 pacman|paru) arch_install "$_pkg" ;;
                 apt)    apt_install "$_pkg" ;;
+                dnf)    dnf_install "$_pkg" ;;
+                nix)    nix_install "$_pkg" ;;
                 brave)
-                    case "$app" in
-                        brave-stable) ensure_brave_deb stable "$_pkg" ;;
-                        brave-beta)   ensure_brave_deb beta   "$_pkg" ;;
+                    case "$DISTRO" in
+                        fedora)
+                            case "$app" in
+                                brave-stable) ensure_brave_fedora stable "$_pkg" ;;
+                                brave-beta)   ensure_brave_fedora beta   "$_pkg" ;;
+                            esac ;;
+                        *)
+                            case "$app" in
+                                brave-stable) ensure_brave_deb stable "$_pkg" ;;
+                                brave-beta)   ensure_brave_deb beta   "$_pkg" ;;
+                            esac ;;
                     esac
                     ;;
-                vscode|vscode-insiders) ensure_vscode_deb "$_pkg" ;;
+                vscode|vscode-insiders)
+                    if [[ "$DISTRO" == "fedora" ]]; then ensure_vscode_fedora "$_pkg"
+                    else ensure_vscode_deb "$_pkg"; fi ;;
                 alacritty) ensure_alacritty_deb ;;
-                neovim) ensure_neovim_deb ;;
+                neovim)
+                    if [[ "$DISTRO" == "debian" ]]; then ensure_neovim_deb
+                    else sys_install "$_pkg"; fi ;;
                 wezterm) ensure_wezterm_deb ;;
                 claude-desktop) ensure_claude_desktop_deb ;;
                 chatgpt) ensure_chatgpt_arch ;;
@@ -7236,8 +7655,15 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 discord-canary) ensure_discord_canary_deb ;;
                 bitwarden) ensure_bitwarden_deb ;;
                 localsend) ensure_localsend_deb ;;
-                syncthing) ensure_syncthing_deb ;;
-                docker) ensure_docker_deb ;;
+                syncthing)
+                    if [[ "$DISTRO" == "debian" ]]; then ensure_syncthing_deb
+                    else sys_install "$_pkg"; fi ;;
+                docker)
+                    case "$DISTRO" in
+                        fedora) ensure_docker_fedora ;;
+                        debian) ensure_docker_deb ;;
+                        *)      sys_install "$_pkg" ;;
+                    esac ;;
             esac
             if pkg_installed "$_pkg"; then
                 if [[ "$app" == "wezterm" ]]; then
@@ -7263,11 +7689,8 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # that are already there is the summary telling a lie.
                     if ! { pkg_installed v4l2loopback-dkms && pkg_installed qt6-wayland; }; then
                         substep "Installing v4l2loopback-dkms and qt6-wayland..."
-                        if [[ "$DISTRO" == "arch" ]]; then
-                            pacman_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
-                        else
-                            apt_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1
-                        fi || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
+                        sys_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1 \
+                            || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
                     fi
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]] && ! { pkg_installed docker-compose && pkg_installed docker-buildx; }; then

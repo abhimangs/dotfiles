@@ -22,6 +22,8 @@ sandbox_repo() {        # sandbox_repo <root>
         -e "s#/etc/os-release#$etc/os-release#g" \
         -e "s#/etc/arch-release#$etc/arch-release#g" \
         -e "s#/etc/apt#$etc/apt#g" \
+        -e "s#/etc/yum.repos.d#$etc/yum.repos.d#g" \
+        -e "s#/etc/nix#$etc/nix#g" \
         -e "s#/etc/shells#$etc/shells#g" \
         -e "s#/etc/pacman.conf#$etc/pacman.conf#g" \
         -e "s#/usr/share/xsessions#$share/xsessions#g" \
@@ -64,7 +66,8 @@ V1
 
 build_root() {          # build_root <root> <distro>
     local root="$1" distro="$2"
-    rm -rf "$root"; mkdir -p "$root/home" "$root/state" "$root/etc/apt/sources.list.d" "$root/share"
+    rm -rf "$root"; mkdir -p "$root/home" "$root/state" \
+        "$root/etc/apt/sources.list.d" "$root/etc/yum.repos.d" "$root/etc/nix" "$root/share"
     # "systemd is the init here", which every service branch tests for. It used
     # to be read off the *host*: the suite passed on a systemd laptop and would
     # have quietly skipped those branches anywhere else. STUB_NO_SYSTEMD is the
@@ -131,6 +134,9 @@ build_root() {          # build_root <root> <distro>
         debian) printf 'ID=debian\nVERSION_CODENAME=%s\nPRETTY_NAME="Debian GNU/Linux 12 (%s)"\n' \
                     "${STUB_DEBIAN_CODENAME:-bookworm}" "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/os-release"
                 printf 'deb http://deb.debian.org/debian %s main\n' "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/apt/sources.list" ;;
+        fedora) printf 'ID=fedora\nVERSION_ID=42\nPRETTY_NAME="Fedora Linux 42"\n' > "$root/etc/os-release" ;;
+        nix)    printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=25.05\nPRETTY_NAME="NixOS"\n' > "$root/etc/os-release"
+                : > "$root/etc/NIXOS" ;;
     esac
     [ "${STUB_DEAD_PPA:-0}" = 1 ] && \
         printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/lazygit-team/release/ubuntu/\nSuites: noble\n' \
@@ -210,6 +216,13 @@ keepassxc
 syncthing
 localsend-bin
 libayatana-appindicator3-1
+fresh-editor
+mpv
+fontconfig
+brave-origin
+brave-origin-beta
+code
+code-insiders
 PKGS
 
     # Invisible to pacman -Si, visible to paru/yay — so arch_install takes the

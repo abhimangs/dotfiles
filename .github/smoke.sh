@@ -6,7 +6,7 @@
 # and does what a person's machine already has done to it: a user with
 # passwordless sudo, and a copy of the repo that user owns. Then it hands over
 # to smoke-user.sh, which runs as that user. Nothing here is per distro beyond
-# installing sudo, and the one flavour switch is SMOKE_FLAVOR=omarchy.
+# installing sudo. Flavour switches: SMOKE_FLAVOR=omarchy | nix.
 #
 # What the stubbed suite cannot answer, this does: whether the names in
 # PKG_MAP/APP_PKG still exist upstream, whether real pacman and real apt accept
@@ -29,16 +29,27 @@ save_logs() {
 }
 trap save_logs EXIT
 
-# script(1) is what gives install.sh the controlling terminal a CI step lacks.
-# It is in util-linux on Arch and bsdutils (Essential) on Debian and Ubuntu.
-command -v script >/dev/null || fail "script(1) is missing from this image"
-
 step "sudo, the one thing a person's machine already has"
-if command -v pacman >/dev/null; then
+if [ "${SMOKE_FLAVOR:-}" = nix ]; then
+    # nixos/nix is not a full NixOS image: give it an ID=nixos os-release so
+    # install.sh takes the nix path, and make sure flakes work for the user.
+    printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=smoke\nPRETTY_NAME="NixOS (smoke)"\n' > /etc/os-release
+    : > /etc/NIXOS
+    # script(1) and user tooling from nixpkgs into the root profile.
+    nix --extra-experimental-features 'nix-command flakes' profile install \
+        nixpkgs#sudo nixpkgs#util-linux nixpkgs#shadow nixpkgs#coreutils \
+        nixpkgs#gnugrep nixpkgs#gnused nixpkgs#gawk nixpkgs#findutils \
+        nixpkgs#bashInteractive nixpkgs#which nixpkgs#stow \
+        || fail "could not install sudo/util-linux via nix"
+    hash -r
+elif command -v pacman >/dev/null; then
     # -Syu, not -Sy: a partial upgrade on a rolling distro is the thing the
     # installer's own pacman_install avoids.
     pacman -Syu --noconfirm --needed sudo || fail "could not install sudo"
-else
+elif command -v dnf >/dev/null; then
+    dnf install -y sudo util-linux which passwd shadow-utils findutils \
+        || fail "could not install sudo"
+elif command -v apt-get >/dev/null; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq sudo || fail "could not install sudo"
     # No systemd in a container. proton-vpn-daemon's postinst runs systemctl
@@ -54,7 +65,13 @@ else
     [ -e /usr/bin/systemctl ] && mv /usr/bin/systemctl /usr/bin/systemctl.real
     printf '#!/bin/sh\nexit 0\n' > /usr/bin/systemctl
     chmod 0755 /usr/bin/systemctl
+else
+    fail "no supported package manager (pacman/dnf/apt/nix) on this image"
 fi
+
+# script(1) is what gives install.sh the controlling terminal a CI step lacks.
+# It is in util-linux on Arch/Fedora/nix and bsdutils (Essential) on Debian/Ubuntu.
+command -v script >/dev/null || fail "script(1) is missing from this image"
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then
     # shellcheck source=omarchy.sh
@@ -63,9 +80,13 @@ if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then
 fi
 
 step "a user with passwordless sudo and a repo copy of its own"
-useradd -m -s /bin/bash "$U" || fail "useradd failed"
+# NixOS/nix images may already have a `ci` user from a previous layer; -m is fine.
+if ! id "$U" &>/dev/null; then
+    useradd -m -s /bin/bash "$U" || fail "useradd failed"
+fi
 # CI has no one to type a password. The user is named, not put in a group, so
 # this works on every distro whatever its admin group is called.
+mkdir -p /etc/sudoers.d
 echo "$U ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/ci-user
 chmod 0440 /etc/sudoers.d/ci-user
 # The checkout is read-only and belongs to the runner's uid; the symlinks stow
@@ -75,12 +96,31 @@ mkdir -p "$H/smoke-logs" && chown "$U:$U" "$H/smoke-logs"
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then omarchy_snapshot; fi
 
+# On the nix image the daemon socket is world-usable; the user still needs the
+# nix binary and flakes on PATH for install.sh's nix_install.
+if [ "${SMOKE_FLAVOR:-}" = nix ]; then
+    # Trusted user so nix profile install does not need root.
+    mkdir -p /etc/nix
+    grep -q "trusted-users" /etc/nix/nix.conf 2>/dev/null \
+        || echo "trusted-users = root $U" >> /etc/nix/nix.conf
+    grep -q "experimental-features" /etc/nix/nix.conf 2>/dev/null \
+        || echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+fi
+
 step "smoke-user.sh, as $U"
 # runuser -l is a login shell: profile.d runs, HOME and PATH are the user's,
 # which is how Omarchy's /etc/profile.d/omarchy.sh reaches the installer too.
-runuser -l "$U" -c "$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q bash .github/smoke-user.sh' \
-    "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}")"
-rc=$?
+# The nix image may only have `su`.
+_cmd=$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q bash .github/smoke-user.sh' \
+    "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}")
+if command -v runuser >/dev/null; then
+    runuser -l "$U" -c "$_cmd"
+    rc=$?
+else
+    su - "$U" -c "$_cmd"
+    rc=$?
+fi
+unset _cmd
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then
     omarchy_verify || rc=1

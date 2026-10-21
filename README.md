@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/abhimangs/dotfiles/actions/workflows/ci.yml/badge.svg)](https://github.com/abhimangs/dotfiles/actions/workflows/ci.yml)
 
-Arch Linux, Debian, and Ubuntu dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level folder mirrors the path relative to its stow target so files symlink directly into place. Snap is never used: every install path goes through pacman/AUR, apt, an official vendor apt repo, or a direct upstream download.
+Arch Linux, Debian, Ubuntu, Fedora, and NixOS dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level folder mirrors the path relative to its stow target so files symlink directly into place. Snap is never used: every install path goes through pacman/AUR, apt, dnf, nixpkgs, an official vendor repo, or a direct upstream download.
 
 ## Quick start (fresh install)
 
@@ -10,7 +10,7 @@ Arch Linux, Debian, and Ubuntu dotfiles managed with [GNU Stow](https://www.gnu.
 curl -fsSL https://abhiman.io/linux.sh | bash
 ```
 
-Works on Arch Linux, Debian, and Ubuntu, as a normal user or as root. Every run moves any existing `~/dotfiles` to `~/dotfiles.bak` and replaces it with a fresh clone, so the checkout is always clean.
+Works on Arch Linux, Debian, Ubuntu, Fedora, and NixOS, as a normal user or as root. Every run moves any existing `~/dotfiles` to `~/dotfiles.bak` and replaces it with a fresh clone, so the checkout is always clean. On NixOS, packages go into your user profile from nixpkgs — `configuration.nix` is never edited.
 
 `linux.sh` is deliberately tiny and is hosted by hand at `abhiman.io/linux.sh`, so it is the one file that must not need changing: it installs `git` if it is missing, clones, and hands off. Distro detection, privileges, prompts and every install step live in `install.sh`, which the fresh clone always brings with it.
 
@@ -94,7 +94,9 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `micro/` | `~/.config/micro/` | `micro` | upstream's latest release binary |
 | `fresh/` | `~/.config/fresh/` | `fresh-editor-bin` *(AUR)* | GitHub `.deb` |
 | `ccstatusline/` | `~/.config/ccstatusline/` | - *(needs `bun`)* | - *(needs `bun`)* |
-| `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo |
+| `mpv/` | `~/.config/mpv/` | `mpv` | apt / dnf / nixpkgs |
+| `fontconfig/` | `~/.config/fontconfig/` | `fontconfig` | apt / dnf / nixpkgs |
+| `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo (**not on Fedora/NixOS**) |
 
 `ccstatusline` is the one config with no package on either distro. Claude Code
 renders it by running:
@@ -262,6 +264,14 @@ path:
   Forcing it past the dependency would be the kind of worse substitute this
   installer does not fake, so on Debian the name is rejected like any other
   unavailable app.
+
+### Fedora and NixOS
+
+**Fedora** uses `dnf` for everything in the official repos, plus each vendor's own yum repo where that is the documented path (Brave, VS Code, Docker CE). Tools with no Fedora package (`lazygit`, `lazydocker`, `starship`, `pay-respects`, `fresh`) come from the upstream release `.rpm` or binary, the same checksum-verified helpers the apt side uses. `ghostty`, `protonvpn`, `yazi`, WezTerm, and the Arch-only desktop apps are stripped — COPR or a download page is not an official repo.
+
+**NixOS** installs into the user's nix profile from nixpkgs (`nix profile install nixpkgs#…`). It never edits `configuration.nix`. Curl CLIs still use their vendor scripts into `~/.local/bin`. Brave Origin, VS Code, Docker, Flatpak, Tailscale, Ollama, and the same Arch-only desktop set are stripped: those belong in a NixOS module or have no official Nix build. `bun` comes from nixpkgs rather than the glibc vendor binary.
+
+CI runs a real headless install on `fedora:42` and `nixos/nix` beside the existing Arch/Debian/Ubuntu/Omarchy jobs.
 
 ### Debian/Ubuntu-only items
 
@@ -443,6 +453,8 @@ The real jobs run `.github/smoke.sh` (the same script for all of them) as a user
 | Arch Linux | archlinux | `archlinux:base` |
 | Debian 12, Debian 13 | debian-12, debian-13 | `debian:12`, `debian:13` |
 | Ubuntu 24.04, Ubuntu 26.04 | ubuntu-24.04, ubuntu-26.04 | `ubuntu:24.04`, `ubuntu:26.04` |
+| Fedora | fedora | `fedora:42` |
+| NixOS | nixos | `nixos/nix` (ID=nixos written in; packages via nix profile) |
 | Omarchy | omarchy | `archlinux:base` with `omarchy-settings` from Omarchy's repo, a user created from its `/etc/skel` |
 
 Each one:

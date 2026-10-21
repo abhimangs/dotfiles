@@ -156,6 +156,8 @@ jobs:
           - { name: debian-13,    label: Debian 13,    image: 'debian:13' }
           - { name: ubuntu-24.04, label: Ubuntu 24.04, image: 'ubuntu:24.04' }
           - { name: ubuntu-26.04, label: Ubuntu 26.04, image: 'ubuntu:26.04' }
+          - { name: fedora,       label: Fedora,       image: 'fedora:42' }
+          - { name: nixos,        label: NixOS,        image: 'nixos/nix', flavor: nix }
           - { name: omarchy,      label: Omarchy,      image: 'archlinux:base', flavor: omarchy }
     steps:
       # No token in the checkout: this job runs ~20 vendors' install scripts

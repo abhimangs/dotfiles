@@ -178,6 +178,25 @@ want    debian-nofzf 'cannot draw the menu'               'fallback taken'
 want    debian-nofzf 'Choice \(e.g. 1 4'                  'numbered list drawn'
 want    debian-nofzf 'Installed \('                       'installs work'
 
+# 3b. Fedora and NixOS take their own package managers (dnf / nix profile),
+#     not apt. git+bat only — zsh would pull pay-respects' release .rpm path.
+run     fedora-git fedora "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_TOOLS="bat"
+check   fedora-git 0
+want    fedora-git 'Fedora'                               'header names Fedora'
+want    fedora-git 'dnf ready'                            'dnf prep ran'
+want    fedora-git 'Installed \('                         'installs work'
+grep -qxF bat "$WORK/run/fedora-git/state/installed" \
+    && note fedora-git "bat via dnf" || bad fedora-git "bat not installed"
+
+run     nix-git nix "$WORK/k-sel" DOTFILES_CONFIGS="git" DOTFILES_TOOLS="bat"
+check   nix-git 0
+want    nix-git 'NixOS'                                   'header names NixOS'
+want    nix-git 'nix ready'                               'nix prep ran'
+want    nix-git 'Installed \('                            'installs work'
+# Host PATH may already have bat (sysbin mirror), so nix_install is a no-op —
+# the summary still has to name it.
+want    nix-git 'Installed \(2\): bat, git'               'bat counted as installed'
+
 # 4. A third-party repo is broken, so every apt-get update exits non-zero.
 STUB_BROKEN_REPO=1 run ubuntu-badrepo ubuntu "$WORK/k-sel" \
     DOTFILES_CONFIGS="git" STUB_BROKEN_REPO=1

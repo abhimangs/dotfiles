@@ -55,7 +55,7 @@ case "$1" in
         done
         exec "$@" ;;
     kill) exec "$@" ;;
-    env|apt-get|apt|apt-cache|dpkg|dpkg-query|pacman|paru|pacman-key|systemctl|\
+    env|apt-get|apt|apt-cache|dpkg|dpkg-query|pacman|paru|pacman-key|dnf|rpm|nix|nix-env|systemctl|\
     add-apt-repository|chsh|usermod|flatpak|update-alternatives|tee|install)
         exec "$@" ;;
     *)  # never run anything else with pretend privileges
@@ -436,6 +436,107 @@ cp "$BIN/pacman" "$BIN/paru"
 # yay takes the same flags; scenarios that want a yay-only box delete paru.
 cp "$BIN/pacman" "$BIN/yay"
 
+# ── dnf / rpm (Fedora) ───────────────────────────────────────────────────────
+# Same available/installed ledger as pacman: a name in state/available can be
+# installed; rpm -q and dnf install both read it.
+w rpm <<'EOF'
+#!/usr/bin/env bash
+st="${STUB_STATE:?}"
+case "${1:-}" in
+  -q) grep -qxF "${2:-}" "$st/installed" 2>/dev/null ;;
+  -qa)
+      if [ "${2:-}" = "--qf" ]; then
+          while read -r p; do [ -n "$p" ] && echo "$p"; done < "$st/installed" 2>/dev/null
+      fi ;;
+  *) exit 0 ;;
+esac
+EOF
+w dnf <<'EOF'
+#!/usr/bin/env bash
+st="${STUB_STATE:?}"
+# Skip options until the verb.
+verb=""
+args=()
+for a in "$@"; do
+    if [ -z "$verb" ]; then
+        case "$a" in
+            -*|--) ;;
+            *) verb="$a" ;;
+        esac
+        continue
+    fi
+    case "$a" in -*) ;; *) args+=("$a") ;; esac
+done
+case "$verb" in
+  install)
+      rc=0
+      for a in "${args[@]}"; do
+          # A local .rpm path: treat the basename stem as the package.
+          case "$a" in
+              /*|*.rpm)
+                  base="${a##*/}"; base="${base%%-[0-9]*}"
+                  grep -qxF "$base" "$st/installed" 2>/dev/null || echo "$base" >> "$st/installed"
+                  continue ;;
+          esac
+          if grep -qxF "$a" "$st/available" 2>/dev/null; then
+              grep -qxF "$a" "$st/installed" 2>/dev/null || echo "$a" >> "$st/installed"
+              if [ ! -e "$STUB_BIN/$a" ]; then
+                  if [ -x "${STUB_TPL:-}/$a" ]; then cp "$STUB_TPL/$a" "$STUB_BIN/$a"
+                  else printf '#!/bin/sh\necho "%s stub"\n' "$a" > "$STUB_BIN/$a"; fi
+                  chmod +x "$STUB_BIN/$a"
+              fi
+          else
+              echo "No match for argument: $a" >&2; rc=1
+          fi
+      done
+      exit $rc ;;
+  remove)
+      for a in "${args[@]}"; do
+          grep -vxF "$a" "$st/installed" > "$st/installed.new" 2>/dev/null
+          mv "$st/installed.new" "$st/installed"
+      done ;;
+  check-upgrade) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+
+# ── nix / nix-env (NixOS) ────────────────────────────────────────────────────
+w nix <<'EOF'
+#!/usr/bin/env bash
+st="${STUB_STATE:?}"
+# profile list --json → empty attrs; profile install nixpkgs#foo
+if [ "${1:-}" = "--extra-experimental-features" ]; then shift 2; fi
+case "${1:-}" in
+  profile)
+      case "${2:-}" in
+        list) echo '{"elements":[]}' ;;
+        install)
+            shift 2
+            for a in "$@"; do
+                attr="${a#nixpkgs#}"
+                grep -qxF "$attr" "$st/available" 2>/dev/null || {
+                    echo "error: attribute '$attr' missing" >&2; exit 1; }
+                grep -qxF "$attr" "$st/installed" 2>/dev/null || echo "$attr" >> "$st/installed"
+                if [ ! -e "$STUB_BIN/$attr" ]; then
+                    if [ -x "${STUB_TPL:-}/$attr" ]; then cp "$STUB_TPL/$attr" "$STUB_BIN/$attr"
+                    else printf '#!/bin/sh\necho "%s stub"\n' "$attr" > "$STUB_BIN/$attr"; fi
+                    chmod +x "$STUB_BIN/$attr"
+                fi
+            done ;;
+      esac ;;
+  *) exit 0 ;;
+esac
+EOF
+w nix-env <<'EOF'
+#!/usr/bin/env bash
+st="${STUB_STATE:?}"
+case "${1:-}" in
+  -q) while read -r p; do [ -n "$p" ] && echo "$p-1.0"; done < "$st/installed" 2>/dev/null ;;
+  -iA|-f) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+
 # ── curl ─────────────────────────────────────────────────────────────────────
 # Connectivity probes succeed; vendor install scripts are synthesised so the
 # tool they claim to install actually appears; downloads to a file produce one.
@@ -450,7 +551,10 @@ for a in "$@"; do
         http*) url="$a" ;;
     esac
 done
-case "$url" in *deb.debian.org|*archive.ubuntu.com) exit 0 ;; esac
+case "$url" in
+    *deb.debian.org|*archive.ubuntu.com|*download.fedoraproject.org|*mirrors.fedoraproject.org)
+        exit 0 ;;
+esac
 # The /latest redirect github_latest_tag reads (a -w write-out,
 # printed whatever -o says), for the one repo whose
 # installer is handed a version from it.
