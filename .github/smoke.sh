@@ -41,7 +41,8 @@ if [ "${SMOKE_FLAVOR:-}" = nix ]; then
         PATH="/root/.nix-profile/bin:$PATH" ;; esac
     export PATH
     _nix_need() { command -v "$1" >/dev/null; }
-    for _pair in sudo:sudo 'script:util-linux' useradd:shadow stow:stow; do
+    # No useradd on this image — only what smoke-user.sh and install.sh need.
+    for _pair in sudo:sudo 'script:util-linux' stow:stow; do
         _bin="${_pair%%:*}"; _attr="${_pair#*:}"
         _nix_need "$_bin" && continue
         nix --extra-experimental-features 'nix-command flakes' profile install \
@@ -89,48 +90,55 @@ if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then
     omarchy_prepare
 fi
 
-step "a user with passwordless sudo and a repo copy of its own"
-# NixOS/nix images may already have a `ci` user from a previous layer; -m is fine.
-if ! id "$U" &>/dev/null; then
-    useradd -m -s /bin/bash "$U" || fail "useradd failed"
-fi
-# CI has no one to type a password. The user is named, not put in a group, so
-# this works on every distro whatever its admin group is called.
-mkdir -p /etc/sudoers.d
-echo "$U ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/ci-user
-chmod 0440 /etc/sudoers.d/ci-user
-# The checkout is read-only and belongs to the runner's uid; the symlinks stow
-# makes should point somewhere the user owns, as they do on a real machine.
-cp -a /repo "$H/dotfiles" && chown -R "$U:$U" "$H/dotfiles" || fail "could not copy the repo"
-mkdir -p "$H/smoke-logs" && chown "$U:$U" "$H/smoke-logs"
-
-if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then omarchy_snapshot; fi
-
-# On the nix image the daemon socket is world-usable; the user still needs the
-# nix binary and flakes on PATH for install.sh's nix_install.
+# nixos/nix has no writable /etc/passwd — useradd cannot create an account.
+# Run the smoke as root there; install.sh already supports that path.
 if [ "${SMOKE_FLAVOR:-}" = nix ]; then
-    # Trusted user so nix profile install does not need root.
+    H=/root
+    U=root
+    step "repo copy under /root (nixos/nix has no useradd)"
     mkdir -p /etc/nix
-    grep -q "trusted-users" /etc/nix/nix.conf 2>/dev/null \
-        || echo "trusted-users = root $U" >> /etc/nix/nix.conf
     grep -q "experimental-features" /etc/nix/nix.conf 2>/dev/null \
         || echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-fi
-
-step "smoke-user.sh, as $U"
-# runuser -l is a login shell: profile.d runs, HOME and PATH are the user's,
-# which is how Omarchy's /etc/profile.d/omarchy.sh reaches the installer too.
-# The nix image may only have `su`.
-_cmd=$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q bash .github/smoke-user.sh' \
-    "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}")
-if command -v runuser >/dev/null; then
-    runuser -l "$U" -c "$_cmd"
+    cp -a /repo "$H/dotfiles" || fail "could not copy the repo"
+    mkdir -p "$H/smoke-logs"
+    step "smoke-user.sh, as root"
+    ( cd "$H/dotfiles" && env HOME="$H" USER=root \
+        SMOKE_CONFIGS="${SMOKE_CONFIGS:-all}" \
+        SMOKE_TOOLS="${SMOKE_TOOLS:-all}" \
+        SMOKE_APPS="${SMOKE_APPS:-all}" \
+        bash .github/smoke-user.sh )
     rc=$?
 else
-    su - "$U" -c "$_cmd"
-    rc=$?
+    step "a user with passwordless sudo and a repo copy of its own"
+    if ! id "$U" &>/dev/null; then
+        useradd -m -s /bin/bash "$U" || fail "useradd failed"
+    fi
+    # CI has no one to type a password. The user is named, not put in a group, so
+    # this works on every distro whatever its admin group is called.
+    mkdir -p /etc/sudoers.d
+    echo "$U ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/ci-user
+    chmod 0440 /etc/sudoers.d/ci-user
+    # The checkout is read-only and belongs to the runner's uid; the symlinks stow
+    # makes should point somewhere the user owns, as they do on a real machine.
+    cp -a /repo "$H/dotfiles" && chown -R "$U:$U" "$H/dotfiles" || fail "could not copy the repo"
+    mkdir -p "$H/smoke-logs" && chown "$U:$U" "$H/smoke-logs"
+
+    if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then omarchy_snapshot; fi
+
+    step "smoke-user.sh, as $U"
+    # runuser -l is a login shell: profile.d runs, HOME and PATH are the user's,
+    # which is how Omarchy's /etc/profile.d/omarchy.sh reaches the installer too.
+    _cmd=$(printf 'cd ~/dotfiles && env SMOKE_CONFIGS=%q SMOKE_TOOLS=%q SMOKE_APPS=%q bash .github/smoke-user.sh' \
+        "${SMOKE_CONFIGS:-all}" "${SMOKE_TOOLS:-all}" "${SMOKE_APPS:-all}")
+    if command -v runuser >/dev/null; then
+        runuser -l "$U" -c "$_cmd"
+        rc=$?
+    else
+        su - "$U" -c "$_cmd"
+        rc=$?
+    fi
+    unset _cmd
 fi
-unset _cmd
 
 if [ "${SMOKE_FLAVOR:-}" = omarchy ]; then
     omarchy_verify || rc=1
