@@ -4408,6 +4408,12 @@ if [[ "$DISTRO" == "nix" ]]; then
     # Ollama's script installs into /usr/local with a systemd unit NixOS
     # will not run.
     strip_items APPS_LIST brave-beta brave-stable vscode vscode-insiders docker flatpak tailscale ollama
+    # Vendor curl installers drop glibc-linked binaries into ~/.local/bin.
+    # Without nix-ld those cannot start on NixOS, and they are not nixpkgs
+    # packages — strip them rather than faking a worse path. bun and uv stay:
+    # APP_TYPE_NIX routes them to nixpkgs.
+    strip_items APPS_LIST claude-code antigravity-cli codex-cli cursor-cli \
+        opencode kimi-code muse hermes devin grok-cli mistral-cli ori postman-cli zed
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
