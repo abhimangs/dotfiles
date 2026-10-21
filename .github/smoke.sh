@@ -35,19 +35,24 @@ if [ "${SMOKE_FLAVOR:-}" = nix ]; then
     # install.sh takes the nix path, and make sure flakes work for the user.
     printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=smoke\nPRETTY_NAME="NixOS (smoke)"\n' > /etc/os-release
     : > /etc/NIXOS
-    # script(1) and user tooling from nixpkgs into the root profile.
+    # script(1) lives in util-linux; skip bashInteractive — the image already
+    # has one and nix profile refuses the conflict.
     nix --extra-experimental-features 'nix-command flakes' profile install \
-        nixpkgs#sudo nixpkgs#util-linux nixpkgs#shadow nixpkgs#coreutils \
-        nixpkgs#gnugrep nixpkgs#gnused nixpkgs#gawk nixpkgs#findutils \
-        nixpkgs#bashInteractive nixpkgs#which nixpkgs#stow \
+        nixpkgs#sudo nixpkgs#util-linux nixpkgs#shadow \
+        nixpkgs#which nixpkgs#stow nixpkgs#findutils \
         || fail "could not install sudo/util-linux via nix"
+    # Profile bin may not be first on PATH yet.
+    case ":$PATH:" in *:/root/.nix-profile/bin:*) ;; *)
+        PATH="/root/.nix-profile/bin:$PATH" ;; esac
+    export PATH
     hash -r
 elif command -v pacman >/dev/null; then
     # -Syu, not -Sy: a partial upgrade on a rolling distro is the thing the
     # installer's own pacman_install avoids.
     pacman -Syu --noconfirm --needed sudo || fail "could not install sudo"
 elif command -v dnf >/dev/null; then
-    dnf install -y sudo util-linux which passwd shadow-utils findutils \
+    # Fedora splits script(1) into util-linux-script; util-linux alone is not enough.
+    dnf install -y sudo util-linux util-linux-script which passwd shadow-utils findutils \
         || fail "could not install sudo"
 elif command -v apt-get >/dev/null; then
     export DEBIAN_FRONTEND=noninteractive
