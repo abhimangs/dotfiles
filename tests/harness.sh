@@ -97,6 +97,28 @@ build_root() {          # build_root <root> <distro>
     mkdir -p "$root/opt"
     printf '/bin/sh\n/bin/bash\n' > "$root/etc/shells"
 
+    # A fake GRUB: /etc/default/grub plus the mkconfig the distro actually
+    # ships. The theme install must change only GRUB_THEME.
+    if [ "${STUB_GRUB:-0}" = 1 ] || [ "${STUB_GRUB:-0}" = 2 ]; then
+        local _gboot _gbin
+        if [ "${STUB_GRUB:-0}" = 2 ]; then
+            _gboot="$root/boot/grub2"; _gbin=grub2-mkconfig
+        else
+            _gboot="$root/boot/grub"; _gbin=grub-mkconfig
+        fi
+        mkdir -p "$_gboot" "$root/etc/default"
+        printf '%s\n' \
+            'GRUB_DEFAULT="0"' \
+            'GRUB_TIMEOUT="5"' \
+            'GRUB_TIMEOUT_STYLE="menu"' \
+            '#GRUB_THEME="/path/to/gfxtheme"' \
+            'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' \
+            > "$root/etc/default/grub"
+        # The mkconfig stub is written after $root/bin is filled from the
+        # template bin. Remember which name, below.
+        printf '%s\n' "$_gbin" > "$root/state/grub-mkconfig-name"
+    fi
+
     # Every Debian/Ubuntu home ships one, and the bash scenarios need something
     # real to snapshot. Distinctive enough that a restore can be checked for it.
     if [ "${STUB_NO_BASHRC:-0}" != 1 ]; then
@@ -235,6 +257,20 @@ PKGS
     # one run must not be on PATH for the next, and a scenario can remove a
     # tool (STUB_NO_FZF) to exercise a fallback path.
     cp -a "$WORK/bin" "$root/bin"
+    if [ -f "$root/state/grub-mkconfig-name" ]; then
+        _gbin="$(cat "$root/state/grub-mkconfig-name")"
+        cat > "$root/bin/$_gbin" <<'EOF'
+#!/bin/sh
+echo "$*" >> "${STUB_STATE:?}/grub-mkconfig.log"
+prev=""
+for a in "$@"; do
+    if [ "$prev" = "-o" ]; then printf '# generated\n' > "$a"; fi
+    prev=$a
+done
+exit 0
+EOF
+        chmod +x "$root/bin/$_gbin"
+    fi
     [ "${STUB_NO_FZF:-0}" = 1 ] && rm -f "$root/bin/fzf"
     [ "${STUB_YAY_ONLY:-0}" = 1 ] && rm -f "$root/bin/paru"
     # No AUR helper at all, and no stow: the two things the plan now lists as

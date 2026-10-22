@@ -1,0 +1,39 @@
+title-text: ""
+title-font: "Dersu Uzala brush Regular 60"
+desktop-image: "japanese_landscape_1920x1200.png"
+terminal-font: "Fira Code Regular 16"
+terminal-left: "0"
+terminal-top: "0"
+terminal-width: "100%"
+terminal-height: "100%"
+terminal-border: "0"
+
++ boot_menu {
+    left = 20%
+    width = 30%
+    top = 36%
+    height = 700
+    item_height = 74
+    item_padding = 0
+    icon_width = 50
+    icon_height = 50
+    item_icon_space = 20
+    item_spacing = 5
+    item_font =  "Dersu Uzala brush Regular 54"
+    item_color = "#EEE5D3"
+    selected_item_font = "Dersu Uzala brush Regular 54"
+    selected_item_color = "#F5EDD0"
+    selected_item_pixmap_style = "select_*.png"
+}
+
++ label {
+    id = "__timeout__"
+    left = 29%
+    top = 80%
+    width = 800
+    height = 50
+    font = "JetBrains Mono Bold 30"
+    color = "#FFFFFF"
+    align = "center"
+    text = "If love had a timer, it'd be %ds"
+}

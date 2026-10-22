@@ -1573,6 +1573,89 @@ want    flags-all 'Configs: .*micro.*fresh'    'including the ones added last'
 nowant  flags-all 'Failed \('                  'nothing failed'
 
 echo
+echo "── grub theme ───────────────────────────────────────────"
+# No bootloader in the sandbox: the row is not in the menu and --configs=grub
+# is an unknown name. A machine without GRUB must not be offered a theme.
+run     grub-absent ubuntu "$WORK/k-sel" DOTFILES_CONFIGS=grub
+check   grub-absent 2
+want    grub-absent 'Unknown config' 'hidden when GRUB is not installed'
+
+# Arch, then Fedora's grub2. Only GRUB_THEME changes; the timeout, the default
+# and the commented example line stay byte for byte.
+STUB_GRUB=1 run grub-theme arch "$WORK/k-sel" DOTFILES_CONFIGS=grub \
+    DOTFILES_GRUB_ETC="$WORK/run/grub-theme/etc/default/grub" \
+    DOTFILES_GRUB_BOOT="$WORK/run/grub-theme/boot/grub"
+check   grub-theme 0
+g="$WORK/run/grub-theme"
+grep -qx 'GRUB_TIMEOUT="5"' "$g/etc/default/grub" \
+    && note grub-theme "timeout untouched" || bad grub-theme "timeout was changed"
+grep -qx 'GRUB_DEFAULT="0"' "$g/etc/default/grub" \
+    && note grub-theme "default untouched" || bad grub-theme "default was changed"
+grep -qx '#GRUB_THEME="/path/to/gfxtheme"' "$g/etc/default/grub" \
+    && note grub-theme "commented example left in place" || bad grub-theme "commented GRUB_THEME line changed"
+grep -qx "GRUB_THEME=\"$g/boot/grub/themes/grub-of-tsushima/theme.txt\"" "$g/etc/default/grub" \
+    && note grub-theme "GRUB_THEME set" || bad grub-theme "GRUB_THEME was not set"
+grep -q 'starfield' "$g/etc/default/grub" \
+    && bad grub-theme "the previous theme line is still active" \
+    || note grub-theme "previous theme line replaced"
+grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub.theme-prev" \
+    && note grub-theme "previous theme kept for uninstall" || bad grub-theme "previous theme was not saved"
+[ -f "$g/boot/grub/themes/grub-of-tsushima/theme.txt" ] \
+    && note grub-theme "theme.txt copied" || bad grub-theme "theme.txt missing"
+grep -q 'japanese_landscape_1920x1200.png' "$g/boot/grub/themes/grub-of-tsushima/theme.txt" \
+    && note grub-theme "the active theme" || bad grub-theme "theme.txt is not the installed one"
+[ -f "$g/boot/grub/grub.cfg" ] \
+    && note grub-theme "grub.cfg regenerated" || bad grub-theme "grub-mkconfig did not run"
+# A second run must not rewrite the defaults again.
+cp "$g/etc/default/grub" "$g/etc/default/grub.before"
+rerun   grub-theme-2 grub-theme "$WORK/k-sel" DOTFILES_CONFIGS=grub \
+    DOTFILES_GRUB_ETC="$g/etc/default/grub" \
+    DOTFILES_GRUB_BOOT="$g/boot/grub"
+check   grub-theme-2 0
+cmp -s "$g/etc/default/grub.before" "$g/etc/default/grub" \
+    && note grub-theme-2 "second run left /etc/default/grub alone" \
+    || bad grub-theme-2 "second run rewrote /etc/default/grub"
+want    grub-theme-2 'already in place' 'said the theme was already there'
+want    grub-theme 'replaces the current theme' 'named the theme it is taking over'
+want    grub-theme 'grub-of-tsushima' 'named the theme it is setting'
+
+# Uninstall puts the previous theme's name back and removes only ours.
+printf 'y\n\n' > "$WORK/k-grub-yes"
+RUN_ARGS="--uninstall=grub" rerun grub-theme-undo grub-theme "$WORK/k-grub-yes" \
+    DOTFILES_GRUB_ETC="$g/etc/default/grub" \
+    DOTFILES_GRUB_BOOT="$g/boot/grub"
+check   grub-theme-undo 0
+grep -qx 'GRUB_TIMEOUT="5"' "$g/etc/default/grub" \
+    && note grub-theme-undo "timeout still untouched" || bad grub-theme-undo "timeout changed on uninstall"
+grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub" \
+    && note grub-theme-undo "previous theme name restored" || bad grub-theme-undo "previous theme was not restored"
+grep -q 'grub-of-tsushima' "$g/etc/default/grub" \
+    && bad grub-theme-undo "our theme name is still set" || note grub-theme-undo "our theme name removed"
+[ ! -e "$g/boot/grub/themes/grub-of-tsushima" ] \
+    && note grub-theme-undo "our theme directory removed" || bad grub-theme-undo "theme directory still there"
+[ -d "$g/boot/grub/themes" ] || mkdir -p "$g/boot/grub/themes"
+# starfield was never ours to delete; the line is the whole of that theme here.
+
+STUB_GRUB=2 run grub-fedora fedora "$WORK/k-sel" DOTFILES_CONFIGS=grub \
+    DOTFILES_GRUB_ETC="$WORK/run/grub-fedora/etc/default/grub" \
+    DOTFILES_GRUB_BOOT="$WORK/run/grub-fedora/boot/grub2"
+check   grub-fedora 0
+grep -qx "GRUB_THEME=\"$WORK/run/grub-fedora/boot/grub2/themes/grub-of-tsushima/theme.txt\"" \
+    "$WORK/run/grub-fedora/etc/default/grub" \
+    && note grub-fedora "GRUB_THEME set for grub2" || bad grub-fedora "GRUB_THEME was not set"
+grep -qx 'GRUB_TIMEOUT="5"' "$WORK/run/grub-fedora/etc/default/grub" \
+    && note grub-fedora "timeout untouched" || bad grub-fedora "timeout was changed"
+[ -f "$WORK/run/grub-fedora/boot/grub2/grub.cfg" ] \
+    && note grub-fedora "grub2-mkconfig ran" || bad grub-fedora "grub2-mkconfig did not run"
+
+# NixOS generates grub.cfg from configuration.nix. The row stays hidden.
+STUB_GRUB=1 run grub-nix nix "$WORK/k-sel" DOTFILES_CONFIGS=grub \
+    DOTFILES_GRUB_ETC="$WORK/run/grub-nix/etc/default/grub" \
+    DOTFILES_GRUB_BOOT="$WORK/run/grub-nix/boot/grub"
+check   grub-nix 2
+want    grub-nix 'Unknown config' 'hidden on NixOS'
+
+echo
 echo "── docker app selection ─────────────────────────────────"
 # 16. Docker: the first-ever exercise of the "applications" fzf menu in this
 #     suite (no earlier scenario picked one, so this also proves the menu

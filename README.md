@@ -96,6 +96,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `ccstatusline/` | `~/.config/ccstatusline/` | - *(needs `bun`)* | - *(needs `bun`)* |
 | `mpv/` | `~/.config/mpv/` | `mpv` | apt / dnf / nixpkgs |
 | `fontconfig/` | `~/.config/fontconfig/` | `fontconfig` | apt / dnf / nixpkgs |
+| `grub/` | `/boot/grub/themes/grub-of-tsushima/` (not stowed) | — | sets `GRUB_THEME` only, and only when GRUB is already installed. Timeout and menu entries are left alone. Not offered on NixOS |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo (**not on Fedora/NixOS**) |
 
 `ccstatusline` is the one config with no package on either distro. Claude Code

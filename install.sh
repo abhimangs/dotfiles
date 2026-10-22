@@ -657,6 +657,7 @@ config_target() {               # config_target <key>
         git)       printf '~/.gitconfig' ;;
         starship)  printf '%s/starship.toml' "$XDG_SHOWN" ;;
         protonvpn) printf '~/scripts/pvpn/pvpn.zsh' ;;
+        grub)      printf '%s' "$(grub_theme_file)" ;;
         *)         printf '%s/%s/' "$XDG_SHOWN" "$1" ;;
     esac
 }
@@ -670,6 +671,11 @@ config_target() {               # config_target <key>
 config_state() {                # config_state <key> — prints linked, yours or new
     local t; t="$(uninstall_target "$1")"
     case "$1" in
+        grub)
+            if grub_theme_current; then echo linked
+            elif [ -f "$(grub_etc)" ] && grep -q '^GRUB_THEME=' "$(grub_etc)"; then echo yours
+            else echo new
+            fi ;;
         zsh|bash|git|starship|protonvpn)
             if [ "$1" = protonvpn ] && [ -L "$HOME/scripts/pvpn" ] && ! is_repo_link "$HOME/scripts/pvpn"; then
                 echo yours
@@ -697,6 +703,7 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
         *:chatgpt)       _h="OpenAI's install script, which adds its own pacman repo" ;;
         bash:*)          _h="nothing, bash is already here" ;;
         ccstatusline:*)  _h="nothing: bunx runs it, with bun from the apps tab" ;;
+        grub:*)          _h="copies the theme into GRUB's themes directory and sets GRUB_THEME" ;;
         *)
             if [[ "$DISTRO" == "arch" ]]; then
                 if [ -n "${PKG_SYNC[$4]:-}" ]; then _h="pacman"; else _h="AUR"; fi
@@ -4157,6 +4164,9 @@ PKG_MAP[fresh]="fresh-editor-bin"
 # Same name on all four: Arch extra, Debian/Ubuntu, Fedora and nixpkgs.
 PKG_MAP[mpv]="mpv"
 PKG_MAP[fontconfig]="fontconfig"
+# Not installed by us. The name is only so the menu probe is non-empty; the
+# plan and the install loop never ask the package manager for it.
+PKG_MAP[grub]="grub"
 
 # nixpkgs attribute per entry, configs, tools and apps alike — the three
 # sections never share a key. Only where the attribute is not the Arch name.
@@ -4275,12 +4285,201 @@ needs_wallpaper() {
     return 1
 }
 
+# ── GRUB theme ───────────────────────────────────────────────────────────────
+# Only the theme. GRUB_TIMEOUT, GRUB_DEFAULT and the menu entries are never
+# written. Offered only when GRUB is already installed: this does not install
+# a bootloader. NixOS builds grub.cfg from configuration.nix, which this
+# installer does not edit, so it is never offered there.
+# DOTFILES_GRUB_ETC / DOTFILES_GRUB_BOOT exist so the suite can point at a
+# sandbox. Unset, they are the real paths.
+GRUB_THEME_NAME="grub-of-tsushima"
+
+grub_etc() { printf '%s' "${DOTFILES_GRUB_ETC:-/etc/default/grub}"; }
+
+grub_mkconfig_bin() {
+    command -v grub-mkconfig >/dev/null 2>&1 && { printf '%s' grub-mkconfig; return 0; }
+    command -v grub2-mkconfig >/dev/null 2>&1 && { printf '%s' grub2-mkconfig; return 0; }
+    return 1
+}
+
+# /boot/grub on Arch, Debian and Ubuntu; /boot/grub2 on Fedora.
+grub_boot_dir() {
+    if [ -n "${DOTFILES_GRUB_BOOT:-}" ]; then printf '%s' "$DOTFILES_GRUB_BOOT"; return 0; fi
+    if [ -d /boot/grub ]; then printf '%s' /boot/grub; return 0; fi
+    if [ -d /boot/grub2 ]; then printf '%s' /boot/grub2; return 0; fi
+    return 1
+}
+
+grub_present() {
+    [[ "$DISTRO" == "nix" ]] && return 1
+    grub_mkconfig_bin >/dev/null || return 1
+    [ -f "$(grub_etc)" ]
+}
+
+grub_theme_src() { printf '%s' "$DOTFILES_DIR/grub/themes/$GRUB_THEME_NAME"; }
+
+grub_theme_dest() {
+    local boot
+    boot="$(grub_boot_dir)" || boot="/boot/grub"
+    printf '%s' "$boot/themes/$GRUB_THEME_NAME"
+}
+
+grub_theme_file() { printf '%s/theme.txt' "$(grub_theme_dest)"; }
+
+grub_theme_line() { printf 'GRUB_THEME="%s"' "$(grub_theme_file)"; }
+
+# True when the active (uncommented) GRUB_THEME line is already ours.
+grub_theme_line_is_ours() {
+    local file; file="$(grub_etc)"
+    [ -f "$file" ] || return 1
+    grep -qxF "$(grub_theme_line)" "$file"
+}
+
+# Copy or write a file. sudo only when the destination is not writable, so a
+# sandbox path never goes through the stub sudo that refuses to copy.
+grub_place() {                  # grub_place <src> <dest>
+    local src="$1" dest="$2" dir
+    dir="$(dirname "$dest")"
+    if [ "$(id -u)" -eq 0 ] || [ -w "$dir" ]; then
+        mkdir -p "$dir"
+        cp -a "$src" "$dest"
+    else
+        sudo mkdir -p "$dir"
+        sudo cp -a "$src" "$dest"
+    fi
+}
+
+grub_write_file() {             # grub_write_file <src-tmp> <dest>
+    grub_place "$1" "$2"
+}
+
+# Replace every active GRUB_THEME= line, or append one. Comments stay.
+# Prints nothing. Returns 0 when the file changed.
+grub_set_theme_line() {
+    local file theme tmp line found=0 changed=0
+    file="$(grub_etc)"
+    theme="$(grub_theme_file)"
+    [ -f "$file" ] || return 1
+    grub_theme_line_is_ours && return 1
+    tmp="$(mktemp)"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            GRUB_THEME=*)
+                # Keep the previous value once, so uninstall can put it back.
+                if [ "$found" -eq 0 ] && [ ! -f "${file}.theme-prev" ]; then
+                    printf '%s\n' "$line" > "${file}.theme-prev" 2>/dev/null \
+                        || printf '%s\n' "$line" | sudo tee "${file}.theme-prev" >/dev/null
+                fi
+                printf 'GRUB_THEME="%s"\n' "$theme"
+                found=1
+                changed=1
+                ;;
+            *) printf '%s\n' "$line" ;;
+        esac
+    done < "$file" > "$tmp"
+    if [ "$found" -eq 0 ]; then
+        printf 'GRUB_THEME="%s"\n' "$theme" >> "$tmp"
+        changed=1
+    fi
+    grub_write_file "$tmp" "$file"
+    rm -f "$tmp"
+    [ "$changed" -eq 1 ]
+}
+
+grub_copy_theme() {
+    local src dest parent boot
+    src="$(grub_theme_src)"
+    dest="$(grub_theme_dest)"
+    [ -f "$src/theme.txt" ] || return 1
+    # The themes directory usually does not exist yet. Writability is the
+    # boot dir above it (/boot/grub or the sandbox stand-in).
+    parent="$(dirname "$dest")"
+    boot="$(dirname "$parent")"
+    if [ "$(id -u)" -eq 0 ] || [ -w "$boot" ] || [ -w "$parent" ] || { [ -d "$dest" ] && [ -w "$dest" ]; }; then
+        mkdir -p "$dest"
+        cp -a "$src/." "$dest/"
+    else
+        sudo mkdir -p "$dest"
+        sudo cp -a "$src/." "$dest/"
+    fi
+}
+
+grub_regen() {
+    local bin cfg boot
+    bin="$(grub_mkconfig_bin)" || return 1
+    boot="$(grub_boot_dir)" || return 1
+    cfg="$boot/grub.cfg"
+    if [ -w "$(dirname "$cfg")" ] || [ "$(id -u)" -eq 0 ]; then
+        "$bin" -o "$cfg" >/dev/null
+    else
+        sudo "$bin" -o "$cfg" >/dev/null
+    fi
+}
+
+# True when both the files and the GRUB_THEME line already match.
+grub_theme_current() {
+    local dest; dest="$(grub_theme_dest)"
+    grub_theme_line_is_ours || return 1
+    [ -d "$dest" ] && diff -rq "$(grub_theme_src)" "$dest" >/dev/null 2>&1
+}
+
+install_grub_theme() {
+    local changed=0 dest
+    [ -f "$(grub_etc)" ] || { error "No $(grub_etc) — GRUB is not set up here"; return 1; }
+    dest="$(grub_theme_dest)"
+    if [ -d "$dest" ] && diff -rq "$(grub_theme_src)" "$dest" >/dev/null 2>&1; then
+        :
+    else
+        grub_copy_theme || return 1
+        changed=1
+    fi
+    grub_set_theme_line && changed=1
+    if [ "$changed" -eq 0 ]; then
+        substep "${C_DIM}GRUB theme already in place${C_RESET}"
+        return 0
+    fi
+    if ! grub_regen; then
+        error "Could not regenerate grub.cfg"
+        return 1
+    fi
+    substep "${C_GREEN}GRUB_THEME${C_RESET} ${C_DIM}→ $(grub_theme_file)${C_RESET}"
+    substep "${C_DIM}Timeout and menu entries were left as they are${C_RESET}"
+}
+
+# Drop only our GRUB_THEME line. A theme that was there before is put back
+# from the one-line copy taken when we replaced it.
+remove_grub_theme() {
+    local file tmp line
+    file="$(grub_etc)"
+    [ -f "$file" ] || return 0
+    tmp="$(mktemp)"
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ "$line" = "$(grub_theme_line)" ] && continue
+        printf '%s\n' "$line"
+    done < "$file" > "$tmp"
+    if [ -f "${file}.theme-prev" ]; then
+        cat "${file}.theme-prev" >> "$tmp"
+        rm -f "${file}.theme-prev" 2>/dev/null || sudo rm -f "${file}.theme-prev"
+    fi
+    grub_write_file "$tmp" "$file"
+    rm -f "$tmp"
+    local dest; dest="$(grub_theme_dest)"
+    if [ -d "$dest" ]; then
+        if [ -w "$(dirname "$dest")" ] || [ "$(id -u)" -eq 0 ]; then
+            rm -rf "$dest"
+        else
+            sudo rm -rf "$dest"
+        fi
+    fi
+    grub_regen || true
+}
+
 # ── Configs ──────────────────────────────────────────────────────────────────
 # Declared here, beside the dep tools and the apps, rather than down in step 3:
 # --list prints all three and must not have to reach past the privilege prompt
 # and the package installs to find one of them. Nothing here needs either —
 # only $DISTRO, $IS_HEADLESS and strip_items, all settled near the top.
-CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline mpv fontconfig)
+CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git micro fresh ccstatusline mpv fontconfig grub)
 # Arch ships rofi 2.0 (Wayland support merged upstream); Debian/Ubuntu are
 # still on the 1.7.x X11-only build, so rofi stays Arch-only. Stripped, never
 # re-declared as a second literal list: a hand-maintained Debian copy silently
@@ -4299,6 +4498,9 @@ fi
 [[ "$DISTRO" == "fedora" ]] && strip_items CONFIGS ghostty protonvpn
 # NixOS: proton-vpn-cli is not in nixpkgs. Everything else is.
 [[ "$DISTRO" == "nix" ]] && strip_items CONFIGS protonvpn
+# Not a GUI entry: a headless machine with GRUB still gets the theme. A machine
+# without GRUB does not see the row at all, and the package is never installed.
+grub_present || strip_items CONFIGS grub
 [ "$IS_HEADLESS" -eq 1 ] && strip_items CONFIGS "${GUI_CONFIGS[@]}"
 
 # ── Optional dep tools ───────────────────────────────────────────────────────
@@ -4972,8 +5174,10 @@ CONFIG_DESC[ccstatusline]="Claude Code statusline"
 CONFIG_DESC[ulauncher]="app launcher"
 CONFIG_DESC[mpv]="media player"
 CONFIG_DESC[fontconfig]="fontconfig preferences"
+CONFIG_DESC[grub]="Tsushima GRUB theme"
 CONFIG_NOTE[mpv]="Catppuccin-friendly defaults — hwdec, osc, yt-dlp"
 CONFIG_NOTE[fontconfig]="prefers JetBrainsMono Nerd Font and Maple Mono"
+CONFIG_NOTE[grub]="sets GRUB_THEME only — timeout and menu entries stay as they are. Hidden when GRUB is not installed"
 
 CONFIG_NOTE[ghostty]="set in JetBrainsMono Nerd Font, which comes with any config"
 CONFIG_NOTE[kitty]="set in JetBrainsMono Nerd Font, which comes with any config"
@@ -5536,6 +5740,21 @@ plan_body() {
             else
                 steps+=("${C_YELLOW}needs bun${C_RESET} ${C_DIM}— it will not render without it${C_RESET}")
             fi
+        elif [[ "$cfg" == "grub" ]]; then
+            # No package. GRUB is already there or this row would not be offered.
+            # Another theme is a name change only: its GRUB_THEME line is
+            # replaced and remembered, and its files are left where they are.
+            if grub_theme_current; then
+                steps+=("${C_DIM}theme already in place${C_RESET} ${C_DIM}(${GRUB_THEME_NAME})${C_RESET}")
+            else
+                local _gprev
+                _gprev="$(grep -E '^GRUB_THEME=' "$(grub_etc)" 2>/dev/null | head -1 || true)"
+                if [ -n "$_gprev" ]; then
+                    steps+=("${C_YELLOW}replaces the current theme${C_RESET} ${C_DIM}${_gprev#GRUB_THEME=}${C_RESET}")
+                fi
+                steps+=("${C_GREEN}set GRUB_THEME${C_RESET} ${C_DIM}→ $(grub_theme_file) (${GRUB_THEME_NAME})${C_RESET}")
+            fi
+            steps+=("${C_DIM}timeout and menu entries are left as they are${C_RESET}")
         elif pkg_installed_snapshot "$pkg"; then
             steps+=("${C_DIM}$pkg already installed$(deb_latest_note "$cfg")${C_RESET}")
         else
@@ -5993,6 +6212,7 @@ backup_bases() {
             git)       printf '%s\n' "$HOME/.gitconfig" ;;
             starship)  printf '%s\n' "$XDG_CONFIG/starship.toml" ;;
             protonvpn) printf '%s\n' "$HOME/scripts/pvpn" "$HOME/scripts/pvpn/pvpn.zsh" ;;
+            grub)      ;;
             *)         printf '%s\n' "$XDG_CONFIG/$n" ;;
         esac
     done
@@ -6130,6 +6350,7 @@ uninstall_target() {            # uninstall_target <cfg> — prints the path it 
         git)       printf '%s' "$HOME/.gitconfig" ;;
         starship)  printf '%s' "$XDG_CONFIG/starship.toml" ;;
         protonvpn) printf '%s' "$HOME/scripts/pvpn/pvpn.zsh" ;;
+        grub)      printf '%s' "$(grub_theme_file)" ;;
         *)         printf '%s' "$XDG_CONFIG/$(side_config_dir "$1")" ;;
     esac
 }
@@ -6151,6 +6372,10 @@ uninstall_stow_args() {         # uninstall_stow_args <cfg> — prints "<target-
 # any entry inside pointing back into the checkout — the directory itself is
 # real, stow only links the files in it.
 uninstall_is_ours() {           # uninstall_is_ours <cfg>
+    if [ "$1" = grub ]; then
+        grub_theme_line_is_ours
+        return
+    fi
     local t; t="$(uninstall_target "$1")"
     is_repo_link "$t" && return 0
     [ -d "$t" ] || return 1
@@ -6177,6 +6402,13 @@ uninstall_run() {
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Uninstall${C_RESET}"
     local plan=()
     for cfg in "${list[@]}"; do
+        if [ "$cfg" = grub ]; then
+            if uninstall_is_ours "$cfg"; then
+                plan+=("$cfg")
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}remove${C_RESET} ${C_DIM}GRUB_THEME (timeout and menu entries stay)${C_RESET}"
+            fi
+            continue
+        fi
         t="$(uninstall_target "$cfg")"
         bak="${t}.bak"
         if uninstall_is_ours "$cfg"; then
@@ -6211,6 +6443,16 @@ uninstall_run() {
 
     info "Unstowing..."
     for cfg in "${plan[@]}"; do
+        if [ "$cfg" = grub ]; then
+            if remove_grub_theme; then
+                removed+=("$cfg")
+                substep "Removed the ${C_ACCENT}GRUB theme${C_RESET}"
+            else
+                failed+=("$cfg")
+                substep "${C_YELLOW}Could not remove the GRUB theme${C_RESET}"
+            fi
+            continue
+        fi
         read -r dir pkg <<< "$(uninstall_stow_args "$cfg")"
         t="$(uninstall_target "$cfg")"
         bak="${t}.bak"
@@ -7134,6 +7376,14 @@ for cfg in "${SELECTED[@]}"; do
     pkg="${PKG_MAP[$cfg]}"
 
     case "$cfg" in
+
+      # ── grub: theme only. No package, no timeout, no menu entries.
+      grub)
+        if ! install_grub_theme; then
+            FAILED+=("$cfg")
+            continue
+        fi
+        ;;
 
       # ── fastfetch / ghostty / kitty / rofi / micro / fresh / mpv / fontconfig
       fastfetch|ghostty|kitty|rofi|micro|fresh|mpv|fontconfig)
