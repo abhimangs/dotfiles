@@ -4292,7 +4292,7 @@ needs_wallpaper() {
 # installer does not edit, so it is never offered there.
 # DOTFILES_GRUB_ETC / DOTFILES_GRUB_BOOT exist so the suite can point at a
 # sandbox. Unset, they are the real paths.
-GRUB_THEME_NAME="grub-of-tsushima"
+GRUB_THEME_NAME="votex"
 
 grub_etc() { printf '%s' "${DOTFILES_GRUB_ETC:-/etc/default/grub}"; }
 
@@ -5174,7 +5174,7 @@ CONFIG_DESC[ccstatusline]="Claude Code statusline"
 CONFIG_DESC[ulauncher]="app launcher"
 CONFIG_DESC[mpv]="media player"
 CONFIG_DESC[fontconfig]="fontconfig preferences"
-CONFIG_DESC[grub]="Tsushima GRUB theme"
+CONFIG_DESC[grub]="votex GRUB theme"
 CONFIG_NOTE[mpv]="Catppuccin-friendly defaults — hwdec, osc, yt-dlp"
 CONFIG_NOTE[fontconfig]="prefers JetBrainsMono Nerd Font and Maple Mono"
 CONFIG_NOTE[grub]="sets GRUB_THEME only — timeout and menu entries stay as they are. Hidden when GRUB is not installed"

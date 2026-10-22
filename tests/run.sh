@@ -1593,16 +1593,16 @@ grep -qx 'GRUB_DEFAULT="0"' "$g/etc/default/grub" \
     && note grub-theme "default untouched" || bad grub-theme "default was changed"
 grep -qx '#GRUB_THEME="/path/to/gfxtheme"' "$g/etc/default/grub" \
     && note grub-theme "commented example left in place" || bad grub-theme "commented GRUB_THEME line changed"
-grep -qx "GRUB_THEME=\"$g/boot/grub/themes/grub-of-tsushima/theme.txt\"" "$g/etc/default/grub" \
+grep -qx "GRUB_THEME=\"$g/boot/grub/themes/votex/theme.txt\"" "$g/etc/default/grub" \
     && note grub-theme "GRUB_THEME set" || bad grub-theme "GRUB_THEME was not set"
 grep -q 'starfield' "$g/etc/default/grub" \
     && bad grub-theme "the previous theme line is still active" \
     || note grub-theme "previous theme line replaced"
 grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub.theme-prev" \
     && note grub-theme "previous theme kept for uninstall" || bad grub-theme "previous theme was not saved"
-[ -f "$g/boot/grub/themes/grub-of-tsushima/theme.txt" ] \
+[ -f "$g/boot/grub/themes/votex/theme.txt" ] \
     && note grub-theme "theme.txt copied" || bad grub-theme "theme.txt missing"
-grep -q 'japanese_landscape_1920x1200.png' "$g/boot/grub/themes/grub-of-tsushima/theme.txt" \
+grep -q 'japanese_landscape_1920x1200.png' "$g/boot/grub/themes/votex/theme.txt" \
     && note grub-theme "the active theme" || bad grub-theme "theme.txt is not the installed one"
 [ -f "$g/boot/grub/grub.cfg" ] \
     && note grub-theme "grub.cfg regenerated" || bad grub-theme "grub-mkconfig did not run"
@@ -1617,7 +1617,7 @@ cmp -s "$g/etc/default/grub.before" "$g/etc/default/grub" \
     || bad grub-theme-2 "second run rewrote /etc/default/grub"
 want    grub-theme-2 'already in place' 'said the theme was already there'
 want    grub-theme 'replaces the current theme' 'named the theme it is taking over'
-want    grub-theme 'grub-of-tsushima' 'named the theme it is setting'
+want    grub-theme 'votex' 'named the theme it is setting'
 
 # Uninstall puts the previous theme's name back and removes only ours.
 printf 'y\n\n' > "$WORK/k-grub-yes"
@@ -1629,9 +1629,9 @@ grep -qx 'GRUB_TIMEOUT="5"' "$g/etc/default/grub" \
     && note grub-theme-undo "timeout still untouched" || bad grub-theme-undo "timeout changed on uninstall"
 grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub" \
     && note grub-theme-undo "previous theme name restored" || bad grub-theme-undo "previous theme was not restored"
-grep -q 'grub-of-tsushima' "$g/etc/default/grub" \
+grep -q 'votex' "$g/etc/default/grub" \
     && bad grub-theme-undo "our theme name is still set" || note grub-theme-undo "our theme name removed"
-[ ! -e "$g/boot/grub/themes/grub-of-tsushima" ] \
+[ ! -e "$g/boot/grub/themes/votex" ] \
     && note grub-theme-undo "our theme directory removed" || bad grub-theme-undo "theme directory still there"
 [ -d "$g/boot/grub/themes" ] || mkdir -p "$g/boot/grub/themes"
 # starfield was never ours to delete; the line is the whole of that theme here.
@@ -1640,7 +1640,7 @@ STUB_GRUB=2 run grub-fedora fedora "$WORK/k-sel" DOTFILES_CONFIGS=grub \
     DOTFILES_GRUB_ETC="$WORK/run/grub-fedora/etc/default/grub" \
     DOTFILES_GRUB_BOOT="$WORK/run/grub-fedora/boot/grub2"
 check   grub-fedora 0
-grep -qx "GRUB_THEME=\"$WORK/run/grub-fedora/boot/grub2/themes/grub-of-tsushima/theme.txt\"" \
+grep -qx "GRUB_THEME=\"$WORK/run/grub-fedora/boot/grub2/themes/votex/theme.txt\"" \
     "$WORK/run/grub-fedora/etc/default/grub" \
     && note grub-fedora "GRUB_THEME set for grub2" || bad grub-fedora "GRUB_THEME was not set"
 grep -qx 'GRUB_TIMEOUT="5"' "$WORK/run/grub-fedora/etc/default/grub" \
