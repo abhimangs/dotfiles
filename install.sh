@@ -1560,6 +1560,9 @@ PKG_BIN[jq]="jq"
 PKG_BIN[btop]="btop"
 PKG_BIN[micro]="micro"
 PKG_BIN[neovim]="nvim"
+# nixpkgs names differ from the binaries (and from fc-cache).
+PKG_BIN[fresh-editor]="fresh"
+PKG_BIN[fontconfig]="fc-cache"
 
 pkg_installed() {
     local pkg="$1"
@@ -2212,15 +2215,21 @@ NIX_FLAGS=(--extra-experimental-features 'nix-command flakes')
 NIX_LAST_ERROR=""
 
 # Every attribute in the user's profile, one per line, whichever tool made it.
-# Pure bash on purpose: the nixos/nix smoke image has no sed until the
-# bootstrap installs gnused, and this runs during that same install.
+# Parameter expansion, not a regex: bash's =~ quoting differs between 5.1 and
+# 5.2, and a miss here reinstalls every package on the next run.
 nix_profile_attrs() {
     command -v nix &>/dev/null || return 0
     local json line attr
     json=$(nix "${NIX_FLAGS[@]}" profile list --json 2>/dev/null) || true
     while IFS= read -r line; do
-        [[ "$line" =~ \"attrPath\":[[:space:]]*\"([^\"]+)\" ]] || continue
-        attr="${BASH_REMATCH[1]}"
+        case "$line" in *'"attrPath"'*) ;; *) continue ;; esac
+        # "attrPath": "legacyPackages.x86_64-linux.fresh-editor"
+        # or "attrPath": "nixpkgs#fresh-editor"
+        attr="${line#*\"attrPath\"}"
+        attr="${attr#*\"}"
+        attr="${attr%%\"*}"
+        [ -n "$attr" ] || continue
+        attr="${attr##*#}"
         printf '%s\n' "${attr##*.}"
     done <<< "$json"
     while IFS= read -r line; do
@@ -3444,6 +3453,24 @@ same_shell() {
     [ -n "$1" ] && [ -n "$2" ] || return 1
     [ "$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")" = \
       "$(readlink -f "$2" 2>/dev/null || printf '%s' "$2")" ]
+}
+
+# Login shell from the passwd database. getent is glibc's; the nixos/nix
+# container has no getent and no /usr/bin, so read /etc/passwd directly.
+login_shell_of() {              # login_shell_of <user>
+    local name shell
+    if command -v getent >/dev/null 2>&1; then
+        getent passwd "$1" 2>/dev/null | cut -d: -f7
+        return 0
+    fi
+    [ -r /etc/passwd ] || return 0
+    while IFS=: read -r name _ _ _ _ _ shell _; do
+        if [ "$name" = "$1" ]; then
+            printf '%s\n' "$shell"
+            return 0
+        fi
+    done < /etc/passwd
+    return 0
 }
 
 # ── The pristine ~/.bashrc ───────────────────────────────────────────────────
@@ -5736,7 +5763,7 @@ restore_bash() {
     # `install.sh --restore-bash && echo ok` always said ok.
     local _rb_failed=0
     target_user="$(id -un)"
-    current_shell="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f7)"
+    current_shell="$(login_shell_of "$target_user")"
     bash_path="$(command -v bash 2>/dev/null)"
 
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Restore bash${C_RESET}"
@@ -5919,10 +5946,10 @@ restore_bash() {
             grep -qxs "$bash_path" /etc/shells \
                 || echo "$bash_path" | sudo tee -a /etc/shells &>/dev/null
             sudo chsh -s "$bash_path" "$target_user" </dev/null &>/dev/null || true
-            if ! same_shell "$(getent passwd "$target_user" | cut -d: -f7)" "$bash_path"; then
+            if ! same_shell "$(login_shell_of "$target_user")" "$bash_path"; then
                 sudo usermod -s "$bash_path" "$target_user" </dev/null &>/dev/null || true
             fi
-            new_shell="$(getent passwd "$target_user" | cut -d: -f7)"
+            new_shell="$(login_shell_of "$target_user")"
             if same_shell "$new_shell" "$bash_path"; then
                 substep "${C_GREEN}Login shell for ${target_user} is now ${bash_path}${C_RESET}"
             else
@@ -7221,7 +7248,7 @@ for cfg in "${SELECTED[@]}"; do
         # kernel who we are instead of trusting the environment.
         target_user="$(id -un)"
         zsh_path="$(command -v zsh)"
-        current_shell="$(getent passwd "$target_user" | cut -d: -f7)"
+        current_shell="$(login_shell_of "$target_user")"
         if [ -z "$zsh_path" ]; then
             # The package manager reported success but no zsh landed on PATH.
             # Without this guard the fallbacks below run 'chsh -s "" <user>',
@@ -7260,7 +7287,7 @@ for cfg in "${SELECTED[@]}"; do
             # Without it the prompt reads the installer's own stdin and hangs.
             sudo chsh -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
 
-            if ! same_shell "$(getent passwd "$target_user" | cut -d: -f7)" "$zsh_path"; then
+            if ! same_shell "$(login_shell_of "$target_user")" "$zsh_path"; then
                 # PAM refuses on cloud accounts with no local password
                 # (SSH-key-only login). usermod writes /etc/passwd directly.
                 sudo usermod -s "$zsh_path" "$target_user" </dev/null &>/dev/null || true
@@ -7269,7 +7296,7 @@ for cfg in "${SELECTED[@]}"; do
             # Read it back rather than trusting an exit code. chsh can exit 0
             # having changed nothing, which is exactly how the shell ends up
             # still being bash after logging out and back in.
-            new_shell="$(getent passwd "$target_user" | cut -d: -f7)"
+            new_shell="$(login_shell_of "$target_user")"
             if same_shell "$new_shell" "$zsh_path"; then
                 substep "${C_GREEN}Login shell for ${target_user} is now ${zsh_path}${C_RESET}"
                 substep "${C_DIM}Applies at next login — or run ${C_ACCENT}exec zsh${C_DIM} to switch now${C_RESET}"

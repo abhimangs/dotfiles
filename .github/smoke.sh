@@ -63,8 +63,10 @@ EOF
     # sed/awk/python3: install.sh, doctor.sh and smoke-checks use them; the
     # image's PATH does not. getent is nice for doctor.sh but optional. No
     # useradd — only what the smoke needs.
+    # ncurses: zsh-you-should-use warns when tput is missing, and that warning
+    # fails the "warm zsh starts silently" check.
     for _pair in sudo:sudo 'script:util-linux' stow:stow \
-                 sed:gnused awk:gawk python3:python3; do
+                 sed:gnused awk:gawk python3:python3 tput:ncurses; do
         _bin="${_pair%%:*}"; _attr="${_pair#*:}"
         _nix_need "$_bin" && continue
         nix --extra-experimental-features 'nix-command flakes' profile install \
