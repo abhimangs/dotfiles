@@ -1819,6 +1819,31 @@ GT_SCRIPT="$g/grubcopy/grub-theme.sh" STUB_GRUB=1 gt gt-verify2 arch 0 verify
 gk gt-verify2 "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
 want gt-verify2 'progressive \(GRUB reads baseline JPEGs only\)' 'progressive background caught'
 want gt-verify2 'desktop-image-scale-method "zoom".*is not one GRUB knows' 'unknown scale method caught'
+
+# grub.cfg edited after it was built. Extra --class options (an icon) are
+# carried into the rebuilt one; a command added to an entry, or a password
+# written into grub.cfg itself, would be lost, so that stops it.
+STUB_GRUB=1 gt_box gt-class arch; g="$WORK/run/gt-class"
+sed -i "s/^submenu 'Advanced options for Arch Linux' {/submenu 'Advanced options for Arch Linux' --class submenu {/" "$g/boot/grub/grub.cfg"
+STUB_GRUB=1 gt gt-class arch 0 install
+gk gt-class "rc 0" '[ "$(cat "$g/rc")" = 0 ]'
+want gt-class 'kept from the current grub.cfg:.*Advanced options for Arch Linux' 'said it kept the icon'
+gk gt-class "class still there, theme in" 'grep -q "^submenu .Advanced options for Arch Linux. --class submenu {" "$g/boot/grub/grub.cfg" && grep -q "themes/vortex/theme.txt" "$g/boot/grub/grub.cfg"'
+STUB_GRUB=1 gt gt-class arch 0 uninstall
+gk gt-class "class kept by uninstall too" 'grep -q "^submenu .Advanced options for Arch Linux. --class submenu {" "$g/boot/grub/grub.cfg"'
+STUB_GRUB=1 gt_box gt-edited arch; g="$WORK/run/gt-edited"
+sed -i "/^menuentry 'Arch Linux' {/a linux /vmlinuz-linux nomodeset" "$g/boot/grub/grub.cfg"
+cp -p "$g/boot/grub/grub.cfg" "$g/state/grub.cfg.edited"
+STUB_GRUB=1 gt gt-edited arch 0 install
+gk gt-edited "rc 1, nothing changed" '[ "$(cat "$g/rc")" = 1 ] && cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && cmp -s "$g/state/grub.cfg.edited" "$g/boot/grub/grub.cfg"'
+want gt-edited 'would change: Arch Linux \(its commands\)' 'named the entry'
+STUB_GRUB=1 gt_box gt-pw arch; g="$WORK/run/gt-pw"
+{ printf 'set superusers="root"\npassword_pbkdf2 root grub.pbkdf2.sha512.10000.ABCDEF\n'; cat "$g/boot/grub/grub.cfg"; } > "$g/state/pw.cfg"
+cat "$g/state/pw.cfg" > "$g/boot/grub/grub.cfg"
+STUB_GRUB=1 gt gt-pw arch 0 install
+gk gt-pw "rc 1, grub.cfg untouched" '[ "$(cat "$g/rc")" = 1 ] && cmp -s "$g/state/pw.cfg" "$g/boot/grub/grub.cfg"'
+want gt-pw 'would drop its password: password_pbkdf2 root, set superusers="root"' 'named the lines'
+nowant gt-pw 'grub\.pbkdf2\.' 'never printed the hash'
 }
 
 echo

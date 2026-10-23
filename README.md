@@ -270,7 +270,15 @@ What it changes, and nothing else:
 
 Every change is recorded in `/etc/default/grub.theme-undo`, and `uninstall` (or `install.sh --uninstall=grub`) puts each one back. `/etc/default/grub` comes back byte for byte, including its CRLF line endings or missing final newline.
 
-`grub.cfg` is never rebuilt blind. The new one is built into a temp file and its menu compared with the current one. If an entry would disappear (Windows, when os-prober has been switched off since the last build) or show up twice, nothing is changed, and whatever was already done is rolled back. To apply it anyway, run `grub-theme.sh install --accept-menu-changes`. The old `grub.cfg` is kept as `grub.cfg.bak`. The same rollback happens if `grub-mkconfig` fails, if it does not load the theme, or if the run is interrupted.
+`grub.cfg` is never rebuilt blind. The new one is built into a temp file and its menu compared with the current one. Nothing is changed, and whatever was already done is rolled back, if an entry would:
+
+- disappear (Windows, when os-prober has been switched off since the last build);
+- show up twice;
+- come out different, because `grub.cfg` was edited by hand after it was built (a kernel option added to an entry) or a setting was changed and never applied.
+
+The same goes for a password (`set superusers`, `password_pbkdf2`) written into `grub.cfg` itself, which a rebuild would drop and leave the menu open to anyone.
+
+To apply it anyway, run `grub-theme.sh install --accept-menu-changes`. The one hand edit carried into the new `grub.cfg` is extra `--class` options on an entry, which only pick its icon. The old `grub.cfg` is kept as `grub.cfg.bak`. The same rollback happens if `grub-mkconfig` fails, if it does not load the theme, or if the run is interrupted.
 
 The plan also warns about things it leaves alone:
 
