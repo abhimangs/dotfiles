@@ -487,13 +487,13 @@ menu_diff() {
 # may be shared with the copy that did run). Prints "<script>\t<the one that ran>".
 dupes() {
     [ -d "$GRUBD/proxifiedScripts" ] || return 0
-    [ "$BOOT_UNMOUNTED" -eq 0 ] && cfg_generated "$CFG" || return 0
+    if [ "$BOOT_UNMOUNTED" -ne 0 ] || ! cfg_generated "$CFG"; then return 0; fi
     local -a ran
     local f r role rrole match
     mapfile -t ran < <(cfg_scripts "$CFG")
     [ "${#ran[@]}" -gt 0 ] || return 0
     for f in "$GRUBD"/[0-9]*; do
-        [ -f "$f" ] && [ ! -L "$f" ] && [ -x "$f" ] || continue
+        if [ ! -f "$f" ] || [ -L "$f" ] || [ ! -x "$f" ]; then continue; fi
         match=""
         for r in "${ran[@]}"; do
             [ "$r" = "$f" ] && { match=ran; break; }
