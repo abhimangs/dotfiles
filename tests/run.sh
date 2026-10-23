@@ -1574,86 +1574,239 @@ nowant  flags-all 'Failed \('                  'nothing failed'
 
 echo
 echo "── grub theme ───────────────────────────────────────────"
+# grub/grub-theme.sh does the work; these first scenarios drive it through
+# install.sh, the rest call it directly against a grub_fixture sandbox (no
+# installer, no repo copy). gk: one assertion, by its own condition — single-
+# quoted on purpose, since eval expands it (SC2016); GT_ENV is read by gt in
+# harness.sh (SC2034). One directive for the block, not one per line.
+# shellcheck disable=SC2016,SC2034
+{
+gk() { if eval "$3"; then note "$1" "$2"; else bad "$1" "$2"; fi; }
+gtitles() { awk '/^[[:space:]]*(menuentry|submenu)/' "$1" | sed 's/^[[:space:]]*//' | sort; }
+
 # No bootloader in the sandbox: the row is not in the menu and --configs=grub
-# is an unknown name. A machine without GRUB must not be offered a theme.
+# is an unknown name. The harness points DOTFILES_GRUB_ETC into the sandbox
+# for every scenario, so a runner that boots with GRUB itself (whose
+# /usr/sbin/grub-mkconfig is found even off PATH) still has none here.
 run     grub-absent ubuntu "$WORK/k-sel" DOTFILES_CONFIGS=grub
 check   grub-absent 2
 want    grub-absent 'Unknown config' 'hidden when GRUB is not installed'
 
-# Arch, then Fedora's grub2. Only GRUB_THEME changes; the timeout, the default
-# and the commented example line stay byte for byte.
-STUB_GRUB=1 run grub-theme arch "$WORK/k-sel" DOTFILES_CONFIGS=grub \
-    DOTFILES_GRUB_ETC="$WORK/run/grub-theme/etc/default/grub" \
-    DOTFILES_GRUB_BOOT="$WORK/run/grub-theme/boot/grub"
-check   grub-theme 0
-g="$WORK/run/grub-theme"
-grep -qx 'GRUB_TIMEOUT="5"' "$g/etc/default/grub" \
-    && note grub-theme "timeout untouched" || bad grub-theme "timeout was changed"
-grep -qx 'GRUB_DEFAULT="0"' "$g/etc/default/grub" \
-    && note grub-theme "default untouched" || bad grub-theme "default was changed"
-grep -qx '#GRUB_THEME="/path/to/gfxtheme"' "$g/etc/default/grub" \
-    && note grub-theme "commented example left in place" || bad grub-theme "commented GRUB_THEME line changed"
-grep -qx "GRUB_THEME=\"$g/boot/grub/themes/votex/theme.txt\"" "$g/etc/default/grub" \
-    && note grub-theme "GRUB_THEME set" || bad grub-theme "GRUB_THEME was not set"
-grep -q 'starfield' "$g/etc/default/grub" \
-    && bad grub-theme "the previous theme line is still active" \
-    || note grub-theme "previous theme line replaced"
-grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub.theme-prev" \
-    && note grub-theme "previous theme kept for uninstall" || bad grub-theme "previous theme was not saved"
-[ -f "$g/boot/grub/themes/votex/theme.txt" ] \
-    && note grub-theme "theme.txt copied" || bad grub-theme "theme.txt missing"
-grep -q 'japanese_landscape_1920x1200.png' "$g/boot/grub/themes/votex/theme.txt" \
-    && note grub-theme "the active theme" || bad grub-theme "theme.txt is not the installed one"
-[ -f "$g/boot/grub/grub.cfg" ] \
-    && note grub-theme "grub.cfg regenerated" || bad grub-theme "grub-mkconfig did not run"
-# A second run must not rewrite the defaults again.
-cp "$g/etc/default/grub" "$g/etc/default/grub.before"
-rerun   grub-theme-2 grub-theme "$WORK/k-sel" DOTFILES_CONFIGS=grub \
-    DOTFILES_GRUB_ETC="$g/etc/default/grub" \
-    DOTFILES_GRUB_BOOT="$g/boot/grub"
-check   grub-theme-2 0
-cmp -s "$g/etc/default/grub.before" "$g/etc/default/grub" \
-    && note grub-theme-2 "second run left /etc/default/grub alone" \
-    || bad grub-theme-2 "second run rewrote /etc/default/grub"
-want    grub-theme-2 'already in place' 'said the theme was already there'
-want    grub-theme 'replaces the current theme' 'named the theme it is taking over'
-want    grub-theme 'votex' 'named the theme it is setting'
-
-# Uninstall puts the previous theme's name back and removes only ours.
-printf 'y\n\n' > "$WORK/k-grub-yes"
-RUN_ARGS="--uninstall=grub" rerun grub-theme-undo grub-theme "$WORK/k-grub-yes" \
-    DOTFILES_GRUB_ETC="$g/etc/default/grub" \
-    DOTFILES_GRUB_BOOT="$g/boot/grub"
-check   grub-theme-undo 0
-grep -qx 'GRUB_TIMEOUT="5"' "$g/etc/default/grub" \
-    && note grub-theme-undo "timeout still untouched" || bad grub-theme-undo "timeout changed on uninstall"
-grep -qx 'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' "$g/etc/default/grub" \
-    && note grub-theme-undo "previous theme name restored" || bad grub-theme-undo "previous theme was not restored"
-grep -q 'votex' "$g/etc/default/grub" \
-    && bad grub-theme-undo "our theme name is still set" || note grub-theme-undo "our theme name removed"
-[ ! -e "$g/boot/grub/themes/votex" ] \
-    && note grub-theme-undo "our theme directory removed" || bad grub-theme-undo "theme directory still there"
-[ -d "$g/boot/grub/themes" ] || mkdir -p "$g/boot/grub/themes"
-# starfield was never ours to delete; the line is the whole of that theme here.
-
-STUB_GRUB=2 run grub-fedora fedora "$WORK/k-sel" DOTFILES_CONFIGS=grub \
-    DOTFILES_GRUB_ETC="$WORK/run/grub-fedora/etc/default/grub" \
-    DOTFILES_GRUB_BOOT="$WORK/run/grub-fedora/boot/grub2"
-check   grub-fedora 0
-grep -qx "GRUB_THEME=\"$WORK/run/grub-fedora/boot/grub2/themes/votex/theme.txt\"" \
-    "$WORK/run/grub-fedora/etc/default/grub" \
-    && note grub-fedora "GRUB_THEME set for grub2" || bad grub-fedora "GRUB_THEME was not set"
-grep -qx 'GRUB_TIMEOUT="5"' "$WORK/run/grub-fedora/etc/default/grub" \
-    && note grub-fedora "timeout untouched" || bad grub-fedora "timeout was changed"
-[ -f "$WORK/run/grub-fedora/boot/grub2/grub.cfg" ] \
-    && note grub-fedora "grub2-mkconfig ran" || bad grub-fedora "grub2-mkconfig did not run"
-
 # NixOS generates grub.cfg from configuration.nix. The row stays hidden.
-STUB_GRUB=1 run grub-nix nix "$WORK/k-sel" DOTFILES_CONFIGS=grub \
-    DOTFILES_GRUB_ETC="$WORK/run/grub-nix/etc/default/grub" \
-    DOTFILES_GRUB_BOOT="$WORK/run/grub-nix/boot/grub"
+STUB_GRUB=1 run grub-nix nix "$WORK/k-sel" DOTFILES_CONFIGS=grub
 check   grub-nix 2
 want    grub-nix 'Unknown config' 'hidden on NixOS'
+
+# A dry run plans it and touches nothing.
+STUB_GRUB=1 RUN_ARGS="--dry-run" run grub-dry arch "$WORK/k-sel" DOTFILES_CONFIGS=grub
+check   grub-dry 0
+g="$WORK/run/grub-dry"
+want    grub-dry 'set GRUB_THEME' 'the plan names GRUB_THEME'
+want    grub-dry 'rebuild grub.cfg' 'and the rebuild'
+gk grub-dry "nothing written" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && [ ! -e "$g/boot/grub/themes/vortex" ] && [ ! -s "$g/state/grub-mkconfig.log" ]'
+
+# Arch, end to end. Only GRUB_THEME changes; the file keeps its mode (a cp -a
+# of a mktemp file once made it the user's, 0600), the copy in /boot is the
+# repo's, and grub.cfg loads it.
+STUB_GRUB=1 run grub-theme arch "$WORK/k-sel" DOTFILES_CONFIGS=grub
+check   grub-theme 0
+g="$WORK/run/grub-theme"
+gk grub-theme "GRUB_THEME set" 'grep -qx "GRUB_THEME=\"$g/boot/grub/themes/vortex/theme.txt\"" "$g/etc/default/grub"'
+gk grub-theme "every other line byte for byte" 'diff <(grep -v "^GRUB_THEME=" "$g/state/grub.orig") <(grep -v "^GRUB_THEME=" "$g/etc/default/grub") >/dev/null'
+gk grub-theme "mode kept" '[ "$(stat -c %a "$g/state/grub.orig")" = "$(stat -c %a "$g/etc/default/grub")" ]'
+gk grub-theme "the copy in /boot is the repo's" 'diff -rq -x .installed "$g/home/dotfiles/grub/themes/vortex" "$g/boot/grub/themes/vortex" >/dev/null'
+gk grub-theme "no staging dir left" '[ ! -e "$g/boot/grub/themes/.vortex.new" ] && [ ! -e "$g/boot/grub/themes/.vortex.old" ]'
+gk grub-theme "grub.cfg loads it" 'grep -q "^set theme=.*/themes/vortex/theme.txt" "$g/boot/grub/grub.cfg"'
+gk grub-theme "old grub.cfg kept" 'cmp -s "$g/state/grub.cfg.orig" "$g/boot/grub/grub.cfg.bak"'
+gk grub-theme "the replaced line recorded" 'grep -qx "was	GRUB_THEME=\"/boot/grub/themes/starfield/theme.txt\"" "$g/etc/default/grub.theme-undo"'
+want    grub-theme 'replaces the current theme' 'named the theme it is taking over'
+want    grub-theme 'the GRUB theme brings its own' 'no terminal fonts for a grub-only run'
+nowant  grub-theme 'install stow' 'and no stow'
+nowant  grub-theme 'did not load' 'grub-mkconfig loaded the theme'
+# A second run changes nothing and rebuilds nothing.
+cp "$g/etc/default/grub" "$g/state/grub.after"
+rerun   grub-theme-2 grub-theme "$WORK/k-sel" DOTFILES_CONFIGS=grub
+check   grub-theme-2 0
+gk grub-theme-2 "file left alone" 'cmp -s "$g/state/grub.after" "$g/etc/default/grub"'
+gk grub-theme-2 "no second rebuild" '[ "$(grep -c . "$g/state/grub-mkconfig.log")" = 1 ]'
+want    grub-theme-2 'already in place' 'said so'
+# Uninstall gives the file back byte for byte.
+printf 'y\n\n' > "$WORK/k-grub-yes"
+RUN_ARGS="--uninstall=grub" rerun grub-theme-undo grub-theme "$WORK/k-grub-yes"
+check   grub-theme-undo 0
+want    grub-theme-undo 'remove.*the GRUB theme' 'the list named it'
+gk grub-theme-undo "/etc/default/grub back to the byte" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+gk grub-theme-undo "theme dir and record gone" '[ ! -e "$g/boot/grub/themes/vortex" ] && [ ! -e "$g/etc/default/grub.theme-undo" ]'
+gk grub-theme-undo "grub.cfg no longer names it" '! grep -q vortex "$g/boot/grub/grub.cfg"'
+
+# Fedora on a desktop, end to end: grub2, and the console terminal and
+# menu_auto_hide its installer leaves, both of which would hide any theme.
+STUB_GRUB=2 RUN_ARGS=--gui run grub-fedora fedora "$WORK/k-sel" DOTFILES_CONFIGS=grub \
+    DOTFILES_GRUB_BOOT="$WORK/run/grub-fedora/boot/grub2"
+check   grub-fedora 0
+g="$WORK/run/grub-fedora"
+want    grub-fedora 'GRUB_TERMINAL_OUTPUT console → gfxterm' 'the plan named the switch'
+gk grub-fedora "gfxterm in place of console" 'grep -qx "GRUB_TERMINAL_OUTPUT=\"gfxterm\"" "$g/etc/default/grub"'
+gk grub-fedora "menu_auto_hide unset" '! grep -q menu_auto_hide "$g/boot/grub2/grubenv"'
+gk grub-fedora "grub.cfg loads it" 'grep -q "^set theme=.*/grub2/themes/vortex/theme.txt" "$g/boot/grub2/grub.cfg"'
+gk grub-fedora "the rest byte for byte" 'diff <(grep -v "^GRUB_THEME=\|^GRUB_TERMINAL_OUTPUT=" "$g/state/grub.orig") <(grep -v "^GRUB_THEME=\|^GRUB_TERMINAL_OUTPUT=" "$g/etc/default/grub") >/dev/null'
+RUN_ARGS="--uninstall=grub" rerun grub-fedora-undo grub-fedora "$WORK/k-grub-yes" \
+    DOTFILES_GRUB_BOOT="$WORK/run/grub-fedora/boot/grub2"
+check   grub-fedora-undo 0
+want    grub-fedora-undo 'GRUB_TERMINAL_OUTPUT' 'the list named the terminal'
+gk grub-fedora-undo "console and the missing GRUB_THEME both back" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+gk grub-fedora-undo "menu_auto_hide back" 'grep -qx menu_auto_hide=1 "$g/boot/grub2/grubenv"'
+
+# ── grub-theme.sh on its own ──
+# Fedora with no display: the console terminal is left alone and said so, and
+# a hidden menu is not made visible for a theme that cannot load anyway.
+STUB_GRUB=2 gt_box gt-fedora fedora; g="$WORK/run/gt-fedora"
+STUB_GRUB=2 gt gt-fedora fedora 1 install
+gk gt-fedora "rc 0" '[ "$(cat "$g/rc")" = 0 ]'
+gk gt-fedora "console kept" 'grep -qx "GRUB_TERMINAL_OUTPUT=\"console\"" "$g/etc/default/grub"'
+want gt-fedora 'will not show.*no display' 'said why'
+gk gt-fedora "menu_auto_hide kept" 'grep -qx menu_auto_hide=1 "$g/boot/grub2/grubenv"'
+
+# Ubuntu's desktop default hides the menu: it is made visible, and put back.
+STUB_GRUB=1 STUB_GRUB_HIDDEN=1 gt_box gt-hidden debian; g="$WORK/run/gt-hidden"
+STUB_GRUB=1 gt gt-hidden debian 0 install
+gk gt-hidden "GRUB_TIMEOUT_STYLE=menu, GRUB_TIMEOUT=5" 'grep -qx GRUB_TIMEOUT_STYLE=menu "$g/etc/default/grub" && grep -qx GRUB_TIMEOUT=5 "$g/etc/default/grub"'
+STUB_GRUB=1 gt gt-hidden debian 0 uninstall
+gk gt-hidden "put back byte for byte" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+
+# A timeout of 0 from a drop-in: the main file cannot win, so our drop-in does.
+STUB_GRUB=1 STUB_GRUB_HIDDEN=1 gt_box gt-dropto debian; g="$WORK/run/gt-dropto"
+mkdir -p "$g/etc/default/grub.d"; echo 'GRUB_TIMEOUT=0' > "$g/etc/default/grub.d/40-quick.cfg"
+STUB_GRUB=1 gt gt-dropto debian 0 install
+gk gt-dropto "drop-in carries the timeout" 'grep -qx "GRUB_TIMEOUT=\"5\"" "$g/etc/default/grub.d/99-vortex-theme.cfg"'
+gk gt-dropto "grub.cfg: a visible menu for 5s" 'grep -qx "set timeout_style=menu" "$g/boot/grub/grub.cfg" && grep -qx "set timeout=5" "$g/boot/grub/grub.cfg"'
+STUB_GRUB=1 gt gt-dropto debian 0 install
+want gt-dropto 'already in place' 'second run: nothing to do'
+STUB_GRUB=1 gt gt-dropto debian 0 uninstall
+gk gt-dropto "main file back, our drop-in gone, theirs kept" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && [ ! -e "$g/etc/default/grub.d/99-vortex-theme.cfg" ] && [ -e "$g/etc/default/grub.d/40-quick.cfg" ]'
+
+# An Ubuntu cloud image: GRUB_TERMINAL=console in grub.d is reported, never
+# edited, and another package's GRUB_THEME there is beaten by our drop-in.
+STUB_GRUB=1 STUB_GRUB_D=1 gt_box gt-cloud debian; g="$WORK/run/gt-cloud"
+STUB_GRUB=1 gt gt-cloud debian 0 install
+want gt-cloud 'GRUB_TERMINAL="console"' 'the console terminal reported'
+gk gt-cloud "drop-in carries GRUB_THEME past 60_mint-theme.cfg" 'grep -q "^GRUB_THEME=\"$g/boot/grub/themes/vortex/theme.txt\"" "$g/etc/default/grub.d/99-vortex-theme.cfg"'
+gk gt-cloud "the image's own grub.d untouched" 'grep -qx GRUB_TERMINAL=console "$g/etc/default/grub.d/50-cloudimg-settings.cfg"'
+gk gt-cloud "timeout left: the theme cannot show anyway" '! grep -q TIMEOUT "$g/etc/default/grub.d/99-vortex-theme.cfg"'
+STUB_GRUB=1 gt gt-cloud debian 0 uninstall
+gk gt-cloud "drop-in gone, file back" '[ ! -e "$g/etc/default/grub.d/99-vortex-theme.cfg" ] && cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+
+# A drop-in that sorts after ours would still win: said, not fought.
+STUB_GRUB=1 gt_box gt-late arch; g="$WORK/run/gt-late"
+mkdir -p "$g/etc/default/grub.d"; echo 'GRUB_THEME="/x/theme.txt"' > "$g/etc/default/grub.d/zz-late.cfg"
+STUB_GRUB=1 gt gt-late arch 0 plan
+want gt-late 'zz-late.cfg sets GRUB_THEME and sorts after' 'warned'
+
+# grub-customizer leftovers: the stock scripts an upgrade put back beside its
+# proxies are disabled, so the menu comes out the same; uninstall re-enables
+# them only after its own rebuild.
+STUB_GRUB=1 STUB_GRUB_CUSTOMIZER=1 gt_box gt-gc arch; g="$WORK/run/gt-gc"
+gtitles "$g/boot/grub/grub.cfg" > "$g/state/titles"
+STUB_GRUB=1 gt gt-gc arch 0 install
+gk gt-gc "rc 0" '[ "$(cat "$g/rc")" = 0 ]'
+gk gt-gc "10_linux and 30_os-prober disabled" '[ ! -x "$g/etc/grub.d/10_linux" ] && [ ! -x "$g/etc/grub.d/30_os-prober" ]'
+gk gt-gc "41_custom, which ran before, still on" '[ -x "$g/etc/grub.d/41_custom" ]'
+gk gt-gc "the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titles" >/dev/null'
+STUB_GRUB=1 gt gt-gc arch 0 uninstall
+gk gt-gc "grub.d modes back" 'diff <(cd "$g/etc/grub.d" && stat -c "%n %a" [0-9]*) "$g/state/grubd.orig" >/dev/null'
+gk gt-gc "still the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titles" >/dev/null'
+
+# os-prober switched off since the last build: Windows would vanish. The plan
+# says so, the install stops with nothing changed, and only an explicit
+# --accept-menu-changes applies it.
+STUB_GRUB=1 STUB_GRUB_OSPROBER_OFF=1 gt_box gt-osp arch; g="$WORK/run/gt-osp"
+STUB_GRUB=1 gt gt-osp arch 0 plan
+want gt-osp 'rebuilding would drop: Windows Boot Manager' 'the plan predicted it'
+STUB_GRUB=1 gt gt-osp arch 0 install
+gk gt-osp "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-osp 'would lose: Windows Boot Manager' 'named the entry'
+gk gt-osp "nothing changed" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && cmp -s "$g/state/grub.cfg.orig" "$g/boot/grub/grub.cfg" && [ ! -e "$g/boot/grub/themes/vortex" ] && [ ! -e "$g/etc/default/grub.theme-undo" ]'
+STUB_GRUB=1 gt gt-osp arch 0 install --accept-menu-changes
+gk gt-osp "accepted: applied, old one kept" '[ "$(cat "$g/rc")" = 0 ] && cmp -s "$g/state/grub.cfg.orig" "$g/boot/grub/grub.cfg.bak"'
+
+# A grub-mkconfig that fails: everything done so far is rolled back.
+STUB_GRUB=1 gt_box gt-fail arch; g="$WORK/run/gt-fail"
+GT_ENV=(STUB_GRUB_MKCONFIG_FAIL=1); STUB_GRUB=1 gt gt-fail arch 0 install; GT_ENV=()
+gk gt-fail "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-fail 'Syntax error' "grub-mkconfig's own words shown"
+gk gt-fail "rolled back" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && [ ! -e "$g/boot/grub/themes/vortex" ] && [ ! -e "$g/etc/default/grub.theme-undo" ]'
+
+# This theme under its first name: the stale copy goes, and is not recorded as
+# a theme to restore; a votex somebody changed is not ours, and stays.
+STUB_GRUB=1 STUB_GRUB_OLD=1 gt_box gt-old arch; g="$WORK/run/gt-old"
+STUB_GRUB=1 gt gt-old arch 0 install
+gk gt-old "stale copy removed" '[ ! -e "$g/boot/grub/themes/grub-of-tsushima" ]'
+gk gt-old "the changed votex kept" '[ -f "$g/boot/grub/themes/votex/notes.txt" ]'
+nowant gt-old 'replaces the current theme' 'not called another theme'
+STUB_GRUB=1 gt gt-old arch 0 uninstall
+gk gt-old "uninstall leaves no GRUB_THEME to a deleted dir" '! grep -q "^GRUB_THEME=" "$g/etc/default/grub"'
+
+# A different theme already called vortex is backed up; ours changed by hand
+# later is too, rotating the first backup to .old.bak.
+STUB_GRUB=1 gt_box gt-foreign arch; g="$WORK/run/gt-foreign"
+mkdir -p "$g/boot/grub/themes/vortex"; echo 'title-text: "theirs"' > "$g/boot/grub/themes/vortex/theme.txt"
+STUB_GRUB=1 gt gt-foreign arch 0 install
+gk gt-foreign "theirs in vortex.bak" 'grep -q theirs "$g/boot/grub/themes/vortex.bak/theme.txt"'
+echo extra >> "$g/boot/grub/themes/vortex/theme.txt"
+STUB_GRUB=1 gt gt-foreign arch 0 install
+want gt-foreign 'changed by hand' 'said why it backed up'
+gk gt-foreign "rotated" 'grep -q extra "$g/boot/grub/themes/vortex.bak/theme.txt" && grep -q theirs "$g/boot/grub/themes/vortex.old.bak/theme.txt"'
+
+# CRLF, export and indentation: kept on the line, but never a CR in ours
+# (sh would keep it in the path). No final newline survives a round trip.
+STUB_GRUB=1 gt_box gt-crlf arch; g="$WORK/run/gt-crlf"
+sed -i -e 's/^GRUB_THEME=.*/  export GRUB_THEME=\/boot\/grub\/themes\/starfield\/theme.txt/' -e 's/$/\r/' "$g/etc/default/grub"
+cp -p "$g/etc/default/grub" "$g/state/grub.orig"
+STUB_GRUB=1 gt gt-crlf arch 0 install
+gk gt-crlf "prefix and bare quoting kept, no CR in ours" 'grep -qx "  export GRUB_THEME=$g/boot/grub/themes/vortex/theme.txt" "$g/etc/default/grub"'
+STUB_GRUB=1 gt gt-crlf arch 0 uninstall
+gk gt-crlf "byte for byte" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+STUB_GRUB=1 gt_box gt-noeol arch; g="$WORK/run/gt-noeol"
+grep -v '^GRUB_THEME=' "$g/state/grub.orig" | head -c -1 > "$g/etc/default/grub"; cp -p "$g/etc/default/grub" "$g/state/grub.orig"
+STUB_GRUB=1 gt gt-noeol arch 0 install
+STUB_GRUB=1 gt gt-noeol arch 0 uninstall
+gk gt-noeol "appended, then removed to the byte" 'cmp -s "$g/state/grub.orig" "$g/etc/default/grub"'
+
+# Refused: a symlinked /etc/default/grub. Stopped: a hand-written grub.cfg.
+STUB_GRUB=1 gt_box gt-link arch; g="$WORK/run/gt-link"
+mv "$g/etc/default/grub" "$g/etc/default/grub.real"; ln -s grub.real "$g/etc/default/grub"
+STUB_GRUB=1 gt gt-link arch 0 install
+gk gt-link "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-link 'is a link to' 'said why'
+STUB_GRUB=1 gt_box gt-hand arch; g="$WORK/run/gt-hand"
+printf "menuentry 'My own' {\n}\n" > "$g/boot/grub/grub.cfg"
+STUB_GRUB=1 gt gt-hand arch 0 install
+gk gt-hand "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-hand 'would lose: My own' 'named the entry'
+
+# The loader: another one booted this machine, or an older GRUB than the
+# grub-mkconfig writing for it (grub-install not run since an upgrade).
+STUB_GRUB=1 STUB_GRUB_LOADER="systemd-boot 257.1" gt_box gt-sdboot arch
+STUB_GRUB=1 gt gt-sdboot arch 0 plan
+want gt-sdboot 'went through systemd-boot 257.1, not GRUB' 'warned'
+STUB_GRUB=1 STUB_GRUB_LOADER="GRUB 2.12" gt_box gt-older arch
+STUB_GRUB=1 gt gt-older arch 0 plan
+want gt-older 'GRUB 2.12 booted this machine, but grub-mkconfig is 2.14' 'warned'
+
+# GRUB_THEME changed by hand after the install: uninstall leaves it, still
+# takes our copy away, and rebuilds so nothing points at it.
+STUB_GRUB=1 gt_box gt-hand2 arch; g="$WORK/run/gt-hand2"
+STUB_GRUB=1 gt gt-hand2 arch 0 install
+sed -i 's#^GRUB_THEME=.*#GRUB_THEME="/boot/grub/themes/mine/theme.txt"#' "$g/etc/default/grub"
+STUB_GRUB=1 gt gt-hand2 arch 0 uninstall
+gk gt-hand2 "their line kept" 'grep -qx "GRUB_THEME=\"/boot/grub/themes/mine/theme.txt\"" "$g/etc/default/grub"'
+gk gt-hand2 "our copy gone, nothing points at it" '[ ! -e "$g/boot/grub/themes/vortex" ] && ! grep -q vortex "$g/boot/grub/grub.cfg"'
+
+# The theme itself: everything GRUB's readers need, by GRUB's own rules.
+STUB_GRUB=1 gt_box gt-verify arch
+STUB_GRUB=1 gt gt-verify arch 0 verify
+gk gt-verify "verify passes" '[ "$(cat "$WORK/run/gt-verify/rc")" = 0 ]'
+}
 
 echo
 echo "── docker app selection ─────────────────────────────────"

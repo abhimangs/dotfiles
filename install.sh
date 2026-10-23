@@ -672,10 +672,7 @@ config_state() {                # config_state <key> — prints linked, yours or
     local t; t="$(uninstall_target "$1")"
     case "$1" in
         grub)
-            if grub_theme_current; then echo linked
-            elif [ -f "$(grub_etc)" ] && grep -q '^GRUB_THEME=' "$(grub_etc)"; then echo yours
-            else echo new
-            fi ;;
+            grub_cmd state || echo new ;;
         zsh|bash|git|starship|protonvpn)
             if [ "$1" = protonvpn ] && [ -L "$HOME/scripts/pvpn" ] && ! is_repo_link "$HOME/scripts/pvpn"; then
                 echo yours
@@ -4286,193 +4283,59 @@ needs_wallpaper() {
 }
 
 # ── GRUB theme ───────────────────────────────────────────────────────────────
-# Only the theme. GRUB_TIMEOUT, GRUB_DEFAULT and the menu entries are never
-# written. Offered only when GRUB is already installed: this does not install
-# a bootloader. NixOS builds grub.cfg from configuration.nix, which this
-# installer does not edit, so it is never offered there.
-# DOTFILES_GRUB_ETC / DOTFILES_GRUB_BOOT exist so the suite can point at a
-# sandbox. Unset, they are the real paths.
-GRUB_THEME_NAME="votex"
+# All of it lives in grub/grub-theme.sh, which runs on its own as well; its
+# header says what it changes and why. install.sh asks it the questions below
+# and draws its --porcelain rows ("<kind>\t<head>\t<rest>") in the plan's
+# colours. $DISTRO and $IS_HEADLESS are handed over so it never works them out
+# differently, and nothing here reads or writes a GRUB file itself.
+# Offered only when GRUB is installed and set up (`present`): this does not
+# install a bootloader, and NixOS builds grub.cfg from configuration.nix.
+GRUB_SCRIPT="$DOTFILES_DIR/grub/grub-theme.sh"
 
-grub_etc() { printf '%s' "${DOTFILES_GRUB_ETC:-/etc/default/grub}"; }
-
-grub_mkconfig_bin() {
-    command -v grub-mkconfig >/dev/null 2>&1 && { printf '%s' grub-mkconfig; return 0; }
-    command -v grub2-mkconfig >/dev/null 2>&1 && { printf '%s' grub2-mkconfig; return 0; }
-    return 1
+grub_cmd() {
+    [ -f "$GRUB_SCRIPT" ] || return 1
+    GRUB_THEME_DISTRO="$DISTRO" GRUB_THEME_HEADLESS="$IS_HEADLESS" bash "$GRUB_SCRIPT" "$@"
 }
 
-# /boot/grub on Arch, Debian and Ubuntu; /boot/grub2 on Fedora.
-grub_boot_dir() {
-    if [ -n "${DOTFILES_GRUB_BOOT:-}" ]; then printf '%s' "$DOTFILES_GRUB_BOOT"; return 0; fi
-    if [ -d /boot/grub ]; then printf '%s' /boot/grub; return 0; fi
-    if [ -d /boot/grub2 ]; then printf '%s' /boot/grub2; return 0; fi
-    return 1
+grub_present()    { grub_cmd present; }
+grub_theme_file() { grub_cmd target; }
+
+grub_row_fmt() {                # grub_row_fmt <kind> <head> [rest]
+    local c="$C_DIM"
+    case "$1" in
+        add)               c="$C_GREEN" ;;
+        change|remove|warn) c="$C_YELLOW" ;;
+        error)             c="$C_RED" ;;
+    esac
+    printf '%s' "${c}$2${C_RESET}${3:+ ${C_DIM}$3${C_RESET}}"
 }
 
-grub_present() {
-    [[ "$DISTRO" == "nix" ]] && return 1
-    grub_mkconfig_bin >/dev/null || return 1
-    [ -f "$(grub_etc)" ]
+# The plan's rows for the grub entry, appended to the named array.
+grub_plan_rows() {              # grub_plan_rows <array>
+    local -n _gp="$1"
+    local k h r
+    while IFS=$'\t' read -r k h r; do
+        [ -n "$k" ] && _gp+=("$(grub_row_fmt "$k" "$h" "$r")")
+    done < <(grub_cmd plan --porcelain)
 }
 
-grub_theme_src() { printf '%s' "$DOTFILES_DIR/grub/themes/$GRUB_THEME_NAME"; }
-
-grub_theme_dest() {
-    local boot
-    boot="$(grub_boot_dir)" || boot="/boot/grub"
-    printf '%s' "$boot/themes/$GRUB_THEME_NAME"
-}
-
-grub_theme_file() { printf '%s/theme.txt' "$(grub_theme_dest)"; }
-
-grub_theme_line() { printf 'GRUB_THEME="%s"' "$(grub_theme_file)"; }
-
-# True when the active (uncommented) GRUB_THEME line is already ours.
-grub_theme_line_is_ours() {
-    local file; file="$(grub_etc)"
-    [ -f "$file" ] || return 1
-    grep -qxF "$(grub_theme_line)" "$file"
-}
-
-# Copy or write a file. sudo only when the destination is not writable, so a
-# sandbox path never goes through the stub sudo that refuses to copy.
-grub_place() {                  # grub_place <src> <dest>
-    local src="$1" dest="$2" dir
-    dir="$(dirname "$dest")"
-    if [ "$(id -u)" -eq 0 ] || [ -w "$dir" ]; then
-        mkdir -p "$dir"
-        cp -a "$src" "$dest"
-    else
-        sudo mkdir -p "$dir"
-        sudo cp -a "$src" "$dest"
-    fi
-}
-
-grub_write_file() {             # grub_write_file <src-tmp> <dest>
-    grub_place "$1" "$2"
-}
-
-# Replace every active GRUB_THEME= line, or append one. Comments stay.
-# Prints nothing. Returns 0 when the file changed.
-grub_set_theme_line() {
-    local file theme tmp line found=0 changed=0
-    file="$(grub_etc)"
-    theme="$(grub_theme_file)"
-    [ -f "$file" ] || return 1
-    grub_theme_line_is_ours && return 1
-    tmp="$(mktemp)"
-    while IFS= read -r line || [ -n "$line" ]; do
-        case "$line" in
-            GRUB_THEME=*)
-                # Keep the previous value once, so uninstall can put it back.
-                if [ "$found" -eq 0 ] && [ ! -f "${file}.theme-prev" ]; then
-                    printf '%s\n' "$line" > "${file}.theme-prev" 2>/dev/null \
-                        || printf '%s\n' "$line" | sudo tee "${file}.theme-prev" >/dev/null
-                fi
-                printf 'GRUB_THEME="%s"\n' "$theme"
-                found=1
-                changed=1
-                ;;
-            *) printf '%s\n' "$line" ;;
+# install / uninstall, rows printed as they come: a sudo prompt or a slow
+# grub-mkconfig is never hidden behind a buffered block. The script's exit
+# status arrives as a last "rc" row, read like the rest — no early break.
+grub_run() {                    # grub_run <install|uninstall>
+    local k h r rc=1
+    while IFS=$'\t' read -r k h r; do
+        case "$k" in
+            "")  ;;
+            rc)  rc="$h" ;;
+            *)   substep "$(grub_row_fmt "$k" "$h" "$r")" ;;
         esac
-    done < "$file" > "$tmp"
-    if [ "$found" -eq 0 ]; then
-        printf 'GRUB_THEME="%s"\n' "$theme" >> "$tmp"
-        changed=1
-    fi
-    grub_write_file "$tmp" "$file"
-    rm -f "$tmp"
-    [ "$changed" -eq 1 ]
+    done < <(grub_cmd "$1" --porcelain; printf 'rc\t%s\n' "$?")
+    return "$rc"
 }
-
-grub_copy_theme() {
-    local src dest parent boot
-    src="$(grub_theme_src)"
-    dest="$(grub_theme_dest)"
-    [ -f "$src/theme.txt" ] || return 1
-    # The themes directory usually does not exist yet. Writability is the
-    # boot dir above it (/boot/grub or the sandbox stand-in).
-    parent="$(dirname "$dest")"
-    boot="$(dirname "$parent")"
-    if [ "$(id -u)" -eq 0 ] || [ -w "$boot" ] || [ -w "$parent" ] || { [ -d "$dest" ] && [ -w "$dest" ]; }; then
-        mkdir -p "$dest"
-        cp -a "$src/." "$dest/"
-    else
-        sudo mkdir -p "$dest"
-        sudo cp -a "$src/." "$dest/"
-    fi
-}
-
-grub_regen() {
-    local bin cfg boot
-    bin="$(grub_mkconfig_bin)" || return 1
-    boot="$(grub_boot_dir)" || return 1
-    cfg="$boot/grub.cfg"
-    if [ -w "$(dirname "$cfg")" ] || [ "$(id -u)" -eq 0 ]; then
-        "$bin" -o "$cfg" >/dev/null
-    else
-        sudo "$bin" -o "$cfg" >/dev/null
-    fi
-}
-
-# True when both the files and the GRUB_THEME line already match.
-grub_theme_current() {
-    local dest; dest="$(grub_theme_dest)"
-    grub_theme_line_is_ours || return 1
-    [ -d "$dest" ] && diff -rq "$(grub_theme_src)" "$dest" >/dev/null 2>&1
-}
-
-install_grub_theme() {
-    local changed=0 dest
-    [ -f "$(grub_etc)" ] || { error "No $(grub_etc) — GRUB is not set up here"; return 1; }
-    dest="$(grub_theme_dest)"
-    if [ -d "$dest" ] && diff -rq "$(grub_theme_src)" "$dest" >/dev/null 2>&1; then
-        :
-    else
-        grub_copy_theme || return 1
-        changed=1
-    fi
-    grub_set_theme_line && changed=1
-    if [ "$changed" -eq 0 ]; then
-        substep "${C_DIM}GRUB theme already in place${C_RESET}"
-        return 0
-    fi
-    if ! grub_regen; then
-        error "Could not regenerate grub.cfg"
-        return 1
-    fi
-    substep "${C_GREEN}GRUB_THEME${C_RESET} ${C_DIM}→ $(grub_theme_file)${C_RESET}"
-    substep "${C_DIM}Timeout and menu entries were left as they are${C_RESET}"
-}
-
-# Drop only our GRUB_THEME line. A theme that was there before is put back
-# from the one-line copy taken when we replaced it.
-remove_grub_theme() {
-    local file tmp line
-    file="$(grub_etc)"
-    [ -f "$file" ] || return 0
-    tmp="$(mktemp)"
-    while IFS= read -r line || [ -n "$line" ]; do
-        [ "$line" = "$(grub_theme_line)" ] && continue
-        printf '%s\n' "$line"
-    done < "$file" > "$tmp"
-    if [ -f "${file}.theme-prev" ]; then
-        cat "${file}.theme-prev" >> "$tmp"
-        rm -f "${file}.theme-prev" 2>/dev/null || sudo rm -f "${file}.theme-prev"
-    fi
-    grub_write_file "$tmp" "$file"
-    rm -f "$tmp"
-    local dest; dest="$(grub_theme_dest)"
-    if [ -d "$dest" ]; then
-        if [ -w "$(dirname "$dest")" ] || [ "$(id -u)" -eq 0 ]; then
-            rm -rf "$dest"
-        else
-            sudo rm -rf "$dest"
-        fi
-    fi
-    grub_regen || true
-}
+install_grub_theme() { grub_run install; }
+remove_grub_theme()  { grub_run uninstall; }
+grub_uninstall_row() { grub_cmd uninstall-row; }
 
 # ── Configs ──────────────────────────────────────────────────────────────────
 # Declared here, beside the dep tools and the apps, rather than down in step 3:
@@ -5174,10 +5037,10 @@ CONFIG_DESC[ccstatusline]="Claude Code statusline"
 CONFIG_DESC[ulauncher]="app launcher"
 CONFIG_DESC[mpv]="media player"
 CONFIG_DESC[fontconfig]="fontconfig preferences"
-CONFIG_DESC[grub]="votex GRUB theme"
+CONFIG_DESC[grub]="vortex GRUB theme"
 CONFIG_NOTE[mpv]="Catppuccin-friendly defaults — hwdec, osc, yt-dlp"
 CONFIG_NOTE[fontconfig]="prefers JetBrainsMono Nerd Font and Maple Mono"
-CONFIG_NOTE[grub]="sets GRUB_THEME only — timeout and menu entries stay as they are. Hidden when GRUB is not installed"
+CONFIG_NOTE[grub]="sets GRUB_THEME, and on a desktop GRUB_TERMINAL_OUTPUT=gfxterm where console would hide any theme — timeout and menu entries stay as they are. Hidden when GRUB is not installed"
 
 CONFIG_NOTE[ghostty]="set in JetBrainsMono Nerd Font, which comes with any config"
 CONFIG_NOTE[kitty]="set in JetBrainsMono Nerd Font, which comes with any config"
@@ -5493,8 +5356,16 @@ plan_side_config() {    # plan_side_config <name>
 # paru was bootstrapped, apt refreshed and stow and fzf installed before the
 # menu was even drawn, so esc at the menu, or a --dry-run, had already changed
 # the machine.
+# True when the config selection holds anything but grub, which neither stows
+# nor names a font: it is copied into /boot and brings its own.
+configs_beyond_grub() {         # configs_beyond_grub <config>...
+    local c
+    for c in "$@"; do [ "$c" = grub ] || return 0; done
+    return 1
+}
+
 stow_wanted() {         # true when this run will stow anything at all
-    [ "${#SELECTED[@]}" -gt 0 ] && return 0
+    configs_beyond_grub "${SELECTED[@]}" && return 0
     local k
     for k in "${DEPS[@]}" "${APPS[@]}"; do has_side_config "$k" && return 0; done
     return 1
@@ -5508,12 +5379,12 @@ aur_wanted() {
     local k p
     local -a want=()
     for k in "${SELECTED[@]}"; do
-        case "$k" in bash|ccstatusline) ;; *) want+=("${PKG_MAP[$k]}") ;; esac
+        case "$k" in bash|ccstatusline|grub) ;; *) want+=("${PKG_MAP[$k]}") ;; esac
     done
     for k in "${DEPS[@]}"; do want+=("${RESOLVED_DEP_PKG[$k]}"); done
     # The fonts step installs these on any run with a config, where it can
     # render them — the same three conditions it tests.
-    [ "${#SELECTED[@]}" -gt 0 ] && [ "$IS_WSL" -eq 0 ] && [ "$IS_HEADLESS" -eq 0 ] \
+    configs_beyond_grub "${SELECTED[@]}" && [ "$IS_WSL" -eq 0 ] && [ "$IS_HEADLESS" -eq 0 ] \
         && want+=("$FONT_PKG" "$MAPLE_FONT_PKG")
     for p in "${want[@]}"; do
         pkg_installed_snapshot "$p" || [ -n "${PKG_SYNC[$p]:-}" ] || return 0
@@ -5744,17 +5615,7 @@ plan_body() {
             # No package. GRUB is already there or this row would not be offered.
             # Another theme is a name change only: its GRUB_THEME line is
             # replaced and remembered, and its files are left where they are.
-            if grub_theme_current; then
-                steps+=("${C_DIM}theme already in place${C_RESET} ${C_DIM}(${GRUB_THEME_NAME})${C_RESET}")
-            else
-                local _gprev
-                _gprev="$(grep -E '^GRUB_THEME=' "$(grub_etc)" 2>/dev/null | head -1 || true)"
-                if [ -n "$_gprev" ]; then
-                    steps+=("${C_YELLOW}replaces the current theme${C_RESET} ${C_DIM}${_gprev#GRUB_THEME=}${C_RESET}")
-                fi
-                steps+=("${C_GREEN}set GRUB_THEME${C_RESET} ${C_DIM}→ $(grub_theme_file) (${GRUB_THEME_NAME})${C_RESET}")
-            fi
-            steps+=("${C_DIM}timeout and menu entries are left as they are${C_RESET}")
+            grub_plan_rows steps
         elif pkg_installed_snapshot "$pkg"; then
             steps+=("${C_DIM}$pkg already installed$(deb_latest_note "$cfg")${C_RESET}")
         else
@@ -5875,6 +5736,8 @@ plan_body() {
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_ACCENT}${C_BOLD}fonts${C_RESET}"
     if [ "${#cfgs[@]}" -eq 0 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — no configs selected, nothing asks for them${C_RESET}"
+    elif ! configs_beyond_grub "${cfgs[@]}"; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — the GRUB theme brings its own${C_RESET}"
     elif [ "$IS_WSL" -eq 1 ]; then
         echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}skip — WSL, install them on Windows${C_RESET}"
     elif [ "$IS_HEADLESS" -eq 1 ]; then
@@ -6373,7 +6236,7 @@ uninstall_stow_args() {         # uninstall_stow_args <cfg> — prints "<target-
 # real, stow only links the files in it.
 uninstall_is_ours() {           # uninstall_is_ours <cfg>
     if [ "$1" = grub ]; then
-        grub_theme_line_is_ours
+        grub_cmd owned
         return
     fi
     local t; t="$(uninstall_target "$1")"
@@ -6405,7 +6268,7 @@ uninstall_run() {
         if [ "$cfg" = grub ]; then
             if uninstall_is_ours "$cfg"; then
                 plan+=("$cfg")
-                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}remove${C_RESET} ${C_DIM}GRUB_THEME (timeout and menu entries stay)${C_RESET}"
+                echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}remove${C_RESET} ${C_DIM}the GRUB theme: $(grub_uninstall_row)${C_RESET}"
             fi
             continue
         fi
@@ -7170,6 +7033,10 @@ if [ "${#SELECTED[@]}" -eq 0 ]; then
     # what name these fonts. An apps-only run has nothing to render with them.
     info "Fonts..."
     substep "${C_DIM}No configs selected — nothing names them, skipping${C_RESET}"
+    success "Skipped"
+elif ! configs_beyond_grub "${SELECTED[@]}"; then
+    info "Fonts..."
+    substep "${C_DIM}Only the GRUB theme, which brings its own — skipping${C_RESET}"
     success "Skipped"
 elif [ "$IS_WSL" -eq 1 ]; then
     info "Fonts..."

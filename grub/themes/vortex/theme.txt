@@ -12,7 +12,7 @@ terminal-border: "0"
     left = 20%
     width = 30%
     top = 36%
-    height = 700
+    height = 44%
     item_height = 74
     item_padding = 0
     icon_width = 50

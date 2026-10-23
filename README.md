@@ -96,7 +96,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `ccstatusline/` | `~/.config/ccstatusline/` | - *(needs `bun`)* | - *(needs `bun`)* |
 | `mpv/` | `~/.config/mpv/` | `mpv` | apt / dnf / nixpkgs |
 | `fontconfig/` | `~/.config/fontconfig/` | `fontconfig` | apt / dnf / nixpkgs |
-| `grub/` | `/boot/grub/themes/votex/` (not stowed) | — | sets `GRUB_THEME` only, and only when GRUB is already installed. Timeout and menu entries are left alone. Not offered on NixOS |
+| `grub/` | `/boot/grub/themes/vortex/` (`/boot/grub2/…` on Fedora; copied, not stowed) | — | only when GRUB is already installed; not on NixOS. See [The GRUB theme](#the-grub-theme) |
 | `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo (**not on Fedora/NixOS**) |
 
 `ccstatusline` is the one config with no package on either distro. Claude Code
@@ -240,6 +240,41 @@ environment the installer keys off (headless detection, WSL, locale, `TERM`).
 
 Paste the whole output into an issue: it is the quickest way to answer "zsh is
 installed but my shell is still bash", which is the question it was written for.
+It also prints `grub/grub-theme.sh status` (see below).
+
+### The GRUB theme
+
+The `grub` row installs the vortex theme, and only appears when GRUB is
+installed and has written a `grub.cfg` (never on NixOS). All of it is
+`grub/grub-theme.sh`, which also runs on its own:
+
+```bash
+bash grub/grub-theme.sh status      # what is there now (read-only)
+bash grub/grub-theme.sh plan        # what install would change (read-only)
+bash grub/grub-theme.sh install     # asks sudo for what needs root
+bash grub/grub-theme.sh uninstall   # puts back every line it changed
+bash grub/grub-theme.sh verify      # checks the theme loads in GRUB (fonts, image formats)
+```
+
+What it changes, and nothing else:
+
+- copies the theme to `/boot/grub/themes/vortex/` (`/boot/grub2/…` on Fedora). It is copied rather than stowed because GRUB reads it before anything else is mounted. An older copy of its own is updated in place. A copy you changed by hand, or someone else's theme with that name, is moved to `vortex.bak` first.
+- sets `GRUB_THEME` in `/etc/default/grub`, in place, keeping the line's indentation and quoting.
+- only where a theme could not be seen otherwise:
+  - a console-only `GRUB_TERMINAL_OUTPUT` (Fedora's default) becomes `gfxterm`. This happens on a desktop only, never on a headless box or a serial console.
+  - a hidden menu is made visible: `GRUB_TIMEOUT_STYLE=menu`, a `GRUB_TIMEOUT` of 0 becomes 5, and Fedora's `menu_auto_hide` is unset. A visible timeout is never touched.
+- writes the drop-in `/etc/default/grub.d/99-vortex-theme.cfg` only when another drop-in would otherwise win over `/etc/default/grub`. Debian, Ubuntu and Arch patch `grub-mkconfig` to read those after the main file; Fedora does not.
+- deals with grub-customizer leftovers. A GRUB upgrade can put back a stock `/etc/grub.d` script that one of grub-customizer's `*_proxy` scripts replaced, and every rebuild would then list those entries twice. The stock copy is `chmod -x`'d.
+
+Every change is recorded in `/etc/default/grub.theme-undo`, and `uninstall` (or `install.sh --uninstall=grub`) puts each one back. `/etc/default/grub` comes back byte for byte, including its CRLF line endings or missing final newline.
+
+`grub.cfg` is never rebuilt blind. The new one is built into a temp file and its menu compared with the current one. If an entry would disappear (Windows, when os-prober has been switched off since the last build) or show up twice, nothing is changed, and whatever was already done is rolled back. To apply it anyway, run `grub-theme.sh install --accept-menu-changes`. The old `grub.cfg` is kept as `grub.cfg.bak`. The same rollback happens if `grub-mkconfig` fails, if it does not load the theme, or if the run is interrupted.
+
+The plan also warns about things it leaves alone:
+
+- `GRUB_TERMINAL=console`, a serial console, or a drop-in that sorts after ours.
+- a hand-written `grub.cfg`.
+- a boot that went through another loader (systemd-boot), or a GRUB older than the `grub-mkconfig` writing its config (`grub-install` not run since an upgrade).
 
 ### Arch-only items
 

@@ -64,6 +64,148 @@ fi
 # <<< dotfiles: hand interactive bash to zsh <<<
 V1
 
+# ── A fake GRUB ──────────────────────────────────────────────────────────────
+# /etc/default/grub, /etc/grub.d scripts that print menu entries, a grub.cfg
+# already built from them, and the grub-mkconfig the distro ships (stubs.sh's
+# templates: grub-mkconfig reads grub.d/*.cfg after the main file, as the
+# Debian, Ubuntu and Arch builds do; Fedora's grub2-mkconfig reads one). Used by
+# build_root, and on its own by the grub-theme.sh scenarios, which need no
+# installer and no repo copy around them. Knobs, all off unless set:
+#   STUB_GRUB=1|2            Arch-style | Fedora-style (grub2, console terminal, menu_auto_hide)
+#   STUB_GRUB_OLD=1          this theme under its first name, active, beside a votex someone changed
+#   STUB_GRUB_D=1            an Ubuntu cloud image's grub.d: console, timeout 0, another theme
+#   STUB_GRUB_HIDDEN=1       Ubuntu's desktop default: GRUB_TIMEOUT_STYLE=hidden, GRUB_TIMEOUT=0
+#   STUB_GRUB_CUSTOMIZER=1   grub-customizer's proxies, and the stock scripts an upgrade put back
+#   STUB_GRUB_OSPROBER_OFF=1 Windows in grub.cfg from os-prober, switched off since
+#   STUB_GRUB_LOADER=<text>  the LoaderInfo EFI variable ("GRUB 2.12", "systemd-boot 257")
+# The file as the distro left it is kept in state/grub.orig, and the grub.d
+# modes in state/grubd.orig, for the byte-for-byte uninstall checks.
+grub_fixture() {        # grub_fixture <root> <distro>
+    local root="$1" distro="$2" etc="$1/etc/default/grub" gd="$1/etc/grub.d" boot bin s
+    mkdir -p "$root/etc/default" "$gd" "$root/efivars" "$root/bin" "$root/state"
+    if [ "${STUB_GRUB:-0}" = 2 ]; then
+        boot="$root/boot/grub2"; bin=grub2-mkconfig
+        cp "$WORK/tpl/grub2-editenv" "$root/bin/"
+        # What Fedora's installer writes, console terminal and all.
+        printf '%s\n' \
+            'GRUB_TIMEOUT=5' \
+            "GRUB_DISTRIBUTOR=\"\$(sed 's, release .*\$,,g' /etc/system-release)\"" \
+            'GRUB_DEFAULT=saved' \
+            'GRUB_DISABLE_SUBMENU=true' \
+            'GRUB_TERMINAL_OUTPUT="console"' \
+            'GRUB_CMDLINE_LINUX="rhgb quiet"' \
+            'GRUB_DISABLE_RECOVERY="true"' \
+            'GRUB_ENABLE_BLSCFG=true' \
+            > "$etc"
+        mkdir -p "$boot"
+        printf '# GRUB Environment Block\nmenu_auto_hide=1\nboot_success=1\n' > "$boot/grubenv"
+    else
+        boot="$root/boot/grub"; bin=grub-mkconfig
+        printf '%s\n' \
+            'GRUB_DEFAULT="0"' \
+            'GRUB_TIMEOUT="5"' \
+            'GRUB_TIMEOUT_STYLE="menu"' \
+            '#GRUB_THEME="/path/to/gfxtheme"' \
+            'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' \
+            > "$etc"
+        if [ "${STUB_GRUB_HIDDEN:-0}" = 1 ]; then
+            sed -i -e 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' \
+                   -e 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' "$etc"
+        fi
+    fi
+    mkdir -p "$boot"
+    cp "$WORK/tpl/$bin" "$root/bin/$bin"
+
+    # Scripts that print entries the way the real ones do.
+    w_gd() { printf '#!/bin/sh\n%s\n' "$2" > "$gd/$1"; chmod +x "$gd/$1"; }
+    if [ "${STUB_GRUB_CUSTOMIZER:-0}" = 1 ]; then
+        mkdir -p "$gd/proxifiedScripts" "$gd/bin"
+        for s in linux os-prober uefi-firmware custom; do w_gd "proxifiedScripts/$s" 'true'; done
+        w_gd 10_linux_proxy "printf '#THIS IS A GRUB PROXY SCRIPT\nmenuentry \"Arch Linux\" {\n}\n'"
+        w_gd 11_custom_proxy "printf 'menuentry \"Windows 11\" {\n}\n'"
+        w_gd 31_linux_proxy "printf 'submenu \"Advanced Options\" {\n\tmenuentry \"Arch Linux, with Linux linux\" {\n\t}\n\tmenuentry \"UEFI Firmware Settings\" {\n\t}\n}\n'"
+        w_gd 33_linux_xen 'true'
+        w_gd 35_os-prober_proxy 'true'
+        w_gd 36_uefi-firmware_proxy 'true'
+        w_gd 41_custom 'true'
+        # The stock scripts grub-customizer had moved away, back from an upgrade.
+        w_gd 10_linux "printf \"menuentry 'Arch Linux' {\n}\nsubmenu 'Advanced options for Arch Linux' {\n\tmenuentry 'Arch Linux, with Linux linux' {\n\t}\n}\n\""
+        w_gd 20_linux_xen 'true'
+        w_gd 30_os-prober "printf \"menuentry 'Windows Boot Manager (on /dev/nvme0n1p1)' {\n}\n\""
+        w_gd 30_uefi-firmware "printf \"menuentry 'UEFI Firmware Settings' {\n}\n\""
+        w_gd 40_custom 'true'
+        chmod -x "$gd/10_linux" "$gd/20_linux_xen" "$gd/30_os-prober" "$gd/30_uefi-firmware" "$gd/40_custom"
+    else
+        w_gd 10_linux "printf \"menuentry 'Arch Linux' {\n}\nsubmenu 'Advanced options for Arch Linux' {\n\tmenuentry 'Arch Linux, with Linux linux' {\n\t}\n}\n\""
+        w_gd 30_uefi-firmware "printf \"menuentry 'UEFI Firmware Settings' {\n}\n\""
+        w_gd 41_custom 'true'
+        if [ "${STUB_GRUB_OSPROBER_OFF:-0}" = 1 ]; then
+            w_gd 30_os-prober "[ \"\$GRUB_DISABLE_OS_PROBER\" = true ] || printf \"menuentry 'Windows Boot Manager (on /dev/sda1)' {\n}\n\""
+            printf 'GRUB_DISABLE_OS_PROBER=false\n' >> "$etc"
+        fi
+    fi
+    unset -f w_gd
+
+    # This theme under the name it shipped as first, active, plus a votex
+    # directory somebody changed. The first is a stale copy of ours and goes;
+    # the second is not byte-for-byte anything we shipped, and stays.
+    if [ "${STUB_GRUB_OLD:-0}" = 1 ]; then
+        mkdir -p "$boot/themes"
+        cp -R "$REPO/grub/themes/vortex" "$boot/themes/grub-of-tsushima"
+        cp -R "$REPO/grub/themes/vortex" "$boot/themes/votex"
+        printf 'mine\n' > "$boot/themes/votex/notes.txt"
+        sed -i "s#^GRUB_THEME=.*#GRUB_THEME=\"$boot/themes/grub-of-tsushima/theme.txt\"#" "$etc"
+    fi
+    # An Ubuntu cloud image: grub.d puts the terminal on console and the
+    # timeout at 0, and a theme package sets its own GRUB_THEME there too.
+    if [ "${STUB_GRUB_D:-0}" = 1 ]; then
+        mkdir -p "$etc.d"
+        printf '%s\n' 'GRUB_TERMINAL=console' 'GRUB_TIMEOUT=0' > "$etc.d/50-cloudimg-settings.cfg"
+        printf '%s\n' 'GRUB_THEME="/boot/grub/themes/mint/theme.txt"' > "$etc.d/60_mint-theme.cfg"
+    fi
+    if [ -n "${STUB_GRUB_LOADER:-}" ]; then
+        { printf '\x06\x00\x00\x00'; printf '%s' "$STUB_GRUB_LOADER" | sed 's/./&\x00/g'; printf '\x00\x00'; } \
+            > "$root/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+    fi
+
+    # The grub.cfg the machine starts with, built the way the real one was.
+    STUB_STATE="$root/state" DOTFILES_GRUB_ETC="$etc" DOTFILES_GRUB_D="$gd" \
+        "$root/bin/$bin" -o "$boot/grub.cfg" 2>/dev/null
+    : > "$root/state/grub-mkconfig.log"
+    # ...and then the upgrade that put grub-customizer's replaced scripts back.
+    [ "${STUB_GRUB_CUSTOMIZER:-0}" = 1 ] \
+        && chmod +x "$gd/10_linux" "$gd/20_linux_xen" "$gd/30_os-prober" "$gd/30_uefi-firmware" "$gd/40_custom"
+    # ...or the os-prober switch-off since the last build.
+    [ "${STUB_GRUB_OSPROBER_OFF:-0}" = 1 ] \
+        && sed -i 's/^GRUB_DISABLE_OS_PROBER=false$/GRUB_DISABLE_OS_PROBER=true/' "$etc"
+    cp -p "$etc" "$root/state/grub.orig"
+    ( cd "$gd" && stat -c '%n %a' [0-9]* ) > "$root/state/grubd.orig"
+    cp -p "$boot/grub.cfg" "$root/state/grub.cfg.orig"
+}
+
+# Runs grub/grub-theme.sh against a grub_fixture sandbox, the transcript in
+# <root>/clean.txt so want/nowant read it like a scenario's; rc in <root>/rc.
+gt() {                  # gt <name> <distro> <headless 0|1> <grub-theme.sh args…>
+    local name="$1" distro="$2" headless="$3" root="$WORK/run/$1" boot
+    shift 3
+    boot="$root/boot/grub"; [ "${STUB_GRUB:-0}" = 2 ] && boot="$root/boot/grub2"
+    local rc=0
+    env -i HOME="$root/home" PATH="$root/bin:$WORK/sysbin" LANG=C TERM=dumb \
+        STUB_STATE="$root/state" \
+        DOTFILES_GRUB_ETC="$root/etc/default/grub" DOTFILES_GRUB_BOOT="$boot" \
+        DOTFILES_GRUB_D="$root/etc/grub.d" DOTFILES_GRUB_EFIVARS="$root/efivars" \
+        GRUB_THEME_DISTRO="$distro" GRUB_THEME_HEADLESS="$headless" \
+        ${GT_ENV[@]+"${GT_ENV[@]}"} \
+        bash "$REPO/grub/grub-theme.sh" "$@" > "$root/out.txt" 2>&1 || rc=$?
+    echo "$rc" > "$root/rc"
+    cp "$root/out.txt" "$root/clean.txt"
+}
+gt_box() {              # gt_box <name> <distro>: a fresh fake GRUB, nothing else
+    local root="$WORK/run/$1"
+    rm -rf "$root"; mkdir -p "$root/home" "$root/bin"
+    grub_fixture "$root" "$2"
+}
+
 build_root() {          # build_root <root> <distro>
     local root="$1" distro="$2"
     rm -rf "$root"; mkdir -p "$root/home" "$root/state" \
@@ -96,28 +238,6 @@ build_root() {          # build_root <root> <distro>
     : > "$root/state/installed"
     mkdir -p "$root/opt"
     printf '/bin/sh\n/bin/bash\n' > "$root/etc/shells"
-
-    # A fake GRUB: /etc/default/grub plus the mkconfig the distro actually
-    # ships. The theme install must change only GRUB_THEME.
-    if [ "${STUB_GRUB:-0}" = 1 ] || [ "${STUB_GRUB:-0}" = 2 ]; then
-        local _gboot _gbin
-        if [ "${STUB_GRUB:-0}" = 2 ]; then
-            _gboot="$root/boot/grub2"; _gbin=grub2-mkconfig
-        else
-            _gboot="$root/boot/grub"; _gbin=grub-mkconfig
-        fi
-        mkdir -p "$_gboot" "$root/etc/default"
-        printf '%s\n' \
-            'GRUB_DEFAULT="0"' \
-            'GRUB_TIMEOUT="5"' \
-            'GRUB_TIMEOUT_STYLE="menu"' \
-            '#GRUB_THEME="/path/to/gfxtheme"' \
-            'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' \
-            > "$root/etc/default/grub"
-        # The mkconfig stub is written after $root/bin is filled from the
-        # template bin. Remember which name, below.
-        printf '%s\n' "$_gbin" > "$root/state/grub-mkconfig-name"
-    fi
 
     # Every Debian/Ubuntu home ships one, and the bash scenarios need something
     # real to snapshot. Distinctive enough that a restore can be checked for it.
@@ -257,20 +377,9 @@ PKGS
     # one run must not be on PATH for the next, and a scenario can remove a
     # tool (STUB_NO_FZF) to exercise a fallback path.
     cp -a "$WORK/bin" "$root/bin"
-    if [ -f "$root/state/grub-mkconfig-name" ]; then
-        _gbin="$(cat "$root/state/grub-mkconfig-name")"
-        cat > "$root/bin/$_gbin" <<'EOF'
-#!/bin/sh
-echo "$*" >> "${STUB_STATE:?}/grub-mkconfig.log"
-prev=""
-for a in "$@"; do
-    if [ "$prev" = "-o" ]; then printf '# generated\n' > "$a"; fi
-    prev=$a
-done
-exit 0
-EOF
-        chmod +x "$root/bin/$_gbin"
-    fi
+    # After the stub bin is in place: the fixture copies its grub-mkconfig
+    # into it, and runs it once to build the grub.cfg the machine starts with.
+    { [ "${STUB_GRUB:-0}" = 1 ] || [ "${STUB_GRUB:-0}" = 2 ]; } && grub_fixture "$root" "$distro"
     [ "${STUB_NO_FZF:-0}" = 1 ] && rm -f "$root/bin/fzf"
     [ "${STUB_YAY_ONLY:-0}" = 1 ] && rm -f "$root/bin/paru"
     # No AUR helper at all, and no stow: the two things the plan now lists as
@@ -385,6 +494,8 @@ install_pass() {        # install_pass <root> <outdir> <keys-file> [VAR=value ..
         SHELL=/bin/bash \
         STUB_STATE="$root/state" STUB_BIN="$root/bin" STUB_TPL="$WORK/tpl" \
         STUB_ROOT="$root" STUB_APT_SRCD="$root/etc/apt/sources.list.d" \
+        DOTFILES_GRUB_ETC="$root/etc/default/grub" DOTFILES_GRUB_BOOT="$root/boot/grub" \
+        DOTFILES_GRUB_D="$root/etc/grub.d" DOTFILES_GRUB_EFIVARS="$root/efivars" \
         "$@" \
         FEED_OUT="$out/out.txt" \
         timeout 60 script -qec "$cmd" /dev/null \

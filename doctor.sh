@@ -318,6 +318,18 @@ else
 fi
 echo
 
+echo "── GRUB theme ────────────────────────────────────────"
+# grub-theme.sh's own read-only report: which loader booted, what GRUB_THEME
+# and the terminal are, whether the copy in /boot matches, and any
+# grub-customizer leftovers that would change the menu at the next rebuild.
+# It never asks for a password: what only root may read is said to be so.
+if [ -f "$d/grub/grub-theme.sh" ]; then
+    bash "$d/grub/grub-theme.sh" status 2>&1
+else
+    echo "  grub/grub-theme.sh not in this checkout"
+fi
+echo
+
 echo "── environment the installer keys off ────────────────"
 echo "DISPLAY         : ${DISPLAY:-<unset>}"
 echo "WAYLAND_DISPLAY : ${WAYLAND_DISPLAY:-<unset>}"

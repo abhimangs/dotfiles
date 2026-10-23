@@ -19,7 +19,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 # zsh/.zshrc is excluded: shellcheck has no zsh dialect and would flag every
 # setopt/zstyle/bindkey line. bash/.bashrc is sourced and has no shebang, hence
 # its own invocation with -e SC2148.
-FILES=(install.sh linux.sh doctor.sh .github/*.sh tests/*.sh)
+FILES=(install.sh linux.sh doctor.sh grub/grub-theme.sh .github/*.sh tests/*.sh)
 
 # Two invocations, one status. Returning only the second's would have made the
 # gate below pass with errors in install.sh — the one file it exists for.
