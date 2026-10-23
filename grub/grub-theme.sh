@@ -1350,6 +1350,75 @@ png_problem() {                 # png_problem <file>: why GRUB's PNG reader refu
     [ "${b[28]}" -eq 0 ] || { echo "interlaced (GRUB cannot read interlaced PNGs)"; return 0; }
     return 1
 }
+jpeg_problem() {                # jpeg_problem <file>: why GRUB's JPEG reader refuses it, if it does
+    # grub-core/video/readers/jpeg.c, read up to the first scan: a baseline
+    # frame (SOF0) at 8 bits, 1 or 3 components numbered 1-3, only the first
+    # subsampled (at most 2x2), quantisation tables 0-1 at 8 bits, Huffman
+    # tables 0-1 of each class, each defined once. Other frame types are
+    # skipped as unknown, and the image then has no size.
+    local f="$1" off=2 size m len j t n k seen=" " sof=0
+    local -a b s
+    size="$(wc -c < "$f")"
+    read -ra b <<< "$(od -An -tu1 -N 2 "$f")"
+    [ "${b[0]:-}" = 255 ] && [ "${b[1]:-}" = 216 ] || { echo "not a JPEG"; return 0; }
+    while [ $((off + 4)) -le "$size" ]; do
+        read -ra b <<< "$(od -An -tu1 -j "$off" -N 4 "$f" | tr '\n' ' ')"
+        [ "${b[0]}" = 255 ] || { echo "damaged: no marker at byte $off"; return 0; }
+        m="${b[1]}"
+        [ "$m" = 255 ] && { off=$((off + 1)); continue; }
+        [ "$m" = 217 ] && { echo "no image data"; return 0; }
+        len=$((b[2] * 256 + b[3]))
+        [ "$len" -ge 2 ] || { echo "damaged at byte $off"; return 0; }
+        case "$m" in 192|196|219)
+            read -ra s <<< "$(od -An -tu1 -v -j $((off + 4)) -N $((len - 2)) "$f" | tr '\n' ' ')" ;;
+        esac
+        case "$m" in
+            192)
+                [ "$sof" -eq 0 ] || { echo "two frame headers"; return 0; }
+                [ "${#s[@]}" -ge $((6 + 3 * ${s[5]:-0})) ] || { echo "damaged frame header"; return 0; }
+                sof=1
+                [ "${s[0]}" = 8 ] || { echo "${s[0]}-bit samples (GRUB reads 8)"; return 0; }
+                [ "${s[5]}" = 1 ] || [ "${s[5]}" = 3 ] || { echo "${s[5]} colour components (GRUB reads 1 or 3)"; return 0; }
+                for ((k = 0; k < s[5]; k++)); do
+                    t="${s[$((7 + 3 * k))]}"
+                    case "${s[$((6 + 3 * k))]}" in 1|2|3) ;; *) echo "components not numbered 1-3"; return 0 ;; esac
+                    if [ "${s[$((6 + 3 * k))]}" = 1 ]; then
+                        [ $((t >> 4)) -ge 1 ] && [ $((t >> 4)) -le 2 ] && [ $((t & 15)) -ge 1 ] && [ $((t & 15)) -le 2 ] \
+                            || { echo "subsampled $((t >> 4))x$((t & 15)) (GRUB reads up to 2x2)"; return 0; }
+                    else
+                        [ "$t" = 17 ] || { echo "colour subsampled (GRUB subsamples brightness only: 4:2:0, 4:2:2 or 4:4:4)"; return 0; }
+                    fi
+                    [ "${s[$((8 + 3 * k))]}" -le 1 ] || { echo "more than two quantisation tables"; return 0; }
+                done ;;
+            194) echo "progressive (GRUB reads baseline JPEGs only)"; return 0 ;;
+            193|195|197|198|199|201|202|203|205|206|207)
+                echo "not baseline (frame type $(printf '0x%X' "$m"); GRUB reads SOF0 only)"; return 0 ;;
+            219)                # DQT
+                for ((j = 0; j < ${#s[@]}; )); do
+                    t="${s[$j]}"
+                    [ $((t >> 4)) -eq 0 ] || { echo "16-bit quantisation tables (GRUB reads 8-bit)"; return 0; }
+                    [ $((t & 15)) -le 1 ] || { echo "more than two quantisation tables"; return 0; }
+                    j=$((j + 65))
+                done ;;
+            196)                # DHT
+                for ((j = 0; j < ${#s[@]}; )); do
+                    t="${s[$j]}"
+                    [ $((t & 15)) -le 1 ] || { echo "more than two Huffman tables of a kind"; return 0; }
+                    k="$(((t >> 4) & 1))-$((t & 15))"
+                    [[ "$seen" == *" $k "* ]] && { echo "a Huffman table defined twice"; return 0; }
+                    seen+="$k "
+                    n=0; for ((k = 1; k <= 16; k++)); do n=$((n + s[j + k])); done
+                    j=$((j + 17 + n))
+                done ;;
+            218)                # SOS: the header is over
+                [ "$sof" -eq 1 ] || { echo "no frame header (SOF0) before the image data"; return 0; }
+                return 1 ;;
+        esac
+        off=$((off + 2 + len))
+    done
+    echo "ends before the image data"
+    return 0
+}
 verify_theme() {
     local t="$THEME_SRC/theme.txt" errs=0 f p name names fonts img dup
     err() { row error "$1" "${2:-}"; errs=$((errs + 1)); }
@@ -1369,10 +1438,18 @@ verify_theme() {
         p="$(png_problem "$f")" && err "${f#"$THEME_SRC"/}:" "$p"
     done < <(find "$THEME_SRC" -type f -iname '*.png' -print0)
     while IFS= read -r -d '' f; do
-        # jpeg.c reads a baseline frame (SOF0) and nothing else.
-        od -An -tx1 -v "$f" | tr -d ' \n' | grep -q 'ffc0' \
-            || err "${f#"$THEME_SRC"/}:" "not a baseline JPEG (GRUB reads SOF0 frames only)"
+        p="$(jpeg_problem "$f")" && err "${f#"$THEME_SRC"/}:" "$p"
     done < <(find "$THEME_SRC" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -print0)
+    # theme_loader.c refuses a value it does not know, and the whole theme
+    # with it: GRUB comes up in text mode.
+    local key ok v
+    for key in "desktop-image-scale-method:stretch crop padding fitwidth fitheight" \
+               "desktop-image-h-align:left center right" "desktop-image-v-align:top center bottom"; do
+        ok="${key#*:}"; key="${key%%:*}"
+        while IFS= read -r v; do
+            [[ " $ok " == *" $v "* ]] || err "theme.txt: $key \"$v\"" "is not one GRUB knows ($ok)"
+        done < <(sed -nE "s/^[[:space:]]*${key}[[:space:]]*:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\\1/p" "$t")
+    done
     # Every font theme.txt asks for must be one of the .pf2 files beside it,
     # by the name inside the file, or GRUB quietly falls back to its own.
     names=""

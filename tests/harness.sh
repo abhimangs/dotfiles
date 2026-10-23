@@ -185,6 +185,7 @@ grub_fixture() {        # grub_fixture <root> <distro>
 
 # Runs grub/grub-theme.sh against a grub_fixture sandbox, the transcript in
 # <root>/clean.txt so want/nowant read it like a scenario's; rc in <root>/rc.
+# GT_SCRIPT runs a copy instead, for a theme changed on purpose.
 gt() {                  # gt <name> <distro> <headless 0|1> <grub-theme.sh argsâ€¦>
     local name="$1" distro="$2" headless="$3" root="$WORK/run/$1" boot
     shift 3
@@ -196,7 +197,7 @@ gt() {                  # gt <name> <distro> <headless 0|1> <grub-theme.sh argsâ
         DOTFILES_GRUB_D="$root/etc/grub.d" DOTFILES_GRUB_EFIVARS="$root/efivars" \
         GRUB_THEME_DISTRO="$distro" GRUB_THEME_HEADLESS="$headless" \
         ${GT_ENV[@]+"${GT_ENV[@]}"} \
-        bash "$REPO/grub/grub-theme.sh" "$@" > "$root/out.txt" 2>&1 || rc=$?
+        bash "${GT_SCRIPT:-$REPO/grub/grub-theme.sh}" "$@" > "$root/out.txt" 2>&1 || rc=$?
     echo "$rc" > "$root/rc"
     cp "$root/out.txt" "$root/clean.txt"
 }

@@ -1806,6 +1806,19 @@ gk gt-hand2 "our copy gone, nothing points at it" '[ ! -e "$g/boot/grub/themes/v
 STUB_GRUB=1 gt_box gt-verify arch
 STUB_GRUB=1 gt gt-verify arch 0 verify
 gk gt-verify "verify passes" '[ "$(cat "$WORK/run/gt-verify/rc")" = 0 ]'
+# ...and a copy broken the two ways that blank it at boot: a progressive
+# background (its frame marker turned into SOF2), and a scale method GRUB
+# does not know, which fails the whole theme.
+STUB_GRUB=1 gt_box gt-verify2 arch; g="$WORK/run/gt-verify2"
+cp -R "$REPO/grub" "$g/grubcopy"
+bg="$g/grubcopy/themes/vortex/$(sed -nE 's/^desktop-image:[[:space:]]*"([^"]+)".*/\1/p' "$g/grubcopy/themes/vortex/theme.txt")"
+off="$(LC_ALL=C grep -obUa "$(printf '\xff\xc0')" "$bg" | head -n 1 | cut -d: -f1)"
+printf '\xc2' | dd of="$bg" bs=1 seek=$((off + 1)) conv=notrunc 2>/dev/null
+sed -i 's/^desktop-image-scale-method:.*/desktop-image-scale-method: "zoom"/' "$g/grubcopy/themes/vortex/theme.txt"
+GT_SCRIPT="$g/grubcopy/grub-theme.sh" STUB_GRUB=1 gt gt-verify2 arch 0 verify
+gk gt-verify2 "rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-verify2 'progressive \(GRUB reads baseline JPEGs only\)' 'progressive background caught'
+want gt-verify2 'desktop-image-scale-method "zoom".*is not one GRUB knows' 'unknown scale method caught'
 }
 
 echo
