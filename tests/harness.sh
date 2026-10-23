@@ -128,6 +128,13 @@ grub_fixture() {        # grub_fixture <root> <distro>
         w_gd 35_os-prober_proxy 'true'
         w_gd 36_uefi-firmware_proxy 'true'
         w_gd 41_custom 'true'
+        # Its filter wrapper, as grub-customizer writes it. STUB_GRUB_CUSTOMIZER_GONE:
+        # grub-customizer uninstalled, the wrapper left behind with nothing to call.
+        mkdir -p "$root/usr/lib/grub-customizer"
+        printf '#!/bin/sh\nif [ -e %s ] ; then\n    cat | %s "$@"\nelse\n    cat\nfi\n' \
+            "$root/usr/lib/grub-customizer/grubcfg-proxy" "$root/usr/lib/grub-customizer/grubcfg-proxy" > "$gd/bin/grubcfg_proxy"
+        chmod +x "$gd/bin/grubcfg_proxy"
+        [ "${STUB_GRUB_CUSTOMIZER_GONE:-0}" = 1 ] || { printf '#!/bin/sh\ncat\n' > "$root/usr/lib/grub-customizer/grubcfg-proxy"; chmod +x "$root/usr/lib/grub-customizer/grubcfg-proxy"; }
         # The stock scripts grub-customizer had moved away, back from an upgrade.
         w_gd 10_linux "printf \"menuentry 'Arch Linux' {\n}\nsubmenu 'Advanced options for Arch Linux' {\n\tmenuentry 'Arch Linux, with Linux linux' {\n\t}\n}\n\""
         w_gd 20_linux_xen 'true'

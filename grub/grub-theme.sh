@@ -532,6 +532,23 @@ menu_diff() {
         }' "$1" "$2" | LC_ALL=C sort -u
 }
 
+# grub-customizer's *_proxy scripts pipe a stock script through
+# bin/grubcfg_proxy, a wrapper that hands it to grub-customizer's own filter
+# (the renames, the hidden and moved entries) and, when that is gone because
+# grub-customizer was uninstalled, passes everything through untouched. Every
+# rebuild then shows each proxied entry once per proxy, under its stock name.
+# Prints the filter's path when it is missing and a proxy would still run.
+proxy_unfiltered() {
+    local w="$GRUBD/bin/grubcfg_proxy" p f
+    [ -f "$w" ] || return 1
+    p="$(grep -oE "/[^[:space:]\"']*/grubcfg-proxy" "$w" | head -n 1)"
+    if [ -z "$p" ] || [ -e "$p" ]; then return 1; fi
+    for f in "$GRUBD"/*_proxy; do
+        if [ -f "$f" ] && [ -x "$f" ]; then printf '%s' "$p"; return 0; fi
+    done
+    return 1
+}
+
 # ── grub-customizer leftovers ────────────────────────────────────────────────
 # grub-customizer moves a stock script (10_linux) into proxifiedScripts/ and
 # puts a proxy (10_linux_proxy) in its place, or renames one to reorder it
@@ -754,6 +771,11 @@ analyse() {
     theme_state
     mapfile -t STALE < <(stale_dirs)
     mapfile -t DUPES < <(dupes)
+    local filt
+    if filt="$(proxy_unfiltered)"; then
+        local from=""; [ "$DISTRO" = arch ] && from=" from the AUR"
+        FATAL+=("grub-customizer's filter $filt is gone (grub-customizer was uninstalled), but its *_proxy scripts still build the menu — any rebuild would show entries twice and lose its renames. To keep this menu exactly as it is, reinstall grub-customizer$from (its filter is all that is needed, the app need not be opened), then run this again")
+    fi
 
     eff_all GRUB_THEME && PREV_THEME="$EF_VAL"
     [ "$PREV_THEME" = "$THEME_FILE" ] && THEME_IN_EFFECT=1
@@ -1388,6 +1410,9 @@ do_status() {
     local d; while IFS=$'\t' read -r s d; do
         [ -n "$s" ] && echo "  grub-customizer leftover: ${s##*/} would run beside $d at the next rebuild"
     done < <(dupes)
+    if d="$(proxy_unfiltered)"; then
+        echo "  grub-customizer: its filter $d is gone, but its proxy scripts still build the menu — a rebuild would show entries twice"
+    fi
     [ -f "$UNDO" ] && echo "  undo record: $UNDO ($(grep -vc '^#' "$UNDO") lines)"
     [ -f "$DROPIN" ] && echo "  drop-in: $DROPIN"
     return 0

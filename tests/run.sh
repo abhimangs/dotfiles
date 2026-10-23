@@ -1715,6 +1715,17 @@ gk gt-gc "the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titl
 STUB_GRUB=1 gt gt-gc arch 0 uninstall
 gk gt-gc "grub.d modes back" 'diff <(cd "$g/etc/grub.d" && stat -c "%n %a" [0-9]*) "$g/state/grubd.orig" >/dev/null'
 gk gt-gc "still the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titles" >/dev/null'
+# ...and grub-customizer itself uninstalled: its filter is gone, so every proxy
+# passes its script through whole. Nothing can rebuild this menu as it is; the
+# plan says so up front and the install touches nothing.
+STUB_GRUB=1 STUB_GRUB_CUSTOMIZER=1 STUB_GRUB_CUSTOMIZER_GONE=1 gt_box gt-gcgone arch; g="$WORK/run/gt-gcgone"
+STUB_GRUB=1 gt gt-gcgone arch 0 plan
+want gt-gcgone "cannot install: grub-customizer's filter .*grubcfg-proxy is gone" 'the plan says why'
+want gt-gcgone 'reinstall grub-customizer' 'and what to do'
+STUB_GRUB=1 gt gt-gcgone arch 0 install
+gk gt-gcgone "rc 1, nothing touched" '[ "$(cat "$g/rc")" = 1 ] && cmp -s "$g/state/grub.orig" "$g/etc/default/grub" && cmp -s "$g/state/grub.cfg.orig" "$g/boot/grub/grub.cfg" && [ ! -e "$g/boot/grub/themes/vortex" ] && diff <(cd "$g/etc/grub.d" && stat -c "%n %a" [0-9]*) "$g/state/grubd.orig" >/dev/null'
+STUB_GRUB=1 gt gt-gcgone arch 0 status
+want gt-gcgone 'grub-customizer: its filter .* is gone' 'status shows it'
 
 # os-prober switched off since the last build: Windows would vanish. The plan
 # says so, the install stops with nothing changed, and only an explicit

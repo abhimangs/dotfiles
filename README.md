@@ -266,7 +266,9 @@ What it changes, and nothing else:
   - a console-only `GRUB_TERMINAL_OUTPUT` (Fedora's default) becomes `gfxterm`. This happens on a desktop only, never on a headless box or a serial console.
   - a hidden menu is made visible: `GRUB_TIMEOUT_STYLE=menu`, a `GRUB_TIMEOUT` of 0 becomes 5, and Fedora's `menu_auto_hide` is unset. A visible timeout is never touched.
 - writes the drop-in `/etc/default/grub.d/99-vortex-theme.cfg` only when another drop-in would otherwise win over `/etc/default/grub`. Debian, Ubuntu and Arch patch `grub-mkconfig` to read those after the main file; Fedora does not.
-- deals with grub-customizer leftovers. A GRUB upgrade can put back a stock `/etc/grub.d` script that one of grub-customizer's `*_proxy` scripts replaced, and every rebuild would then list those entries twice. The stock copy is `chmod -x`'d.
+- deals with grub-customizer leftovers. A GRUB upgrade can put back a stock `/etc/grub.d` script that one of grub-customizer's `*_proxy` scripts replaced, and every rebuild would then list those entries twice. The stock copy is `chmod -x`'d. A GRUB upgrade puts it back every time, so run `install` again after one.
+
+**If you uninstalled grub-customizer, reinstall it before installing the theme.** Its `*_proxy` scripts stay in `/etc/grub.d` and keep building the menu, but they rename, hide and move entries through grub-customizer's own filter program, which goes with the package. Without it, every rebuild (this one, or a `grub-mkconfig` of your own) lists entries twice and loses their renames. The script checks for this, says so in the plan, and refuses to install. Reinstalling grub-customizer (from the AUR on Arch) brings the filter back, and the menu then rebuilds exactly as it is. The app itself never needs to be opened.
 
 Every change is recorded in `/etc/default/grub.theme-undo`, and `uninstall` (or `install.sh --uninstall=grub`) puts each one back. `/etc/default/grub` comes back byte for byte, including its CRLF line endings or missing final newline.
 
