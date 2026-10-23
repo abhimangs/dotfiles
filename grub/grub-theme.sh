@@ -1461,7 +1461,7 @@ jpeg_problem() {                # jpeg_problem <file>: why GRUB's JPEG reader re
     local -a b s
     size="$(wc -c < "$f")"
     read -ra b <<< "$(od -An -tu1 -N 2 "$f")"
-    [ "${b[0]:-}" = 255 ] && [ "${b[1]:-}" = 216 ] || { echo "not a JPEG"; return 0; }
+    if [ "${b[0]:-}" != 255 ] || [ "${b[1]:-}" != 216 ]; then echo "not a JPEG"; return 0; fi
     while [ $((off + 4)) -le "$size" ]; do
         read -ra b <<< "$(od -An -tu1 -j "$off" -N 4 "$f" | tr '\n' ' ')"
         [ "${b[0]}" = 255 ] || { echo "damaged: no marker at byte $off"; return 0; }
@@ -1484,8 +1484,9 @@ jpeg_problem() {                # jpeg_problem <file>: why GRUB's JPEG reader re
                     t="${s[$((7 + 3 * k))]}"
                     case "${s[$((6 + 3 * k))]}" in 1|2|3) ;; *) echo "components not numbered 1-3"; return 0 ;; esac
                     if [ "${s[$((6 + 3 * k))]}" = 1 ]; then
-                        [ $((t >> 4)) -ge 1 ] && [ $((t >> 4)) -le 2 ] && [ $((t & 15)) -ge 1 ] && [ $((t & 15)) -le 2 ] \
-                            || { echo "subsampled $((t >> 4))x$((t & 15)) (GRUB reads up to 2x2)"; return 0; }
+                        if [ $((t >> 4)) -lt 1 ] || [ $((t >> 4)) -gt 2 ] || [ $((t & 15)) -lt 1 ] || [ $((t & 15)) -gt 2 ]; then
+                            echo "subsampled $((t >> 4))x$((t & 15)) (GRUB reads up to 2x2)"; return 0
+                        fi
                     else
                         [ "$t" = 17 ] || { echo "colour subsampled (GRUB subsamples brightness only: 4:2:0, 4:2:2 or 4:4:4)"; return 0; }
                     fi
