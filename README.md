@@ -256,6 +256,8 @@ bash grub/grub-theme.sh uninstall   # puts back every line it changed
 bash grub/grub-theme.sh verify      # checks the theme loads in GRUB (fonts, image formats)
 ```
 
+The background is the red-sun landscape from `wallpapers/`, cut to 1920×1200. On a screen of any other shape, GRUB scales it to cover the screen and crops the edges (`desktop-image-scale-method: "crop"`), so it is never stretched or squashed.
+
 What it changes, and nothing else:
 
 - copies the theme to `/boot/grub/themes/vortex/` (`/boot/grub2/…` on Fedora). It is copied rather than stowed because GRUB reads it before anything else is mounted. An older copy of its own is updated in place. A copy you changed by hand, or someone else's theme with that name, is moved to `vortex.bak` first.
