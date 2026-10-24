@@ -286,7 +286,7 @@ The plan also warns about things it leaves alone:
 
 - `GRUB_TERMINAL=console`, a serial console, or a drop-in that sorts after ours.
 - a hand-written `grub.cfg`.
-- a boot that went through another loader (systemd-boot), or a GRUB older than the `grub-mkconfig` writing its config (`grub-install` not run since an upgrade). On Arch it prints the exact `grub-install` line for the machine, read off the EFI partition GRUB booted from, with `--no-nvram` so the firmware's boot entries stay as they are. With Secure Boot on it says to reinstall the loader the way it was signed instead.
+- a boot that went through another loader (systemd-boot), or a GRUB older than the `grub-mkconfig` writing its config (`grub-install` not run since an upgrade). On Arch it prints the exact `grub-install` line for the machine, read off the EFI partition GRUB booted from, with `--no-nvram` so the firmware's boot entries stay as they are. With Secure Boot on it says to reinstall the loader the way it was signed instead. Once `grub-install` has run, it says the new GRUB takes over at the next boot, rather than asking for it again.
 
 ### Arch-only items
 

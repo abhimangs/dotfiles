@@ -612,6 +612,22 @@ loader_mismatch() {
     printf '%s\t%s' "$ls" "$MKCONFIG_SERIES"
 }
 
+# The GRUB that grub-install last put in place, from its modules' modinfo.sh
+# ($BOOT/<target>/): a loader older than grub-mkconfig with these already up
+# to date only means grub-install has run since this boot. Prints the series
+# when every *-efi copy agrees.
+installed_series() {
+    local f v s="" all=""
+    while IFS= read -r f; do
+        v="$(peek "$f" sed -n 's/^grub_version="\(.*\)"$/\1/p' "$f" 2>/dev/null | head -n 1)"
+        s="$(grub_series "$v")"
+        [ -n "$s" ] || return 1
+        [ -z "$all" ] || [ "$all" = "$s" ] || return 1
+        all="$s"
+    done < <(peek "$BOOT" find "$BOOT" -mindepth 2 -maxdepth 2 -path '*-efi/modinfo.sh' 2>/dev/null)
+    [ -n "$all" ] && printf '%s' "$all"
+}
+
 # The grub-install line that puts the loader back in step, when it can be
 # worked out for certain. Arch only: Debian, Ubuntu and Fedora reinstall the
 # loader from the package itself. The EFI partition is the one GRUB says it
@@ -857,7 +873,9 @@ analyse() {
     if li="$(loader_info)" && [ -n "$li" ] && [[ "$li" != GRUB* ]]; then
         NOTES+=("warn"$'\t'"this boot went through $li, not GRUB"$'\t'"— the theme shows only when GRUB is what boots")
     fi
-    if lm="$(loader_mismatch)"; then
+    if lm="$(loader_mismatch)" && [ "$(installed_series)" = "${lm#*$'\t'}" ]; then
+        NOTES+=("info"$'\t'"GRUB ${lm#*$'\t'} is installed; this boot still went through ${lm%%$'\t'*}"$'\t'"— it takes over at the next boot")
+    elif [ -n "$lm" ]; then
         local how fix
         how="$(grub_install_cmd)" || how=""
         case "$how" in
@@ -1420,7 +1438,9 @@ do_status() {
     [ "$BOOT_UNMOUNTED" -eq 1 ] && { echo "  /boot is in /etc/fstab but not mounted"; return 0; }
     li="$(loader_info)" && echo "  this boot: ${li:-unknown}"
     local lm how
-    if lm="$(loader_mismatch)"; then
+    if lm="$(loader_mismatch)" && [ "$(installed_series)" = "${lm#*$'\t'}" ]; then
+        echo "  GRUB ${lm#*$'\t'} is installed in $BOOT; this boot still went through ${lm%%$'\t'*}, and it takes over at the next boot"
+    elif [ -n "$lm" ]; then
         echo "  loader ${lm%%$'\t'*} is older than grub-mkconfig ${lm#*$'\t'}: grub-install has not been run since the upgrade"
         how="$(grub_install_cmd)" || how=""
         case "$how" in

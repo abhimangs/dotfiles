@@ -1819,6 +1819,14 @@ nowant gt-older 'sudo grub-install' 'not on Debian, whose package reinstalls the
 mkdir -p "$g/esp/EFI/arch"; : > "$g/esp/EFI/arch/grubx64.efi"
 STUB_GRUB=1 gt gt-older arch 0 plan; GT_ENV=()
 want gt-older 'it needs your --target and --efi-directory' 'two loaders: no guess'
+# ...and once grub-install has run, its modules already match grub-mkconfig:
+# only this boot is old, so it says the new one takes over, not "run it again".
+mkdir -p "$g/boot/grub/x86_64-efi"; printf 'grub_version="2.14"\n' > "$g/boot/grub/x86_64-efi/modinfo.sh"
+STUB_GRUB=1 gt gt-older arch 0 plan
+want gt-older 'GRUB 2.14 is installed; this boot still went through 2.12 — it takes over at the next boot' 'grub-install already run: said so'
+nowant gt-older 'grub-install' 'grub-install already run: not asked for again'
+STUB_GRUB=1 gt gt-older arch 0 status
+want gt-older 'GRUB 2.14 is installed in .*it takes over at the next boot' 'status says so too'
 
 # GRUB_THEME changed by hand after the install: uninstall leaves it, still
 # takes our copy away, and rebuilds so nothing points at it.
