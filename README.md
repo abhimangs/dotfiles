@@ -289,6 +289,21 @@ The plan also warns about things it leaves alone:
 - a hand-written `grub.cfg`.
 - a boot that went through another loader (systemd-boot), or a GRUB older than the `grub-mkconfig` writing its config (`grub-install` not run since an upgrade). On Arch it prints the exact `grub-install` line for the machine, read off the EFI partition GRUB booted from, with `--no-nvram` so the firmware's boot entries stay as they are. With Secure Boot on it says to reinstall the loader the way it was signed instead. Once `grub-install` has run, it says the new GRUB takes over at the next boot, rather than asking for it again.
 
+#### Changing GRUB later
+
+`bash grub/grub-theme.sh status` shows where things stand at any time, and `doctor.sh` prints it too. What to do in each case:
+
+| When | Do this |
+|---|---|
+| You pulled a newer version of this repo | `bash grub/grub-theme.sh install`. It updates the copy in `/boot` and rebuilds `grub.cfg` with the usual checks. |
+| You changed a setting in `/etc/default/grub` (timeout, kernel options, default entry) | `bash grub/grub-theme.sh rebuild`. A change that leaves the menu as it was, such as a timeout, goes straight in. Kernel options change every Linux entry, so it stops and lists them. If that is what you meant, run `bash grub/grub-theme.sh rebuild --accept-menu-changes`. Leave the `GRUB_THEME` line as it is. |
+| The `grub` package was upgraded (Arch) | Run `status`. Arch does not update the boot loader itself, and `status` prints the exact `grub-install` line for the machine; run it, then reboot. If the menu is built by grub-customizer's proxies, the upgrade also switched the stock scripts back on: run `bash grub/grub-theme.sh install` before anything rebuilds `grub.cfg`, or every entry shows twice. |
+| A kernel upgrade | Nothing. Arch keeps the kernel's file names, and Debian, Ubuntu and Fedora rebuild `grub.cfg` themselves. |
+| You saved something in grub-customizer | It rewrites `/etc/default/grub` and `grub.cfg`, and can set a theme of its own. Run `status`, and `install` if the theme is no longer in effect. |
+| You want to remove grub-customizer | Not while its proxy scripts build your menu (see above): every rebuild after that lists entries twice and loses their renames, and this script refuses to rebuild. |
+| You want the theme gone | `bash grub/grub-theme.sh uninstall`. |
+| The menu looks wrong after a rebuild | The previous one is `grub.cfg.bak` beside it (`/boot/grub`, or `/boot/grub2` on Fedora): `sudo cp /boot/grub/grub.cfg.bak /boot/grub/grub.cfg`. If GRUB will not start at all, pick another entry in the firmware's boot menu (rEFInd, or the distro's own), boot, and put the old file back. |
+
 ### Arch-only items
 
 `rofi` (Arch ships 2.0 with Wayland support merged in; Debian/Ubuntu are still on 1.7.x X11-only), `ghostty` on Debian 12 and older only (GTK4 4.14+ needed, bookworm has 4.8; trixie and Ubuntu are fine), `notion` (no official Linux build, only unofficial wrappers exist), `obsidian` (in Arch `extra`; on Debian/Ubuntu it ships only as a vendor `.deb`/AppImage with no apt repo), the Antigravity desktop app / IDE (Google's Debian/Ubuntu packaging is still a moving target upstream), `vicinae` (AUR only: upstream ships a release tarball and a Nix flake, no apt repo), `zoom` (a vendor `.deb` behind a download page, no apt repo), `deepseek-harness` (AUR only, `deepseek-harness-bin`; DeepSeek's plugin-based agent harness — `dsh web` opens its browser UI), `orca` (AUR only, `stably-orca-bin`; Stably's agent worktree manager), `emdash` (AUR only, `emdash-bin`; runs coding agents in parallel), `photocraft` (AUR only, `photocraft-bin`; a Photoshop alternative) and `chatgpt` (OpenAI's own installer bootstraps a signed pacman repo directly, with no apt/deb equivalent — `chatgpt-bin`, the desktop app, not the CLI) are only offered on Arch. `orca` is not a GUI entry, so unlike the rest of that list it is still offered on a headless Arch box. Picking Vicinae also enables its `vicinae.service` user unit, and starts it when there is already a session to draw on: `vicinae toggle` (the command to bind to a hotkey) is an IPC call into that daemon, so it does nothing until it runs. `antigravity-cli` is available everywhere via its official install script.
