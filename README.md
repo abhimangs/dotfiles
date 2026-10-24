@@ -252,6 +252,7 @@ installed and has written a `grub.cfg` (never on NixOS). All of it is
 bash grub/grub-theme.sh status      # what is there now (read-only)
 bash grub/grub-theme.sh plan        # what install would change (read-only)
 bash grub/grub-theme.sh install     # asks sudo for what needs root
+bash grub/grub-theme.sh rebuild     # rebuilds grub.cfg after you change /etc/default/grub, checked like install
 bash grub/grub-theme.sh uninstall   # puts back every line it changed
 bash grub/grub-theme.sh verify      # checks the theme loads in GRUB (fonts, image formats)
 ```

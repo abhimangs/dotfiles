@@ -1837,6 +1837,21 @@ STUB_GRUB=1 gt gt-hand2 arch 0 uninstall
 gk gt-hand2 "their line kept" 'grep -qx "GRUB_THEME=\"/boot/grub/themes/mine/theme.txt\"" "$g/etc/default/grub"'
 gk gt-hand2 "our copy gone, nothing points at it" '[ ! -e "$g/boot/grub/themes/vortex" ] && ! grep -q vortex "$g/boot/grub/grub.cfg"'
 
+# rebuild: install's checked rebuild after a change to /etc/default/grub. It
+# applies the change when the menu comes out the same, and refuses on a
+# machine where this script did not install the theme.
+STUB_GRUB=1 gt_box gt-rebuild arch; g="$WORK/run/gt-rebuild"
+STUB_GRUB=1 gt gt-rebuild arch 0 rebuild
+gk gt-rebuild "not installed: rc 1" '[ "$(cat "$g/rc")" = 1 ]'
+want gt-rebuild 'the theme is not installed by this script' 'not installed: said so'
+STUB_GRUB=1 gt gt-rebuild arch 0 install
+sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT="7"/' "$g/etc/default/grub"
+STUB_GRUB=1 gt gt-rebuild arch 0 rebuild
+gk gt-rebuild "rc 0, the new timeout in grub.cfg" '[ "$(cat "$g/rc")" = 0 ] && grep -qx "set timeout=7" "$g/boot/grub/grub.cfg"'
+want gt-rebuild 'rebuilt grub.cfg' 'said it rebuilt'
+nowant gt-rebuild 'left as they are' 'no "left as they are" after the user'"'"'s own edit'
+gk gt-rebuild "theme still in" 'grep -q "themes/vortex/theme.txt" "$g/boot/grub/grub.cfg"'
+
 # The theme itself: everything GRUB's readers need, by GRUB's own rules.
 STUB_GRUB=1 gt_box gt-verify arch
 STUB_GRUB=1 gt gt-verify arch 0 verify

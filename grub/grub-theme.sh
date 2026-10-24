@@ -4,6 +4,7 @@
 #   grub-theme.sh status       what is on this machine now (read-only; doctor.sh prints it)
 #   grub-theme.sh plan         what install would change (read-only)
 #   grub-theme.sh install      [--accept-menu-changes]
+#   grub-theme.sh rebuild      [--accept-menu-changes]   after you change /etc/default/grub
 #   grub-theme.sh uninstall    [--accept-menu-changes]
 #   grub-theme.sh verify       check that the theme in this repo is one GRUB can load
 #
@@ -79,6 +80,7 @@ export LC_COLLATE=C
 
 PORCELAIN=0
 ACCEPT=0
+FORCE_REBUILD=0
 case "${GRUB_THEME_ACCEPT_MENU_CHANGES:-}" in 1|true|yes) ACCEPT=1 ;; esac
 IS_ROOT=0; [ "$(id -u)" -eq 0 ] && IS_ROOT=1
 
@@ -1182,6 +1184,7 @@ do_install() {
         return 1
     fi
     verify_theme >/dev/null || { row error "the theme in $THEME_SRC is broken" "— grub-theme.sh verify says why"; return 1; }
+    [ "$FORCE_REBUILD" -eq 1 ] && REBUILD=1
     if [ "$REBUILD" -eq 0 ] && [ "${#STALE[@]}" -eq 0 ] && [ "${#DUPES[@]}" -eq 0 ] && [ "$FIX_AUTOHIDE" -eq 0 ]; then
         row ok "GRUB theme already in place" "($THEME_NAME)"
         notes_rows
@@ -1241,7 +1244,7 @@ do_install() {
             drop_candidate; tx_rollback; return 1
         fi
         if ! check_menu; then
-            row error "stopped: the menu would change" "— nothing was changed. To apply anyway: bash $HERE/grub-theme.sh install --accept-menu-changes"
+            row error "stopped: the menu would change" "— nothing was changed. To apply anyway: bash $HERE/grub-theme.sh $cmd --accept-menu-changes"
             drop_candidate; tx_rollback; return 1
         fi
         if ! apply_candidate; then
@@ -1271,7 +1274,11 @@ do_install() {
         rootly "$BOOT" rm -rf "$d" && row remove "removed $d" "— this theme under its earlier name"
     done
     notes_rows
-    if [ "$FIX_STYLE" -eq 0 ] && [ "$FIX_TIMEOUT" -eq 0 ]; then
+    # After a rebuild for the user's own edit, "left as they are" would read as
+    # though that edit had not been applied.
+    if [ "$FORCE_REBUILD" -eq 1 ]; then
+        :
+    elif [ "$FIX_STYLE" -eq 0 ] && [ "$FIX_TIMEOUT" -eq 0 ]; then
         row info "timeout and menu entries were left as they are"
     else
         row info "menu entries were left as they are"
@@ -1661,6 +1668,12 @@ case "$cmd" in
     status)        do_status ;;
     plan)          analyse; plan_rows ;;
     install)       do_install ;;
+    rebuild)       # install's checked rebuild, for a change made to /etc/default/grub
+        if ! owned; then
+            row error "the theme is not installed by this script" "— run install; for a plain rebuild, grub-mkconfig"
+            exit 1
+        fi
+        FORCE_REBUILD=1; do_install ;;
     uninstall)     do_uninstall ;;
     verify)        verify_theme ;;
     present)       present ;;
@@ -1678,6 +1691,6 @@ case "$cmd" in
         [ "$REBUILD" -eq 0 ] && [ "${#STALE[@]}" -eq 0 ] && [ "${#DUPES[@]}" -eq 0 ] && [ "$FIX_AUTOHIDE" -eq 0 ] ;;
     owned)         owned ;;
     uninstall-row) uninstall_row; echo ;;
-    -h|--help|help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) echo "grub-theme.sh: unknown command $cmd (status, plan, install, uninstall, verify)" >&2; exit 2 ;;
+    -h|--help|help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "grub-theme.sh: unknown command $cmd (status, plan, install, rebuild, uninstall, verify)" >&2; exit 2 ;;
 esac
