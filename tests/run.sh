@@ -1803,6 +1803,22 @@ want gt-sdboot 'went through systemd-boot 257.1, not GRUB' 'warned'
 STUB_GRUB=1 STUB_GRUB_LOADER="GRUB 2.12" gt_box gt-older arch
 STUB_GRUB=1 gt gt-older arch 0 plan
 want gt-older 'GRUB 2.12 booted this machine, but grub-mkconfig is 2.14' 'warned'
+# ...with the exact grub-install line when the EFI partition holds one GRUB
+# loader. Never with Secure Boot on, never a guess between two, never off Arch.
+g="$WORK/run/gt-older"
+mkdir -p "$g/esp/EFI/GRUB" "$g/esp/EFI/refind"; : > "$g/esp/EFI/GRUB/grubx64.efi"; : > "$g/esp/EFI/refind/refind_x64.efi"
+GT_ENV=(DOTFILES_GRUB_ESP="$g/esp"); STUB_GRUB=1 gt gt-older arch 0 plan
+want gt-older "sudo grub-install --target=x86_64-efi --efi-directory=$g/esp --bootloader-id=GRUB --boot-directory=$g/boot --no-nvram" 'the exact grub-install line'
+printf '\x06\x00\x00\x00\x01' > "$g/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+STUB_GRUB=1 gt gt-older arch 0 plan
+want gt-older 'Secure Boot is on' 'Secure Boot: said so'
+nowant gt-older 'sudo grub-install' 'Secure Boot: no plain grub-install'
+rm -f "$g/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+STUB_GRUB=1 gt gt-older debian 0 plan
+nowant gt-older 'sudo grub-install' 'not on Debian, whose package reinstalls the loader'
+mkdir -p "$g/esp/EFI/arch"; : > "$g/esp/EFI/arch/grubx64.efi"
+STUB_GRUB=1 gt gt-older arch 0 plan; GT_ENV=()
+want gt-older 'it needs your --target and --efi-directory' 'two loaders: no guess'
 
 # GRUB_THEME changed by hand after the install: uninstall leaves it, still
 # takes our copy away, and rebuilds so nothing points at it.

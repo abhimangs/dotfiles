@@ -612,6 +612,42 @@ loader_mismatch() {
     printf '%s\t%s' "$ls" "$MKCONFIG_SERIES"
 }
 
+# The grub-install line that puts the loader back in step, when it can be
+# worked out for certain. Arch only: Debian, Ubuntu and Fedora reinstall the
+# loader from the package itself. The EFI partition is the one GRUB says it
+# booted from (LoaderDevicePartUUID, or DOTFILES_GRUB_ESP), holding exactly
+# one EFI/<id>/grub*.efi; --no-nvram replaces those files in place and leaves
+# the firmware's boot entries and their order alone. Prints "secureboot"
+# instead when Secure Boot is on: a signed chain (shim, sbctl) is reinstalled
+# the way it was set up, never with a plain grub-install.
+grub_install_cmd() {
+    [ "$DISTRO" = arch ] || return 1
+    local esp="${DOTFILES_GRUB_ESP:-}" part f target bd=""
+    local -a loaders=()
+    if [ "$(od -An -tu1 -j4 -N1 "$EFIVARS/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c" 2>/dev/null | tr -d ' ')" = 1 ]; then
+        printf 'secureboot'; return 0
+    fi
+    if [ -z "$esp" ]; then
+        part="$(tail -c +5 "$EFIVARS/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f" 2>/dev/null | tr -d '\0' | tr '[:upper:]' '[:lower:]')"
+        [ -n "$part" ] || return 1
+        esp="$(findmnt -rno TARGET -S "PARTUUID=$part" 2>/dev/null | head -n 1)"
+    fi
+    [ -n "$esp" ] && [ -d "$esp" ] || return 1
+    mapfile -t loaders < <(find "$esp" -mindepth 3 -maxdepth 3 -type f -ipath "$esp/efi/*/grub*.efi" 2>/dev/null)
+    [ "${#loaders[@]}" -eq 1 ] || return 1
+    f="${loaders[0]}"
+    case "$(printf '%s' "${f##*/}" | tr '[:upper:]' '[:lower:]')" in
+        grubx64.efi)  target=x86_64-efi ;;
+        grubia32.efi) target=i386-efi ;;
+        grubaa64.efi) target=arm64-efi ;;
+        *) return 1 ;;
+    esac
+    [ "$BOOT" = /boot/grub ] || bd=" --boot-directory=$(printf '%q' "${BOOT%/*}")"
+    f="${f%/*}"
+    printf 'sudo grub-install --target=%s --efi-directory=%q --bootloader-id=%q%s --no-nvram' \
+        "$target" "$esp" "${f##*/}" "$bd"
+}
+
 # Entries an os-prober section put in the current grub.cfg, when os-prober
 # will not run at the next rebuild: the menu diff would stop the install, and
 # the plan says so first.
@@ -822,7 +858,14 @@ analyse() {
         NOTES+=("warn"$'\t'"this boot went through $li, not GRUB"$'\t'"— the theme shows only when GRUB is what boots")
     fi
     if lm="$(loader_mismatch)"; then
-        NOTES+=("warn"$'\t'"GRUB ${lm%%$'\t'*} booted this machine, but grub-mkconfig is ${lm#*$'\t'}"$'\t'"— run grub-install again so the loader matches the grub.cfg it reads (not done here: it needs your --target and --efi-directory)")
+        local how fix
+        how="$(grub_install_cmd)" || how=""
+        case "$how" in
+            "")         fix="run grub-install again so the loader matches the grub.cfg it reads (not done here: it needs your --target and --efi-directory)" ;;
+            secureboot) fix="reinstall it so the loader matches the grub.cfg it reads, the way it was signed (Secure Boot is on: sbctl or shim, never a plain grub-install); not done here" ;;
+            *)          fix="bring the loader up to date (not done here): $how — it replaces the GRUB files in place and leaves the firmware's boot entries alone" ;;
+        esac
+        NOTES+=("warn"$'\t'"GRUB ${lm%%$'\t'*} booted this machine, but grub-mkconfig is ${lm#*$'\t'}"$'\t'"— $fix")
     fi
     [ "${#FATAL[@]}" -eq 0 ]
 }
@@ -1376,7 +1419,16 @@ do_status() {
     present || { echo "  not set up here (no grub.cfg written yet)"; return 0; }
     [ "$BOOT_UNMOUNTED" -eq 1 ] && { echo "  /boot is in /etc/fstab but not mounted"; return 0; }
     li="$(loader_info)" && echo "  this boot: ${li:-unknown}"
-    local lm; lm="$(loader_mismatch)" && echo "  loader ${lm%%$'\t'*} is older than grub-mkconfig ${lm#*$'\t'}: grub-install has not been run since the upgrade"
+    local lm how
+    if lm="$(loader_mismatch)"; then
+        echo "  loader ${lm%%$'\t'*} is older than grub-mkconfig ${lm#*$'\t'}: grub-install has not been run since the upgrade"
+        how="$(grub_install_cmd)" || how=""
+        case "$how" in
+            "") ;;
+            secureboot) echo "    Secure Boot is on: reinstall it the way it was signed (sbctl or shim)" ;;
+            *) echo "    to update it: $how" ;;
+        esac
+    fi
     [ "$READS_DROPINS" -eq 1 ] && echo "  reads $ETC_D/*.cfg after $ETC"
     if eff_all GRUB_THEME; then echo "  GRUB_THEME=$EF_VAL ($EF_FILE)"; else echo "  GRUB_THEME not set"; fi
     theme_state
