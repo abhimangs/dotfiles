@@ -313,7 +313,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher mpv)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash photocraft)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash photocraft postman)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -4473,7 +4473,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli postman bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4487,7 +4487,7 @@ if [[ "$DISTRO" == "debian" ]]; then
     # Slack is neither: it has a working apt repo, just not one every apt
     # distro can resolve — see the strip below and ensure_slack_deb.
     # Strip, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft postman
     # Slack splits the two: Ubuntu still has libappindicator3-1 in universe and
     # takes Slack's own apt repo, Debian dropped the library and cannot resolve
     # the package at all. The only entry that is Ubuntu-only rather than
@@ -4497,7 +4497,7 @@ fi
 if [[ "$DISTRO" == "fedora" || "$DISTRO" == "nix" ]]; then
     # The apt side's Arch-only set first — none of them has an official RPM
     # repo or a nixpkgs package worth calling official either.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft postman
     # Vendors with an apt repo or .deb and no RPM repo (Claude Desktop, Slack,
     # Discord Canary, Bitwarden, LocalSend), and WezTerm, which is COPR-only
     # on Fedora. NixOS has community packages for some, but not official ones.
@@ -4549,6 +4549,7 @@ APP_LABEL[orca]="Orca"
 APP_LABEL[emdash]="Emdash"
 APP_LABEL[photocraft]="PhotoCraft"
 APP_LABEL[postman-cli]="Postman CLI"
+APP_LABEL[postman]="Postman GUI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
 APP_LABEL[notion]="Notion"
@@ -4611,6 +4612,7 @@ APP_TYPE[orca]="paru"
 APP_TYPE[emdash]="paru"
 APP_TYPE[photocraft]="paru"
 APP_TYPE[postman-cli]="curl"
+APP_TYPE[postman]="paru"
 APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
 APP_TYPE[notion]="paru"
@@ -4662,6 +4664,7 @@ APP_PKG[deepseek-harness]="deepseek-harness-bin"
 APP_PKG[orca]="stably-orca-bin"
 APP_PKG[emdash]="emdash-bin"
 APP_PKG[photocraft]="photocraft-bin"
+APP_PKG[postman]="postman-bin"
 APP_PKG[vicinae]="vicinae-bin"
 APP_PKG[notion]="notion-app-electron"
 APP_PKG[obsidian]="obsidian"
@@ -5077,6 +5080,7 @@ APP_DESC[orca]="Stably's agent worktree manager"
 APP_DESC[emdash]="run coding agents in parallel"
 APP_DESC[photocraft]="Photoshop alternative"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
+APP_DESC[postman]="API client with a desktop app"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher"
 APP_DESC[notion]="notes and workspace"
@@ -5203,6 +5207,7 @@ APP_GROUP[vicinae]="Utilities"
 APP_GROUP[flatpak]="Utilities"
 APP_GROUP[bun]="Dev & infra"
 APP_GROUP[postman-cli]="Dev & infra"
+APP_GROUP[postman]="Dev & infra"
 APP_GROUP[docker]="Dev & infra"
 APP_GROUP[tailscale]="Dev & infra"
 APP_GROUP[uv]="Dev & infra"
