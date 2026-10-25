@@ -4473,7 +4473,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli postman bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli postman notion-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4516,7 +4516,7 @@ if [[ "$DISTRO" == "nix" ]]; then
     # packages — strip them rather than faking a worse path. bun and uv stay:
     # APP_TYPE_NIX routes them to nixpkgs.
     strip_items APPS_LIST claude-code antigravity-cli codex-cli cursor-cli \
-        opencode kimi-code muse hermes devin grok-cli mistral-cli ori postman-cli zed
+        opencode kimi-code muse hermes devin grok-cli mistral-cli ori postman-cli notion-cli zed
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -4550,6 +4550,7 @@ APP_LABEL[emdash]="Emdash"
 APP_LABEL[photocraft]="PhotoCraft"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[postman]="Postman GUI"
+APP_LABEL[notion-cli]="Notion CLI"
 APP_LABEL[bun]="Bun"
 APP_LABEL[vicinae]="Vicinae"
 APP_LABEL[notion]="Notion"
@@ -4612,6 +4613,7 @@ APP_TYPE[orca]="paru"
 APP_TYPE[emdash]="paru"
 APP_TYPE[photocraft]="paru"
 APP_TYPE[postman-cli]="curl"
+APP_TYPE[notion-cli]="curl"
 APP_TYPE[postman]="paru"
 APP_TYPE[bun]="curl"
 APP_TYPE[vicinae]="paru"
@@ -4778,6 +4780,9 @@ curl_app_source() {             # curl_app_source <app> — sets _curl_url and _
         ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
         # installs into /usr/local/bin — its own sudo, already cached
         postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell="sh" ;;
+        # Drops ntn into ~/.local/bin (on PATH via CURL_APP_PATH) and only
+        # *prints* PATH advice — no rc file is written, no prompt.
+        notion-cli)      _curl_url="https://ntn.dev"                              ; _shell=bash ;;
         bun)             _curl_url="https://bun.com/install"                   ; _shell=bash ;;
         # Not a self-contained binary drop like the rest: it picks the distro's
         # own package manager (pacman here, the vendor apt repo there), so it
@@ -4873,6 +4878,7 @@ APP_BIN[grok-cli]="grok"
 APP_BIN[mistral-cli]="vibe"
 APP_BIN[ori]="ori"
 APP_BIN[postman-cli]="postman"
+APP_BIN[notion-cli]="ntn"
 APP_BIN[bun]="bun"
 APP_BIN[tailscale]="tailscale"
 # /usr/local/bin — the first of /usr/local/bin, /usr/bin, /bin on its PATH
@@ -4913,6 +4919,7 @@ APP_TYPE_DEB[grok-cli]="curl"
 APP_TYPE_DEB[mistral-cli]="curl"
 APP_TYPE_DEB[ori]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
+APP_TYPE_DEB[notion-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
 APP_TYPE_DEB[alacritty]="alacritty"
 APP_TYPE_DEB[neovim]="neovim"
@@ -5081,6 +5088,7 @@ APP_DESC[emdash]="run coding agents in parallel"
 APP_DESC[photocraft]="Photoshop alternative"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[postman]="API client with a desktop app"
+APP_DESC[notion-cli]="Notion from the terminal (beta)"
 APP_DESC[bun]="JavaScript runtime, bundler and package manager"
 APP_DESC[vicinae]="Raycast-style launcher"
 APP_DESC[notion]="notes and workspace"
@@ -5208,6 +5216,7 @@ APP_GROUP[flatpak]="Utilities"
 APP_GROUP[bun]="Dev & infra"
 APP_GROUP[postman-cli]="Dev & infra"
 APP_GROUP[postman]="Dev & infra"
+APP_GROUP[notion-cli]="Chat & notes"
 APP_GROUP[docker]="Dev & infra"
 APP_GROUP[tailscale]="Dev & infra"
 APP_GROUP[uv]="Dev & infra"
