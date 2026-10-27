@@ -5158,6 +5158,10 @@ APP_NOTE[deepseek-harness]="run 'dsh web' to open it"
 APP_NOTE[orca]="run 'orca' to open it"
 APP_NOTE[vicinae]="bind a hotkey to: vicinae toggle"
 APP_NOTE[discord-canary]="the nightly build"
+# Upstream naming: both are `postman`. The CLI's ~/.local/bin/postman comes
+# first on the rc files' PATH; the GUI's .desktop entry runs
+# /opt/postman/Postman by path, so the app menu is unaffected.
+APP_NOTE[postman]="open it from the app menu: with the Postman CLI installed, 'postman' in a terminal is the CLI"
 # What OBS needs beside itself: v4l2loopback (the virtual camera) and Qt's
 # Wayland plugin. Arch and apt name both alike. Fedora's obs-studio already
 # requires qt6-qtwayland, and v4l2loopback is RPM Fusion's (akmod), which this
