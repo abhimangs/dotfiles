@@ -109,7 +109,13 @@ echo "── stowed symlinks ─────────────────
 # and unset means ~/.config. Reporting the wrong directory is exactly the kind
 # of answer that sends whoever pastes this output debugging the wrong thing.
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
-XDG_SHOWN="${XDG_CONFIG/#$HOME/\~}"
+# ~ only for $HOME itself or a path under it: a bare prefix match turned
+# /home/abhik/.config into ~k/.config when HOME=/home/abhi.
+case "$XDG_CONFIG" in
+    "$HOME")   XDG_SHOWN="~" ;;
+    "$HOME"/*) XDG_SHOWN="~/${XDG_CONFIG#"$HOME"/}" ;;
+    *)         XDG_SHOWN="$XDG_CONFIG" ;;
+esac
 # Single-file targets are symlinks; ~/.config/<app> is a real directory by
 # design, with stow linking the files inside it — so look one level in.
 for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \

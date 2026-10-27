@@ -3209,6 +3209,14 @@ bad_lines=$(awk -F'\t' 'NF != 7' "$porcelain_out" | wc -l)
 [ "$bad_lines" -eq 0 ] \
     && note list-porcelain "every line has exactly 7 tab-separated fields" \
     || bad  list-porcelain "$bad_lines line(s) do not have 7 fields"
+# ~ means $HOME or below it, not a prefix of it: with HOME=…/xh, a config
+# home of …/xhk/.config used to print as ~k/.config, in both scripts.
+xh="$WORK/xh"; mkdir -p "$xh" "${xh}k/.config"
+xh_inst=$(env HOME="$xh" XDG_CONFIG_HOME="${xh}k/.config" bash "$inst_src" --list --porcelain </dev/null 2>&1 | awk -F'\t' '$2=="micro"{print $4}')
+xh_doc=$(env HOME="$xh" XDG_CONFIG_HOME="${xh}k/.config" bash "$doc_src" </dev/null 2>&1 | grep -F 'wallpapers ')
+[ "$xh_inst" = "${xh}k/.config/micro/" ] && [[ "$xh_doc" == *"${xh}k/.config/wallpapers "* ]] \
+    && note xdg-shown "a config home beside \$HOME is printed in full, not as ~k/…" \
+    || bad  xdg-shown "config home beside \$HOME shown wrong: install.sh '$xh_inst', doctor.sh '$xh_doc'"
 # The sixth field is the directory, which is not always the key: the neovim
 # app stows into nvim. Asserted on the record itself, since doctor.sh and every
 # other reader trust it rather than re-deriving it.

@@ -257,9 +257,14 @@ START_TS=$SECONDS
 # that does not set it.
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
-# The display form. backup_file's own "${target/#$HOME/~}" is the same idiom:
-# print ~ where the path is under $HOME, print it in full where it is not.
-XDG_SHOWN="${XDG_CONFIG/#$HOME/\~}"
+# The display form: ~ where the path is $HOME or under it, the full path where
+# it is not. A bare prefix match is not "under": with HOME=/home/abhi it made
+# /home/abhik/.config read ~k/.config.
+case "$XDG_CONFIG" in
+    "$HOME")   XDG_SHOWN="~" ;;
+    "$HOME"/*) XDG_SHOWN="~/${XDG_CONFIG#"$HOME"/}" ;;
+    *)         XDG_SHOWN="$XDG_CONFIG" ;;
+esac
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
