@@ -5144,7 +5144,26 @@ APP_NOTE[deepseek-harness]="run 'dsh web' to open it"
 APP_NOTE[orca]="run 'orca' to open it"
 APP_NOTE[vicinae]="bind a hotkey to: vicinae toggle"
 APP_NOTE[discord-canary]="the nightly build"
-APP_NOTE[obs-studio]="pulls in v4l2loopback-dkms (virtual camera) and qt6-wayland"
+# What OBS needs beside itself: v4l2loopback (the virtual camera) and Qt's
+# Wayland plugin. Arch and apt name both alike. Fedora's obs-studio already
+# requires qt6-qtwayland, and v4l2loopback is RPM Fusion's (akmod), which this
+# installer never enables. nixpkgs' obs-studio is wrapped with qtwayland, and a
+# kernel module cannot go into a nix profile: it is the NixOS option
+# programs.obs-studio.enableVirtualCamera. The hint replaces a yellow "Could not
+# install" that every run printed there.
+case "$DISTRO" in
+    fedora) OBS_EXTRA_PKGS=()
+            OBS_VCAM_HINT="virtual camera: akmod-v4l2loopback from RPM Fusion" ;;
+    nix)    OBS_EXTRA_PKGS=()
+            OBS_VCAM_HINT="virtual camera: programs.obs-studio.enableVirtualCamera = true; in configuration.nix" ;;
+    *)      OBS_EXTRA_PKGS=(v4l2loopback-dkms qt6-wayland)
+            OBS_VCAM_HINT="" ;;
+esac
+if [ "${#OBS_EXTRA_PKGS[@]}" -gt 0 ]; then
+    APP_NOTE[obs-studio]="pulls in v4l2loopback-dkms (virtual camera) and qt6-wayland"
+else
+    APP_NOTE[obs-studio]="$OBS_VCAM_HINT"
+fi
 APP_NOTE[flatpak]="adds the Flathub remote"
 APP_NOTE[docker]="with compose and buildx; adds you to the docker group and starts the service"
 APP_NOTE[tailscale]="log in after with: sudo tailscale up"
@@ -7879,15 +7898,21 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # Both are required, not extras: without v4l2loopback-dkms
                     # the Start Virtual Camera button fails at runtime, and
                     # without qt6-wayland OBS falls back to XWayland (blurry UI,
-                    # broken screen capture) on a Wayland session. Same package
-                    # names on Arch and apt, so no *_DEB map entry.
+                    # broken screen capture) on a Wayland session. Which names,
+                    # per distro, is OBS_EXTRA_PKGS (empty on Fedora and NixOS,
+                    # which get OBS_VCAM_HINT instead).
                     # Asked first: on a re-run "Installing …" for two packages
                     # that are already there is the summary telling a lie.
-                    if ! { pkg_installed v4l2loopback-dkms && pkg_installed qt6-wayland; }; then
-                        substep "Installing v4l2loopback-dkms and qt6-wayland..."
-                        sys_install v4l2loopback-dkms qt6-wayland &>/dev/null 2>&1 \
-                            || substep "${C_YELLOW}Could not install v4l2loopback-dkms/qt6-wayland${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
+                    _obs_missing=0
+                    for _obs_p in "${OBS_EXTRA_PKGS[@]}"; do
+                        pkg_installed "$_obs_p" || _obs_missing=1
+                    done
+                    if [ "$_obs_missing" -eq 1 ]; then
+                        substep "Installing ${OBS_EXTRA_PKGS[*]}..."
+                        sys_install "${OBS_EXTRA_PKGS[@]}" &>/dev/null 2>&1 \
+                            || substep "${C_YELLOW}Could not install ${OBS_EXTRA_PKGS[*]}${C_RESET} ${C_DIM}— OBS itself is installed; the virtual camera will not work until they are${C_RESET}"
                     fi
+                    [ -z "$OBS_VCAM_HINT" ] || substep "${C_DIM}${OBS_VCAM_HINT}${C_RESET}"
                 elif [[ "$app" == "docker" ]]; then
                     if [[ "$DISTRO" == "arch" ]] && ! { pkg_installed docker-compose && pkg_installed docker-buildx; }; then
                         substep "Installing docker-compose and docker-buildx..."
