@@ -745,6 +745,7 @@ esac
 mkdir -p "$HOME/.local/bin"
 printf '#!/bin/sh\necho agent stub "$@"\n' > "$HOME/.local/bin/agent"
 chmod +x "$HOME/.local/bin/agent"
+ln -sf agent "$HOME/.local/bin/cursor-agent"
 CURSOR_SH
             ;;
         *opencode.ai/install)

@@ -553,7 +553,7 @@ run     curlapps ubuntu "$WORK/k-sel" DOTFILES_CONFIGS="zsh" \
         DOTFILES_APPS="claude-code,codex-cli,cursor-cli,opencode,kimi-code,muse,ori,bun,tailscale"
 check   curlapps 0
 d="$WORK/run/curlapps/home"
-for b in .local/bin/claude .local/bin/codex .local/bin/agent .opencode/bin/opencode \
+for b in .local/bin/claude .local/bin/codex .local/bin/cursor-agent .opencode/bin/opencode \
          .kimi-code/bin/kimi .local/bin/muse .local/bin/ori .bun/bin/bun; do
     [ -x "$d/$b" ] && note curlapps "${b##*/} installed in ${b%/*}" \
                    || bad  curlapps "no ${b##*/} at ~/$b"
@@ -599,7 +599,7 @@ want    curlapps-again 'already installed — will update .claude update.' \
 want    curlapps-again 'installer runs again to update'      'and names the reinstall for opencode'
 want    curlapps-again 'claude stub update'                'claude update ran'
 want    curlapps-again 'codex stub update'                 'codex update ran'
-want    curlapps-again 'agent stub update'                 'agent update ran'
+want    curlapps-again 'agent stub update'                 'cursor-agent update ran'
 want    curlapps-again 'ori stub update'                   'ori update ran'
 want    curlapps-again 'Run claude in a terminal to open it' 'and says how to launch it'
 want    curlapps-again 'Opencode CLI already installed'   'found in ~/.opencode/bin'

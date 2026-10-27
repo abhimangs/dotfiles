@@ -4827,7 +4827,9 @@ declare -A APP_UPDATE
 APP_UPDATE[antigravity-cli]="agy update"
 APP_UPDATE[claude-code]="claude update"
 APP_UPDATE[codex-cli]="codex update"
-APP_UPDATE[cursor-cli]="agent update"
+# cursor-agent, not agent: Grok's installer puts its own `agent` in ~/.grok/bin
+# (see APP_BIN), which comes first on the rc files' PATH.
+APP_UPDATE[cursor-cli]="cursor-agent update"
 APP_UPDATE[devin]="devin update"
 APP_UPDATE[ori]="ori update"
 # Its own installer's help text is where this one is documented.
@@ -4876,7 +4878,11 @@ APP_BIN[claude-code]="claude"
 # whose installer ends in '|| true' was the one never verified against reality.
 APP_BIN[antigravity-cli]="agy"
 APP_BIN[codex-cli]="codex"
-APP_BIN[cursor-cli]="agent"
+# Cursor's installer links the same binary as both `agent` and `cursor-agent`
+# in ~/.local/bin. `agent` is also Grok's second name (~/.grok/bin, which is in
+# CURL_APP_PATH), so with only Grok installed the probe found Grok's: the plan
+# said "will update", ran Grok's `agent update`, and Cursor never went in.
+APP_BIN[cursor-cli]="cursor-agent"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
 APP_BIN[muse]="muse"
