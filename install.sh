@@ -4907,7 +4907,10 @@ APP_BIN[ollama]="ollama"
 # ~/.local/bin, both of them: uv's installer by default, Zed's as a symlink
 # into ~/.local/zed.app
 APP_BIN[uv]="uv"
-APP_BIN[zed]="zed"
+# A path, not a name, as for postman-cli: ZFS's event daemon is /usr/sbin/zed
+# (zfs-zed), which is on Ubuntu's and Fedora's PATH and root's everywhere, so on
+# a ZFS machine Zed read as installed and never went in.
+APP_BIN[zed]="$HOME/.local/bin/zed"
 
 # Debian/Ubuntu overrides — package names and install mechanism differ
 declare -A APP_PKG_DEB
