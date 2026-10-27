@@ -1698,9 +1698,18 @@ gk gt-hidden "put back byte for byte" 'cmp -s "$g/state/grub.orig" "$g/etc/defau
 # A timeout of 0 from a drop-in: the main file cannot win, so our drop-in does.
 STUB_GRUB=1 STUB_GRUB_HIDDEN=1 gt_box gt-dropto debian; g="$WORK/run/gt-dropto"
 mkdir -p "$g/etc/default/grub.d"; echo 'GRUB_TIMEOUT=0' > "$g/etc/default/grub.d/40-quick.cfg"
+echo 'GRUB_TERMINAL_OUTPUT=console' > "$g/etc/default/grub.d/45-console.cfg"
 STUB_GRUB=1 gt gt-dropto debian 0 install
 gk gt-dropto "drop-in carries the timeout" 'grep -qx "GRUB_TIMEOUT=\"5\"" "$g/etc/default/grub.d/99-vortex-theme.cfg"'
+gk gt-dropto "and the terminal" 'grep -qx "GRUB_TERMINAL_OUTPUT=\"gfxterm\"" "$g/etc/default/grub.d/99-vortex-theme.cfg"'
 gk gt-dropto "grub.cfg: a visible menu for 5s" 'grep -qx "set timeout_style=menu" "$g/boot/grub/grub.cfg" && grep -qx "set timeout=5" "$g/boot/grub/grub.cfg"'
+# What our drop-in already carries is not a change on the next plan, and
+# status reports what GRUB will see, our drop-in included.
+STUB_GRUB=1 gt gt-dropto debian 0 plan
+nowant gt-dropto 'GRUB_TIMEOUT 0 →|GRUB_TERMINAL_OUTPUT console →' 'plan after install: no change listed again'
+STUB_GRUB=1 gt gt-dropto debian 0 status
+want gt-dropto 'terminal: gfxterm' 'status: the terminal as GRUB sees it'
+want gt-dropto 'menu: visible, GRUB_TIMEOUT=5' 'status: the timeout as GRUB sees it'
 STUB_GRUB=1 gt gt-dropto debian 0 install
 want gt-dropto 'already in place' 'second run: nothing to do'
 STUB_GRUB=1 gt gt-dropto debian 0 uninstall

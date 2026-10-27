@@ -331,13 +331,15 @@ after_ours() {                  # after_ours <KEY>
 
 # What keeps any theme from loading: grub-mkconfig writes one only when
 # gfxterm is an output terminal, and GRUB_TERMINAL, when set, is input and
-# output both. Sets TB_VAR, TB_FILE, TB_VAL.
+# output both. Sets TB_VAR, TB_FILE, TB_VAL. The user's view by default (what
+# needs fixing); "all" is what grub-mkconfig will see, our drop-in included.
 TB_VAR="" TB_FILE="" TB_VAL=""
-terminal_blocked() {
-    local v
+terminal_blocked() {            # terminal_blocked [all]
+    local v get=eff
+    [ "${1:-}" = all ] && get=eff_all
     TB_VAR="" TB_FILE="" TB_VAL=""
     for v in GRUB_TERMINAL GRUB_TERMINAL_OUTPUT; do
-        eff "$v" || continue
+        "$get" "$v" || continue
         [ -n "$EF_VAL" ] || continue
         case " $EF_VAL " in *" gfxterm "*) return 1 ;; esac
         TB_VAR="$v" TB_FILE="$EF_FILE" TB_VAL="$EF_VAL"
@@ -355,19 +357,21 @@ terminal_fixable() {
 
 # How the menu is kept off the screen. 00_header: GRUB_TIMEOUT_STYLE wins;
 # without it a GRUB_HIDDEN_TIMEOUT (deprecated) hides it; a menu shown for 0
-# seconds is not shown. Fedora's menu_auto_hide lives in grubenv.
+# seconds is not shown. Fedora's menu_auto_hide lives in grubenv. [all] as
+# for terminal_blocked.
 FIX_STYLE=0 FIX_TIMEOUT=0 FIX_AUTOHIDE=0 STYLE_WAS="" TIMEOUT_WAS=""
-menu_visibility() {
-    local style="" hidden=""
+menu_visibility() {             # menu_visibility [all]
+    local style="" hidden="" get=eff
+    [ "${1:-}" = all ] && get=eff_all
     FIX_STYLE=0 FIX_TIMEOUT=0 FIX_AUTOHIDE=0 STYLE_WAS="" TIMEOUT_WAS=""
-    eff GRUB_TIMEOUT_STYLE && style="$EF_VAL"
-    eff GRUB_HIDDEN_TIMEOUT && hidden="$EF_VAL"
+    "$get" GRUB_TIMEOUT_STYLE && style="$EF_VAL"
+    "$get" GRUB_HIDDEN_TIMEOUT && hidden="$EF_VAL"
     if [ -n "$style" ]; then
         case "$style" in hidden|countdown) FIX_STYLE=1; STYLE_WAS="$style" ;; esac
     elif [ -n "$hidden" ]; then
         FIX_STYLE=1; STYLE_WAS="GRUB_HIDDEN_TIMEOUT=$hidden"
     fi
-    if eff GRUB_TIMEOUT && [ "$EF_VAL" = 0 ]; then
+    if "$get" GRUB_TIMEOUT && [ "$EF_VAL" = 0 ]; then
         FIX_TIMEOUT=1; TIMEOUT_WAS=0
     fi
     if [ -n "$EDITENV" ] && peek "$BOOT" grep -qx 'menu_auto_hide=1' "$BOOT/grubenv" 2>/dev/null; then
@@ -688,6 +692,7 @@ osprober_loss() {
 FATAL=() NOTES=() STALE=() DUPES=()
 MAIN_NEW="" MAIN_REC="" DROPIN_NEW="" MAIN_CHANGED=0 DROPIN_CHANGED=0 DROPIN_REMOVE=0
 THEME_IN_EFFECT=0 BLOCKED=0 TERM_FIX=0 REBUILD=0 PREV_THEME=""
+SHOW_TERM=0 SHOW_STYLE=0 SHOW_TIMEOUT=0
 SET_KEYS=() SET_VALS=()
 TMPS=()
 # Sets _tmp. Not printed: TMPS must grow in this shell, not in a $(…) copy.
@@ -806,6 +811,7 @@ build_dropin() {
 analyse() {
     FATAL=() NOTES=() STALE=() DUPES=() SET_KEYS=() SET_VALS=()
     THEME_IN_EFFECT=0 BLOCKED=0 TERM_FIX=0 REBUILD=0 PREV_THEME=""
+    SHOW_TERM=0 SHOW_STYLE=0 SHOW_TIMEOUT=0
     present || { FATAL+=("GRUB is not installed and set up here"); return 1; }
     if [ "$BOOT_UNMOUNTED" -eq 1 ]; then
         FATAL+=("/boot is in /etc/fstab but not mounted — mount it and run this again")
@@ -851,6 +857,13 @@ analyse() {
     else
         FIX_STYLE=0 FIX_TIMEOUT=0 FIX_AUTOHIDE=0
     fi
+    # The fixes above are worked out from the user's own files, so that our
+    # drop-in keeps carrying them. Said as changes only where they are not
+    # already in effect: once our drop-in carries one, it is not news on
+    # every run.
+    [ "$TERM_FIX" -eq 1 ] && ! { eff_all GRUB_TERMINAL_OUTPUT && [ "$EF_VAL" = gfxterm ]; } && SHOW_TERM=1
+    [ "$FIX_STYLE" -eq 1 ] && ! { eff_all GRUB_TIMEOUT_STYLE && [ "$EF_VAL" = menu ]; } && SHOW_STYLE=1
+    [ "$FIX_TIMEOUT" -eq 1 ] && ! { eff_all GRUB_TIMEOUT && [ "$EF_VAL" = "$VISIBLE_TIMEOUT" ]; } && SHOW_TIMEOUT=1
 
     build_main
     build_dropin
@@ -912,11 +925,11 @@ plan_rows() {
         fi
         row add "set GRUB_THEME" "→ $THEME_FILE ($THEME_NAME)"
     fi
-    if [ "$TERM_FIX" -eq 1 ]; then
+    if [ "$SHOW_TERM" -eq 1 ]; then
         row change "GRUB_TERMINAL_OUTPUT $TB_VAL → gfxterm" "— no theme loads on a console-only terminal"
     fi
-    [ "$FIX_STYLE" -eq 1 ] && row change "GRUB_TIMEOUT_STYLE → menu" "— was $STYLE_WAS; a hidden menu shows no theme"
-    [ "$FIX_TIMEOUT" -eq 1 ] && row change "GRUB_TIMEOUT 0 → $VISIBLE_TIMEOUT" "— a menu shown for 0 seconds is not shown"
+    [ "$SHOW_STYLE" -eq 1 ] && row change "GRUB_TIMEOUT_STYLE → menu" "— was $STYLE_WAS; a hidden menu shows no theme"
+    [ "$SHOW_TIMEOUT" -eq 1 ] && row change "GRUB_TIMEOUT 0 → $VISIBLE_TIMEOUT" "— a menu shown for 0 seconds is not shown"
     [ "$FIX_AUTOHIDE" -eq 1 ] && row change "unset menu_auto_hide in grubenv" "— Fedora shows the menu only after a failed boot otherwise"
     if [ "$DROPIN_CHANGED" -eq 1 ]; then
         row add "write $DROPIN" "— another drop-in in $ETC_D would win over $ETC"
@@ -933,7 +946,7 @@ plan_rows() {
         row ok "theme already in place" "($THEME_NAME)"
     fi
     notes_rows
-    if [ "$FIX_STYLE" -eq 0 ] && [ "$FIX_TIMEOUT" -eq 0 ]; then
+    if [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ]; then
         row info "timeout and menu entries are left as they are"
     else
         row info "menu entries are left as they are"
@@ -1268,9 +1281,9 @@ do_install() {
     tx_commit
 
     [ "$THEME_IN_EFFECT" -eq 0 ] && row add "GRUB_THEME" "→ $THEME_FILE"
-    [ "$TERM_FIX" -eq 1 ] && row change "GRUB_TERMINAL_OUTPUT" "→ gfxterm"
-    [ "$FIX_STYLE" -eq 1 ] && row change "GRUB_TIMEOUT_STYLE" "→ menu (was $STYLE_WAS)"
-    [ "$FIX_TIMEOUT" -eq 1 ] && row change "GRUB_TIMEOUT" "→ $VISIBLE_TIMEOUT (was 0)"
+    [ "$SHOW_TERM" -eq 1 ] && row change "GRUB_TERMINAL_OUTPUT" "→ gfxterm"
+    [ "$SHOW_STYLE" -eq 1 ] && row change "GRUB_TIMEOUT_STYLE" "→ menu (was $STYLE_WAS)"
+    [ "$SHOW_TIMEOUT" -eq 1 ] && row change "GRUB_TIMEOUT" "→ $VISIBLE_TIMEOUT (was 0)"
     [ "$DROPIN_CHANGED" -eq 1 ] && row add "wrote $DROPIN"
     [ "$DROPIN_REMOVE" -eq 1 ] && row remove "removed $DROPIN"
     if [ "$FIX_AUTOHIDE" -eq 1 ]; then
@@ -1289,7 +1302,7 @@ do_install() {
     # though that edit had not been applied.
     if [ "$FORCE_REBUILD" -eq 1 ]; then
         :
-    elif [ "$FIX_STYLE" -eq 0 ] && [ "$FIX_TIMEOUT" -eq 0 ]; then
+    elif [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ]; then
         row info "timeout and menu entries were left as they are"
     else
         row info "menu entries were left as they are"
@@ -1495,12 +1508,12 @@ do_status() {
         unknown)  echo "  $THEME_NAME: $BOOT cannot be read without sudo" ;;
     esac
     local s; for s in $(stale_dirs); do echo "  stale copy under an earlier name: $s"; done
-    if terminal_blocked; then echo "  terminal: $TB_VAR=$TB_VAL ($TB_FILE) — no theme can load"; else echo "  terminal: gfxterm"; fi
-    menu_visibility
+    if terminal_blocked all; then echo "  terminal: $TB_VAR=$TB_VAL ($TB_FILE) — no theme can load"; else echo "  terminal: gfxterm"; fi
+    menu_visibility all
     if [ "$FIX_STYLE" -eq 1 ] || [ "$FIX_TIMEOUT" -eq 1 ] || [ "$FIX_AUTOHIDE" -eq 1 ]; then
         echo "  menu: hidden at boot${STYLE_WAS:+ ($STYLE_WAS)}${TIMEOUT_WAS:+ (GRUB_TIMEOUT=0)}$([ "$FIX_AUTOHIDE" -eq 1 ] && echo ' (menu_auto_hide=1)')"
     else
-        eff GRUB_TIMEOUT && echo "  menu: visible, GRUB_TIMEOUT=$EF_VAL"
+        eff_all GRUB_TIMEOUT && echo "  menu: visible, GRUB_TIMEOUT=$EF_VAL"
     fi
     if cfg_generated "$CFG"; then
         if peek "$CFG" grep -q '^[[:space:]]*set theme=' "$CFG" 2>/dev/null; then
