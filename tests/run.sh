@@ -1667,6 +1667,27 @@ gk gt-fedora "console kept" 'grep -qx "GRUB_TERMINAL_OUTPUT=\"console\"" "$g/etc
 want gt-fedora 'will not show.*no display' 'said why'
 gk gt-fedora "menu_auto_hide kept" 'grep -qx menu_auto_hide=1 "$g/boot/grub2/grubenv"'
 
+# Fedora's /boot/grub2 is 0700 root, and run by hand there may be no sudo
+# credential yet when the copy in it is looked at. A sudo that is root only
+# after `sudo -v`, modelled as opening the directory for each command: the
+# copy changed by hand must still be found, and kept as vortex.bak.
+STUB_GRUB=2 gt_box gt-fedora0700 fedora; g="$WORK/run/gt-fedora0700"
+STUB_GRUB=2 gt gt-fedora0700 fedora 0 install
+echo mine >> "$g/boot/grub2/themes/vortex/theme.txt"
+printf '%s\n' '#!/bin/bash' \
+    'while [ $# -gt 0 ]; do case "$1" in' \
+    '  -v) : > "$STUB_STATE/sudo-ok"; exit 0 ;;' \
+    '  -n) [ -e "$STUB_STATE/sudo-ok" ] || exit 1; shift ;;' \
+    '  -*) shift ;; *) break ;; esac; done' \
+    '[ $# -eq 0 ] && exit 0' \
+    'chmod 755 "$FAKE_BOOT"; "$@"; rc=$?; chmod 000 "$FAKE_BOOT"; exit $rc' > "$g/bin/sudo"
+chmod +x "$g/bin/sudo"; chmod 000 "$g/boot/grub2"
+GT_ENV=(FAKE_BOOT="$g/boot/grub2"); STUB_GRUB=2 gt gt-fedora0700 fedora 0 install
+rm -f "$g/state/sudo-ok"; STUB_GRUB=2 gt gt-fedora0700 fedora 0 install; GT_ENV=()
+chmod 755 "$g/boot/grub2"
+gk gt-fedora0700 "the hand-changed copy kept as vortex.bak" 'grep -qx mine "$g/boot/grub2/themes/vortex.bak/theme.txt"'
+want gt-fedora0700 'already in place' 'then current: no copy, no rebuild'
+
 # Ubuntu's desktop default hides the menu: it is made visible, and put back.
 STUB_GRUB=1 STUB_GRUB_HIDDEN=1 gt_box gt-hidden debian; g="$WORK/run/gt-hidden"
 STUB_GRUB=1 gt gt-hidden debian 0 install

@@ -1182,6 +1182,14 @@ theme_loaded() {
 
 do_install() {
     analyse
+    # A boot directory only root can look into (Fedora's 0700 /boot/grub2),
+    # with no sudo credential cached yet: the copy there, the stale ones and
+    # grub.cfg were all unknown. Ask now and look again, or a copy changed by
+    # hand is replaced with no .bak.
+    if [ "$THEME_STATE" = unknown ] && [ "${#FATAL[@]}" -eq 0 ]; then
+        sudo_ready || { row error "sudo is needed for $BOOT and $ETC"; return 1; }
+        analyse
+    fi
     if [ "${#FATAL[@]}" -gt 0 ]; then
         local f; for f in "${FATAL[@]}"; do row error "cannot install:" "$f"; done
         return 1
