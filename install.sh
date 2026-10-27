@@ -4969,6 +4969,10 @@ declare -A APP_TYPE_FEDORA=(
 declare -A APP_TYPE_NIX=([bun]=nix [uv]=nix)
 NIX_PKG[bun]=bun
 NIX_PKG[uv]=uv
+# The Arch name is the AUR's wezterm-git, which nixpkgs has no attribute for:
+# nixpkgs#wezterm-git failed every NixOS install of it, and failed the batched
+# `nix profile install` too, leaving every other app to install on its own.
+NIX_PKG[wezterm]=wezterm
 
 # Sets <var> rather than printing, so item_installed can ask without a fork.
 app_type_into() {               # app_type_into <var> <app>
