@@ -4867,7 +4867,8 @@ app_open_hint() {
         return 0
     fi
     [ -n "${APP_UPDATE[$1]+x}" ] || return 0
-    substep "${C_DIM}Run ${C_ACCENT}${APP_BIN[$1]}${C_RESET}${C_DIM} in a terminal to open it${C_RESET}"
+    # The name you type, also where APP_BIN is a path (muse).
+    substep "${C_DIM}Run ${C_ACCENT}${APP_BIN[$1]##*/}${C_RESET}${C_DIM} in a terminal to open it${C_RESET}"
 }
 
 APP_BIN[claude-code]="claude"
@@ -4885,7 +4886,11 @@ APP_BIN[codex-cli]="codex"
 APP_BIN[cursor-cli]="cursor-agent"
 APP_BIN[opencode]="opencode"
 APP_BIN[kimi-code]="kimi"
-APP_BIN[muse]="muse"
+# A path, not a name: Debian's and Ubuntu's MusE sequencer (package muse) is
+# /usr/bin/muse, which made Muse Code read as installed — the plan said "runs
+# again to update" for a first install, and a failed one passed the binary
+# check. Its installer writes ${MUSE_INSTALL_DIR:-~/.local/bin}/muse.
+APP_BIN[muse]="$HOME/.local/bin/muse"
 APP_BIN[hermes]="hermes"
 APP_BIN[devin]="devin"
 # ...and `agent`, a second name for the same binary, beside it in ~/.grok/bin
