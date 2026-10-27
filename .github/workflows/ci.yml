@@ -190,12 +190,21 @@ jobs:
         env:
           LOGS: ${{ runner.temp }}/smoke-logs
           TITLE: ${{ matrix.label }}
+        # A job that stopped early may have written the porcelain and no
+        # versions yet (or neither): the table is then partial or absent, and
+        # this step must not fail on top of the real failure. Files are told
+        # apart by name, not by NR==FNR, which an empty versions.txt makes true
+        # for every porcelain line too.
         run: |
-          [ -s "$LOGS/porcelain.txt" ] || exit 0
+          [ -s "$LOGS/porcelain.txt" ] || { echo "no porcelain.txt: the job stopped before it was written"; exit 0; }
+          versions="$LOGS/versions.txt"
+          [ -f "$versions" ] || versions=/dev/null
           {
-            printf '### How each entry installs on %s\n\n| section | entry | rule | came from | version |\n|---|---|---|---|---|\n' "$TITLE"
-            awk -F'\t' 'NR==FNR{v[$1"/"$2]=$3; s[$1"/"$2]=$4; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s | %s |\n", $1, $2, $7, (k in s ? s[k] : "-"), (k in v ? v[k] : "-")}' \
-              "$LOGS/versions.txt" "$LOGS/porcelain.txt"
+            printf '### How each entry installs on %s\n\n' "$TITLE"
+            [ "$versions" = /dev/null ] && printf '_No versions recorded: the job stopped before record_versions._\n\n'
+            printf '| section | entry | rule | came from | version |\n|---|---|---|---|---|\n'
+            awk -F'\t' 'FILENAME==ARGV[1]{v[$1"/"$2]=$3; s[$1"/"$2]=$4; next} $1!="var"{k=$1"/"$2; printf "| %s | %s | %s | %s | %s |\n", $1, $2, $7, (k in s ? s[k] : "-"), (k in v ? v[k] : "-")}' \
+              "$versions" "$LOGS/porcelain.txt"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the install-method table
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
