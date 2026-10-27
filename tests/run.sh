@@ -1736,6 +1736,16 @@ gk gt-gc "the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titl
 STUB_GRUB=1 gt gt-gc arch 0 uninstall
 gk gt-gc "grub.d modes back" 'diff <(cd "$g/etc/grub.d" && stat -c "%n %a" [0-9]*) "$g/state/grubd.orig" >/dev/null'
 gk gt-gc "still the same menu" 'diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titles" >/dev/null'
+# ...and a grub upgrade between install and uninstall, which puts the stock
+# scripts back on: uninstall switches them off for its own rebuild, and on again.
+STUB_GRUB=1 STUB_GRUB_CUSTOMIZER=1 gt_box gt-gcup arch; g="$WORK/run/gt-gcup"
+gtitles "$g/boot/grub/grub.cfg" > "$g/state/titles"
+STUB_GRUB=1 gt gt-gcup arch 0 install
+( cd "$g/etc/grub.d" && chmod +x 10_linux 20_linux_xen 30_os-prober 30_uefi-firmware 40_custom )
+STUB_GRUB=1 gt gt-gcup arch 0 uninstall
+gk gt-gcup "rc 0, the same menu, nothing of ours left" '[ "$(cat "$g/rc")" = 0 ] && diff <(gtitles "$g/boot/grub/grub.cfg") "$g/state/titles" >/dev/null && ! grep -q vortex "$g/boot/grub/grub.cfg"'
+gk gt-gcup "grub.d modes back" 'diff <(cd "$g/etc/grub.d" && stat -c "%n %a" [0-9]*) "$g/state/grubd.orig" >/dev/null'
+nowant gt-gcup 'show twice|accept-menu-changes' 'no duplicated menu, no --accept-menu-changes hint'
 # ...and grub-customizer itself uninstalled: its filter is gone, so every proxy
 # passes its script through whole. Nothing can rebuild this menu as it is; the
 # plan says so up front and the install touches nothing.

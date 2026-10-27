@@ -1392,10 +1392,21 @@ do_uninstall() {
     fi
     # grub.cfg still naming our theme (rebuilt since by hand, or not) is
     # rebuilt too: removing the directory under it would blank the menu.
-    local rebuild=0
+    local rebuild=0 d f
+    local -a off=()
     { [ "$changed" -eq 1 ] || [ "$drop" -eq 1 ]; } && rebuild=1
     peek "$CFG" grep -q "/themes/$THEME_NAME/theme\.txt" "$CFG" 2>/dev/null && rebuild=1
     if [ "$rebuild" -eq 1 ]; then
+        # A grub upgrade since the install can have put grub-customizer's
+        # replaced stock scripts back. Off for this rebuild, as install does,
+        # or the menu comes out with them twice; on again below with the rest.
+        mapfile -t DUPES < <(dupes)
+        for d in "${DUPES[@]}"; do
+            f="${d%%$'\t'*}"
+            if rootly "$GRUBD" chmod -x "$f"; then
+                tx_add "chmodx"$'\t'"$f"; off+=("$f")
+            fi
+        done
         if ! build_candidate; then
             row error "grub-mkconfig failed" "— nothing was changed"
             printf '%s\n' "$BUILD_OUT" | tail -n 5 | while IFS= read -r val; do row info "$val"; done
@@ -1429,6 +1440,11 @@ do_uninstall() {
                 r="${r#grubenv$'\t'}"
                 [ -n "$EDITENV" ] && rootly "$BOOT" "$EDITENV" "$BOOT/grubenv" set "$r" && row change "grubenv: $r" "— as before the install" ;;
         esac
+    done
+    # The ones switched off for this rebuild that the record did not name.
+    for f in "${off[@]}"; do
+        [[ $'\n'"$(printf '%s\n' "${recs[@]}")"$'\n' == *$'\n'"chmod"$'\t'"$f"$'\n'* ]] && continue
+        rootly "$GRUBD" chmod +x "$f" && row change "${f##*/} is executable again" "— as before the uninstall"
     done
     if [ "${KEEP_DEST:-0}" -eq 1 ]; then
         row warn "kept $DEST" "— something besides this script still sets it as GRUB_THEME"
