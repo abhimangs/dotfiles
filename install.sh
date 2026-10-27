@@ -4778,7 +4778,9 @@ curl_app_source() {             # curl_app_source <app> — sets _curl_url and _
         # entirely once it sees its install dir — ~/.local/bin, its default —
         # already on PATH, which is what CURL_APP_PATH puts there.
         ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
-        # installs into /usr/local/bin — its own sudo, already cached
+        # Prefix ~/.local, so ~/.local/bin/postman (see APP_BIN); /usr/local
+        # only when that is writable without sudo, i.e. as root, and then it
+        # still links ~/.local/bin/postman to it.
         postman-cli)     _curl_url="https://dl-cli.pstmn.io/install/unix.sh"    ; _shell="sh" ;;
         # Drops ntn into ~/.local/bin (on PATH via CURL_APP_PATH) and only
         # *prints* PATH advice — no rc file is written, no prompt.
@@ -4877,7 +4879,11 @@ APP_BIN[grok-cli]="grok"
 # vibe (and vibe-acp beside it) in ~/.local/bin
 APP_BIN[mistral-cli]="vibe"
 APP_BIN[ori]="ori"
-APP_BIN[postman-cli]="postman"
+# A path, not a name: the Postman GUI (AUR postman-bin) owns /usr/bin/postman,
+# so a PATH lookup for "postman" found the GUI and called the CLI installed —
+# the plan said "already installed" and the CLI never went in. The installer
+# always leaves its stable link here, whichever prefix it picked.
+APP_BIN[postman-cli]="$HOME/.local/bin/postman"
 APP_BIN[notion-cli]="ntn"
 APP_BIN[bun]="bun"
 APP_BIN[tailscale]="tailscale"
