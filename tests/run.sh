@@ -1836,6 +1836,15 @@ sed -i 's#^GRUB_THEME=.*#GRUB_THEME="/boot/grub/themes/mine/theme.txt"#' "$g/etc
 STUB_GRUB=1 gt gt-hand2 arch 0 uninstall
 gk gt-hand2 "their line kept" 'grep -qx "GRUB_THEME=\"/boot/grub/themes/mine/theme.txt\"" "$g/etc/default/grub"'
 gk gt-hand2 "our copy gone, nothing points at it" '[ ! -e "$g/boot/grub/themes/vortex" ] && ! grep -q vortex "$g/boot/grub/grub.cfg"'
+# ...or installed again over it before any uninstall: the undo record is the
+# hand-set theme now, not the one from before the first install.
+STUB_GRUB=1 gt_box gt-hand3 arch; g="$WORK/run/gt-hand3"
+STUB_GRUB=1 gt gt-hand3 arch 0 install
+sed -i 's#^GRUB_THEME=.*#GRUB_THEME="/boot/grub/themes/mine/theme.txt"#' "$g/etc/default/grub"
+STUB_GRUB=1 gt gt-hand3 arch 0 install
+gk gt-hand3 "one record, for theirs" '[ "$(grep -c "^ours	GRUB_THEME=" "$g/etc/default/grub.theme-undo")" = 1 ] && grep -qx "was	GRUB_THEME=\"/boot/grub/themes/mine/theme.txt\"" "$g/etc/default/grub.theme-undo"'
+STUB_GRUB=1 gt gt-hand3 arch 0 uninstall
+gk gt-hand3 "uninstall puts theirs back, not starfield" 'grep -qx "GRUB_THEME=\"/boot/grub/themes/mine/theme.txt\"" "$g/etc/default/grub"'
 
 # rebuild: install's checked rebuild after a change to /etc/default/grub. It
 # applies the change when the menu comes out the same, and refuses on a

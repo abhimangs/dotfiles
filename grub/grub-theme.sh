@@ -1049,9 +1049,12 @@ copy_theme() {
 
 # Merges this run's records into the undo file: records whose "ours" line is
 # no longer in the file (changed by hand since) are dropped, then the new ones
-# go after the rest.
-write_undo() {                  # write_undo <main-file-after> <extra records…>
-    local after="$1" t line pend="" keep
+# go after the rest. "The file" is the one on disk now, before this run: a
+# line this run writes again must not keep the old record alive, or a theme
+# chosen by hand since is lost on uninstall (the first record wins, and puts
+# back what was there before the first install).
+write_undo() {                  # write_undo <main-file-now> <extra records…>
+    local now="$1" t line pend="" keep
     shift
     new_tmp; t="$_tmp"
     printf '# grub-theme.sh: what "uninstall" puts back. One change per record.\n' > "$t"
@@ -1059,7 +1062,7 @@ write_undo() {                  # write_undo <main-file-after> <extra records…
         local -A left=()
         while IFS= read -r line || [ -n "$line" ]; do
             left["$line"]=$(( ${left["$line"]:-0} + 1 ))
-        done < "$after"
+        done < "$now"
         keep=0
         while IFS= read -r line || [ -n "$line" ]; do
             case "$line" in
@@ -1203,7 +1206,7 @@ do_install() {
 
     # The record goes first: a change made with nothing to undo it from is the
     # one thing uninstall could not recover from.
-    if ! write_undo "$MAIN_NEW" "${rec[@]}"; then
+    if ! write_undo "$ETC" "${rec[@]}"; then
         tx_rollback; row error "could not write $UNDO"; return 1
     fi
     for d in "${DUPES[@]}"; do
