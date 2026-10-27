@@ -5158,6 +5158,10 @@ APP_NOTE[deepseek-harness]="run 'dsh web' to open it"
 APP_NOTE[orca]="run 'orca' to open it"
 APP_NOTE[vicinae]="bind a hotkey to: vicinae toggle"
 APP_NOTE[discord-canary]="the nightly build"
+# Not in APP_UPDATE: ntn is a command tool (bare `ntn` opens nothing), and that
+# map is for CLIs you launch. Its script install updates with `ntn update`
+# (developers.notion.com/cli/get-started/installation).
+APP_NOTE[notion-cli]="run 'ntn login' after; update it with 'ntn update'"
 # Upstream naming: both are `postman`. The CLI's ~/.local/bin/postman comes
 # first on the rc files' PATH; the GUI's .desktop entry runs
 # /opt/postman/Postman by path, so the app menu is unaffected.
