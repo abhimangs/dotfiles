@@ -28,12 +28,14 @@ echo "zsh runs        : $(zsh -c 'echo yes' 2>/dev/null || echo 'NO — zsh fail
 echo "zsh version     : $(zsh --version 2>/dev/null || echo '-')"
 echo
 echo "/etc/shells zsh lines:"
-grep -n 'zsh' /etc/shells 2>/dev/null | sed 's/^/  /' || echo "  <none>"
+# The trailing grep is what makes "<none>" reachable: a pipeline's status is
+# its last command's, and sed succeeds on empty input.
+grep -n 'zsh' /etc/shells 2>/dev/null | sed 's/^/  /' | grep . || echo "  <none>"
 echo
 
 echo "── why a login session might ignore passwd ───────────"
 echo "sshd ForceCommand / shell overrides:"
-grep -nEi '^[[:space:]]*(ForceCommand|Match|PermitUserEnvironment)' /etc/ssh/sshd_config 2>/dev/null | sed 's/^/  /' || echo "  <none>"
+grep -nEi '^[[:space:]]*(ForceCommand|Match|PermitUserEnvironment)' /etc/ssh/sshd_config 2>/dev/null | sed 's/^/  /' | grep . || echo "  <none>"
 for f in /etc/ssh/sshd_config.d/*.conf; do
     [ -f "$f" ] && grep -nEi '^[[:space:]]*(ForceCommand|Match)' "$f" 2>/dev/null | sed "s|^|  $f:|"
 done
