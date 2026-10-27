@@ -1567,6 +1567,10 @@ PKG_BIN[neovim]="nvim"
 # nixpkgs names differ from the binaries (and from fc-cache).
 PKG_BIN[fresh-editor]="fresh"
 PKG_BIN[fontconfig]="fc-cache"
+# The one app whose package is not its binary: a NixOS system-wide OBS (no
+# profile entry, `obs` on PATH) read as missing and was installed again into
+# the user's profile on every run.
+PKG_BIN[obs-studio]="obs"
 
 pkg_installed() {
     local pkg="$1"
