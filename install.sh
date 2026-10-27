@@ -262,7 +262,7 @@ XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 # /home/abhik/.config read ~k/.config.
 case "$XDG_CONFIG" in
     "$HOME")   XDG_SHOWN="~" ;;
-    "$HOME"/*) XDG_SHOWN="~/${XDG_CONFIG#"$HOME"/}" ;;
+    "$HOME"/*) XDG_SHOWN=\~/"${XDG_CONFIG#"$HOME"/}" ;;
     *)         XDG_SHOWN="$XDG_CONFIG" ;;
 esac
 

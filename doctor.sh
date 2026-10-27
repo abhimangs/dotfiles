@@ -113,7 +113,7 @@ XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 # /home/abhik/.config into ~k/.config when HOME=/home/abhi.
 case "$XDG_CONFIG" in
     "$HOME")   XDG_SHOWN="~" ;;
-    "$HOME"/*) XDG_SHOWN="~/${XDG_CONFIG#"$HOME"/}" ;;
+    "$HOME"/*) XDG_SHOWN=\~/"${XDG_CONFIG#"$HOME"/}" ;;
     *)         XDG_SHOWN="$XDG_CONFIG" ;;
 esac
 # Single-file targets are symlinks; ~/.config/<app> is a real directory by
