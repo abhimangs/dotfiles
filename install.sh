@@ -259,12 +259,16 @@ XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 # The display form: ~ where the path is $HOME or under it, the full path where
 # it is not. A bare prefix match is not "under": with HOME=/home/abhi it made
-# /home/abhik/.config read ~k/.config.
-case "$XDG_CONFIG" in
-    "$HOME")   XDG_SHOWN="~" ;;
-    "$HOME"/*) XDG_SHOWN=\~/"${XDG_CONFIG#"$HOME"/}" ;;
-    *)         XDG_SHOWN="$XDG_CONFIG" ;;
-esac
+# /home/abhik/.config read ~k/.config. Every path echoed to the user goes
+# through this; sets <var> rather than printing, so it costs no fork.
+home_shown() {                  # home_shown <var> <path>
+    case "$2" in
+        "$HOME")   printf -v "$1" '%s' \~ ;;
+        "$HOME"/*) printf -v "$1" '%s/%s' \~ "${2#"$HOME"/}" ;;
+        *)         printf -v "$1" '%s' "$2" ;;
+    esac
+}
+home_shown XDG_SHOWN "$XDG_CONFIG"
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
@@ -4101,7 +4105,7 @@ backup_file() {
     local bak="${target}.bak"
     local oldbak="${target}.old.bak"
     local name; name="$(basename "$target")"
-    local shown="${target/#$HOME/\~}"
+    local shown; home_shown shown "$target"
 
     # Only *our* symlink is disposable — stow puts it straight back. This used
     # to be a bare `[ -L ]`, which quietly rm'd any symlink at all, in backup
@@ -5357,7 +5361,7 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
 PLAN_REPLACES=()
 plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
     local -n _prr="$1"
-    local _p="$2" _n="${2##*/}" _s="${2/#$HOME/\~}"
+    local _p="$2" _n="${2##*/}" _s; home_shown _s "$2"
     PLAN_REPLACES+=("$_s")
     if [[ "$BACKUP_MODE" == "delete" ]]; then
         _prr+=("${C_RED}delete${C_RESET} ${C_DIM}${_s}${C_RESET}${3:-}")
@@ -6167,7 +6171,7 @@ backup_bases() {
 _bk_size() { du -shx "$1" 2>/dev/null | cut -f1; }
 
 backups_report() {              # backups_report <list|prune>
-    local mode="$1" base b o shown=0 pruned=0 freed
+    local mode="$1" base b o shown=0 pruned=0 freed _bs
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Backups${C_RESET}"
     while IFS= read -r base; do
         for b in "${base}.bak" "${base}.old.bak"; do
@@ -6175,7 +6179,8 @@ backups_report() {              # backups_report <list|prune>
             # invisible to -e, and it is still a file taking up a name.
             { [ -e "$b" ] || [ -L "$b" ]; } || continue
             shown=$(( shown + 1 ))
-            substep "${C_DIM}$(_bk_size "$b")${C_RESET}  ${b/#$HOME/\~}"
+            home_shown _bs "$b"
+            substep "${C_DIM}$(_bk_size "$b")${C_RESET}  ${_bs}"
         done
     done < <(backup_bases)
 
@@ -6200,7 +6205,9 @@ backups_report() {              # backups_report <list|prune>
     if [ "$DRY_RUN" -eq 1 ]; then
         while IFS= read -r base; do
             o="${base}.old.bak"
-            { [ -e "$o" ] || [ -L "$o" ]; } && substep "${C_RED}would delete${C_RESET} ${C_DIM}${o/#$HOME/\~}${C_RESET}"
+            { [ -e "$o" ] || [ -L "$o" ]; } || continue
+            home_shown _bs "$o"
+            substep "${C_RED}would delete${C_RESET} ${C_DIM}${_bs}${C_RESET}"
         done < <(backup_bases)
         success "Dry run — nothing removed"
         return 0
@@ -6213,11 +6220,12 @@ backups_report() {              # backups_report <list|prune>
         o="${base}.old.bak"
         { [ -e "$o" ] || [ -L "$o" ]; } || continue
         freed="$(_bk_size "$o")"
+        home_shown _bs "$o"
         if rm -rf "$o"; then
             pruned=$(( pruned + 1 ))
-            substep "Deleted ${C_DIM}${o/#$HOME/\~}${C_RESET} ${C_DIM}(${freed})${C_RESET}"
+            substep "Deleted ${C_DIM}${_bs}${C_RESET} ${C_DIM}(${freed})${C_RESET}"
         else
-            substep "${C_YELLOW}Could not delete ${o/#$HOME/\~}${C_RESET}"
+            substep "${C_YELLOW}Could not delete ${_bs}${C_RESET}"
         fi
     done < <(backup_bases)
     success "Pruned ${pruned}"
@@ -6328,7 +6336,7 @@ uninstall_is_ours() {           # uninstall_is_ours <cfg>
 }
 
 uninstall_run() {
-    local list=() cfg t dir pkg bak removed=() skipped=() restored=() failed=()
+    local list=() cfg t ts dir pkg bak removed=() skipped=() restored=() failed=()
     # Every config plus the tools and apps that carry one and the wallpapers
     # directory, which the install loop stows as a side effect of
     # ghostty/kitty and which nothing else would ever take back out. One pool
@@ -6353,13 +6361,14 @@ uninstall_run() {
         fi
         t="$(uninstall_target "$cfg")"
         bak="${t}.bak"
+        home_shown ts "$t"
         if uninstall_is_ours "$cfg"; then
             plan+=("$cfg")
-            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}unstow${C_RESET} ${C_DIM}${t/#$HOME/\~}${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}unstow${C_RESET} ${C_DIM}${ts}${C_RESET}"
             { [ -e "$bak" ] || [ -L "$bak" ]; } && \
                 echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_GREEN}restore${C_RESET} ${C_DIM}${t##*/}.bak → ${t##*/}${C_RESET}"
         elif [ -e "$t" ] || [ -L "$t" ]; then
-            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}leave  ${t/#$HOME/\~} — not ours${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}leave  ${ts} — not ours${C_RESET}"
         fi
     done
     if [ "${#plan[@]}" -eq 0 ]; then
@@ -6407,10 +6416,11 @@ uninstall_run() {
         [ -d "$t" ] && rmdir "$t" 2>/dev/null
         if [ -e "$t" ] || [ -L "$t" ]; then
             skipped+=("$cfg")
+            home_shown ts "$t"
             if [ -d "$t" ]; then
-                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET} ${C_DIM}— our links are gone; only your own files remain in ${t/#$HOME/\~}, so no .bak was put back${C_RESET}"
+                substep "Unstowed ${C_ACCENT}${cfg}${C_RESET} ${C_DIM}— our links are gone; only your own files remain in ${ts}, so no .bak was put back${C_RESET}"
             else
-                substep "${C_YELLOW}${cfg}${C_RESET} ${C_DIM}— something is still at ${t/#$HOME/\~}, left alone${C_RESET}"
+                substep "${C_YELLOW}${cfg}${C_RESET} ${C_DIM}— something is still at ${ts}, left alone${C_RESET}"
             fi
             continue
         fi

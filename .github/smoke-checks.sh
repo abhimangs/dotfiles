@@ -409,7 +409,8 @@ record_versions() {     # record_versions <configs> <tools> <apps>
         fi
         if [ -z "$v" ] && b=$(PATH="$PATH:$cpath" command -v "${BIN_OF[$probe]:-$probe}"); then
             v=$(timeout 15 "$b" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
-            src="${b%/*}"; src="${src/#$HOME/\~}"
+            src="${b%/*}"
+            case "$src" in "$HOME"/*) src=\~/"${src#"$HOME"/}" ;; "$HOME") src=\~ ;; esac
         fi
         printf '%s\t%s\t%s\t%s\n' "$sec" "$name" "${v:--}" "${src:--}" >> "$LOGS/versions.txt"
     done < "$pf"
