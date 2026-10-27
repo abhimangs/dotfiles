@@ -4748,7 +4748,12 @@ APP_CURL_ENV[antigravity-cli]="HOME=$RUN_TMPDIR/agy-home"
 APP_CURL_ARGS[antigravity-cli]="--dir $HOME/.local/bin"
 # Postman's only writes when its bin dir is off PATH, which CURL_APP_PATH
 # prevents; this is its documented opt-out, in case that check ever changes.
-APP_CURL_ENV[postman-cli]="POSTMAN_CLI_NO_MODIFY_PATH=1"
+# It also appends a "Postman CLI is installed" block to ~/.claude/CLAUDE.md and
+# ~/.codex/AGENTS.md (creating them) whenever those directories exist — every
+# Claude Code / Codex session's own instructions, written unasked. No opt-out
+# but the two roots it reads, pointed at a directory that does not exist, which
+# it skips. Never created here, so nothing is written there either.
+APP_CURL_ENV[postman-cli]="POSTMAN_CLI_NO_MODIFY_PATH=1 CLAUDE_CONFIG_DIR=$RUN_TMPDIR/no-agent-config CODEX_HOME=$RUN_TMPDIR/no-agent-config"
 
 # Where each curl app's installer comes from and which shell runs it. One case,
 # read by the apps loop to install and by the menu's details pane to say where
