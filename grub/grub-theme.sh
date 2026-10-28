@@ -946,7 +946,10 @@ plan_rows() {
         row ok "theme already in place" "($THEME_NAME)"
     fi
     notes_rows
-    if [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ]; then
+    # menu_auto_hide is not the timeout and not an entry, but it does decide
+    # whether Fedora shows the menu. Saying the timeout was left alone beside
+    # the row that unsets it reads as a contradiction.
+    if [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ] && [ "$FIX_AUTOHIDE" -eq 0 ]; then
         row info "timeout and menu entries are left as they are"
     else
         row info "menu entries are left as they are"
@@ -1302,7 +1305,7 @@ do_install() {
     # though that edit had not been applied.
     if [ "$FORCE_REBUILD" -eq 1 ]; then
         :
-    elif [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ]; then
+    elif [ "$SHOW_STYLE" -eq 0 ] && [ "$SHOW_TIMEOUT" -eq 0 ] && [ "$FIX_AUTOHIDE" -eq 0 ]; then
         row info "timeout and menu entries were left as they are"
     else
         row info "menu entries were left as they are"

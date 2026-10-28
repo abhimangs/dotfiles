@@ -5138,7 +5138,7 @@ CONFIG_DESC[fontconfig]="fontconfig preferences"
 CONFIG_DESC[grub]="vortex GRUB theme"
 CONFIG_NOTE[mpv]="Catppuccin-friendly defaults — hwdec, osc, yt-dlp"
 CONFIG_NOTE[fontconfig]="prefers JetBrainsMono Nerd Font and Maple Mono"
-CONFIG_NOTE[grub]="sets GRUB_THEME, and on a desktop GRUB_TERMINAL_OUTPUT=gfxterm where console would hide any theme — timeout and menu entries stay as they are. Hidden when GRUB is not installed"
+CONFIG_NOTE[grub]="sets GRUB_THEME, and on a desktop gfxterm where a console would hide the theme. Fedora's menu_auto_hide is unset so the menu shows. A timeout you can already see, and the menu entries, stay as they are. Hidden when GRUB is not installed"
 
 CONFIG_NOTE[ghostty]="set in JetBrainsMono Nerd Font, which comes with any config"
 CONFIG_NOTE[kitty]="set in JetBrainsMono Nerd Font, which comes with any config"

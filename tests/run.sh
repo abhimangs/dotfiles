@@ -1662,6 +1662,9 @@ STUB_GRUB=2 RUN_ARGS=--gui run grub-fedora fedora "$WORK/k-sel" DOTFILES_CONFIGS
 check   grub-fedora 0
 g="$WORK/run/grub-fedora"
 want    grub-fedora 'GRUB_TERMINAL_OUTPUT console → gfxterm' 'the plan named the switch'
+want    grub-fedora 'unset menu_auto_hide' 'the plan names Fedora auto-hide'
+nowant  grub-fedora 'timeout and menu entries (are|were) left as they are' 'does not claim the timeout was left alone while auto-hide is cleared'
+want    grub-fedora 'menu entries (are|were) left as they are' 'the entries still are'
 gk grub-fedora "gfxterm in place of console" 'grep -qx "GRUB_TERMINAL_OUTPUT=\"gfxterm\"" "$g/etc/default/grub"'
 gk grub-fedora "menu_auto_hide unset" '! grep -q menu_auto_hide "$g/boot/grub2/grubenv"'
 gk grub-fedora "grub.cfg loads it" 'grep -q "^set theme=.*/grub2/themes/vortex/theme.txt" "$g/boot/grub2/grub.cfg"'
