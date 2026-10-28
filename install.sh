@@ -199,6 +199,7 @@ IS_UBUNTU=0
 # fedora covers the RHEL family too; this is its own ID, which is what picks
 # Docker's repo directory (linux/fedora vs linux/rhel).
 OS_ID=""
+FEDORA_VERSION=""
 
 if [ -f /etc/arch-release ]; then
     DISTRO="arch"
@@ -223,6 +224,11 @@ else
         DISTRO="fedora"
     fi
     OS_ID="$_os_id"
+    # Major version only. Proton's fedora-N-stable repo carries proton-vpn-cli
+    # 1.x from 43 up; 42 stops at 0.1.x, which pvpn.zsh does not speak.
+    if [ "$DISTRO" = fedora ] && [ "$OS_ID" = fedora ]; then
+        FEDORA_VERSION="$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_ID%%.*}")"
+    fi
     unset _os_id _os_id_like
 fi
 
@@ -715,6 +721,7 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
                 if [ -n "${PKG_SYNC[$4]:-}" ]; then _h="pacman"; else _h="AUR"; fi
             elif [[ "$DISTRO" == "fedora" ]]; then
                 case "$3:$_t" in
+                    protonvpn:*)        _h="Proton's own yum repo" ;;
                     *:brave)            _h="Brave's own yum repo" ;;
                     *:vscode*)          _h="Microsoft's yum repo" ;;
                     *:docker)           _h="Docker's own yum repo" ;;
@@ -2983,6 +2990,39 @@ ensure_protonvpn_cli_deb() {
     apt_pkg_installed proton-vpn-cli
 }
 
+# ── proton-vpn-cli (Fedora 43+) ───────────────────────────────────────────────
+# Proton's documented bootstrap: the noarch release rpm for this Fedora
+# version, which drops the signed yum repo, then proton-vpn-cli from it.
+# Newest rpm in the directory, same reason as the apt side: an older
+# release package can carry a key that no longer verifies.
+ensure_protonvpn_cli_fedora() {
+    rpm_pkg_installed proton-vpn-cli && return 0
+    local ver listing rpm_name tmp base rc
+    ver="${FEDORA_VERSION%%.*}"
+    [[ "$ver" =~ ^[0-9]+$ ]] || return 1
+    base="https://repo.protonvpn.com/fedora-${ver}-stable/protonvpn-stable-release/"
+    listing=$(curl -fsSL "$base" 2>/dev/null) || {
+        DNF_LAST_ERROR="installer: could not read Proton's Fedora repo"
+        return 1
+    }
+    rpm_name=$(grep -oE 'protonvpn-stable-release-[0-9][^"<>[:space:]]+\.noarch\.rpm' <<< "$listing" | sort -uV | tail -1)
+    if [ -z "$rpm_name" ]; then
+        DNF_LAST_ERROR="installer: Proton's Fedora repo listed no release rpm"
+        return 1
+    fi
+    tmp=$(mktemp -p "$RUN_TMPDIR" protonvpn_XXXXXX.rpm) || return 1
+    if ! curl -fsSL "${base}${rpm_name}" -o "$tmp" 2>/dev/null; then
+        rm -f "$tmp"
+        DNF_LAST_ERROR="installer: could not download ${rpm_name}"
+        return 1
+    fi
+    dnf_install "$tmp"; rc=$?
+    rm -f "$tmp"
+    [ "$rc" -eq 0 ] || return "$rc"
+    dnf_install proton-vpn-cli
+    rpm_pkg_installed proton-vpn-cli
+}
+
 # ── Brave (Debian/Ubuntu) ─────────────────────────────────────────────────────
 # Confirmed official channel names: brave-origin (stable), brave-origin-beta (beta)
 ensure_brave_deb() {
@@ -4194,6 +4234,7 @@ unset _k
 # is distro-neutral (upstream_bin into /usr/local/bin).
 declare -A RPM_INSTALLER=(
     [starship]=ensure_starship_deb [fresh]=ensure_fresh_fedora
+    [protonvpn]=ensure_protonvpn_cli_fedora
 )
 
 # Debian/Ubuntu install-method overrides, same shape as DEP_PKG_DEB/APP_TYPE_DEB:
@@ -4368,10 +4409,15 @@ if [[ "$DISTRO" == "debian" && "$IS_UBUNTU" -eq 0 ]]; then
         bookworm|bullseye|buster|stretch) strip_items CONFIGS ghostty ;;
     esac
 fi
-# Fedora: no ghostty package (COPR only, which is not an official source), and
-# ProtonVPN's Fedora repo does not carry the new proton-vpn-cli. rofi stays:
-# Fedora ships 2.0, the Wayland-capable release the config is written for.
-[[ "$DISTRO" == "fedora" ]] && strip_items CONFIGS ghostty protonvpn
+# Fedora: no ghostty package (COPR only, which is not an official source).
+# rofi stays: Fedora ships 2.0, the Wayland-capable release the config is
+# written for. proton-vpn-cli 1.x (what pvpn.zsh drives) is in Proton's own
+# fedora-N-stable repo from 43 up; 42's repo stops at 0.1.x, and the RHEL
+# family has no such repo, so both stay without the row.
+[[ "$DISTRO" == "fedora" ]] && strip_items CONFIGS ghostty
+if [[ "$DISTRO" == "fedora" ]] && ! { [[ "$OS_ID" == fedora && "$FEDORA_VERSION" =~ ^[0-9]+$ && "$FEDORA_VERSION" -ge 43 ]]; }; then
+    strip_items CONFIGS protonvpn
+fi
 # NixOS: proton-vpn-cli is not in nixpkgs. Everything else is.
 [[ "$DISTRO" == "nix" ]] && strip_items CONFIGS protonvpn
 # Not a GUI entry: a headless machine with GRUB still gets the theme. A machine

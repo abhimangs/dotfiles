@@ -907,6 +907,16 @@ RUN_ARGS="--list --gui" run ghostty-ubu ubuntu "$WORK/k-none"
 check   ghostty-ubu 0
 want    ghostty-ubu 'ghostty' 'Ubuntu offers ghostty'
 
+# 15p5. proton-vpn-cli 1.x is in Proton's fedora-N-stable repo from 43 up.
+#       42's repo stops at 0.1.x, which pvpn.zsh does not drive.
+RUN_ARGS="--list --porcelain --gui" run proton-f42 fedora "$WORK/k-none"
+check   proton-f42 0
+nowant  proton-f42 $'\tprotonvpn\t' 'Fedora 42 does not offer protonvpn'
+RUN_ARGS="--list --porcelain --gui" STUB_FEDORA_VERSION=44 run proton-f44 fedora "$WORK/k-none"
+check   proton-f44 0
+want    proton-f44 $'\tprotonvpn\t' 'Fedora 44 offers protonvpn'
+want    proton-f44 "Proton's own yum repo" 'the porcelain how column names that yum repo'
+
 # 15q. uv, Zed and Ollama are curl apps on Debian/Ubuntu. uv's installer is the
 #      one mistral-cli reaches by inheritance, so the same rc-file sweep applies
 #      to it asked for directly; Zed's writes no rc file at all.
@@ -1588,6 +1598,12 @@ gtitles() { awk '/^[[:space:]]*(menuentry|submenu)/' "$1" | sed 's/^[[:space:]]*
 # is an unknown name. The harness points DOTFILES_GRUB_ETC into the sandbox
 # for every scenario, so a runner that boots with GRUB itself (whose
 # /usr/sbin/grub-mkconfig is found even off PATH) still has none here.
+RUN_ARGS="--list" run grub-unlisted ubuntu "$WORK/k-none"
+check   grub-unlisted 0
+nowant  grub-unlisted 'vortex GRUB theme' 'the menu hides grub when GRUB is not installed'
+STUB_GRUB=1 RUN_ARGS="--list" run grub-listed arch "$WORK/k-none"
+check   grub-listed 0
+want    grub-listed 'vortex GRUB theme' 'the menu lists the vortex theme when GRUB is installed'
 run     grub-absent ubuntu "$WORK/k-sel" DOTFILES_CONFIGS=grub
 check   grub-absent 2
 want    grub-absent 'Unknown config' 'hidden when GRUB is not installed'

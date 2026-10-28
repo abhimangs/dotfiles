@@ -284,7 +284,8 @@ build_root() {          # build_root <root> <distro>
         debian) printf 'ID=debian\nVERSION_CODENAME=%s\nPRETTY_NAME="Debian GNU/Linux 12 (%s)"\n' \
                     "${STUB_DEBIAN_CODENAME:-bookworm}" "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/os-release"
                 printf 'deb http://deb.debian.org/debian %s main\n' "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/apt/sources.list" ;;
-        fedora) printf 'ID=fedora\nVERSION_ID=42\nPRETTY_NAME="Fedora Linux 42"\n' > "$root/etc/os-release" ;;
+        fedora) printf 'ID=fedora\nVERSION_ID=%s\nPRETTY_NAME="Fedora Linux %s"\n' \
+                    "${STUB_FEDORA_VERSION:-42}" "${STUB_FEDORA_VERSION:-42}" > "$root/etc/os-release" ;;
         nix)    printf 'NAME="NixOS"\nID=nixos\nVERSION_ID=25.05\nPRETTY_NAME="NixOS"\n' > "$root/etc/os-release"
                 : > "$root/etc/NIXOS" ;;
     esac

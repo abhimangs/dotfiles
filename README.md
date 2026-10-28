@@ -87,7 +87,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `alacritty/` | `~/.config/alacritty/` | `alacritty` *(app)* | apt / PPA — TOML, needs Alacritty 0.13+ |
 | `wezterm/` | `~/.config/wezterm/` | `wezterm-git` *(app)* | Fury repo *(app)* |
 | `nvim/` | `~/.config/nvim/` | `neovim` *(app)* | upstream's latest release in `/opt/nvim`, linked into `/usr/local/bin` (the archives carry 0.7–0.11) — lazy.nvim + catppuccin + lualine |
-| `wallpapers/` | `~/.config/wallpapers/` | - | - |
+| `wallpapers/` | `~/.config/wallpapers/` | - | not a `--configs=` name; stowed with `ghostty` and `kitty` |
 | `bash/` | `~/.bashrc` | `bash` | apt (plain rc, no starship or plugins; see [Going back to bash](#going-back-to-bash)) |
 | `zsh/` | `~/.zshrc` | `zsh` | apt |
 | `git/` | `~/.gitconfig` | `git` | apt |
@@ -97,7 +97,7 @@ Run it as your own user (`bash install.sh`) or as root, not with `sudo`; see [Ru
 | `mpv/` | `~/.config/mpv/` | `mpv` | apt / dnf / nixpkgs |
 | `fontconfig/` | `~/.config/fontconfig/` | `fontconfig` | apt / dnf / nixpkgs |
 | `grub/` | `/boot/grub/themes/vortex/` (`/boot/grub2/…` on Fedora; copied, not stowed) | — | only when GRUB is already installed; not on NixOS. See [The GRUB theme](#the-grub-theme) |
-| `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | official ProtonVPN apt repo (**not on Fedora/NixOS**) |
+| `proton-vpn/` | `~/scripts/pvpn/pvpn.zsh` | `proton-vpn-cli` | Proton's own repo. The flag is `--configs=protonvpn` (the folder name is not the key). Fedora 43 and newer; not Fedora 42, RHEL, or NixOS |
 
 `ccstatusline` is the one config with no package on either distro. Claude Code
 renders it by running:
@@ -139,7 +139,7 @@ merge is deliberately conservative:
 
 - **One menu**: dotfiles, tools, apps and a review of what you ticked, as four tabs on one screen (see below). Any of them can be left empty, so an apps-only run never touches a dotfile
 - **Dep tools tab**: bat, eza, fd, fzf, zoxide, pay-respects, lazygit, btop, tree, gh, ripgrep, delta, tmux, jq, yazi, atuin, lazydocker, ncdu (the ones `.zshrc` calls come automatically with zsh, see below)
-- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Zed, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Ollama, Postman CLI, Bun, uv, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, Bitwarden, KeePassXC, LocalSend, Syncthing, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop (\*Arch only, ‡not on Debian, see below). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it on Arch, Debian and Ubuntu: both are required for it to work, not optional extras. Fedora's `obs-studio` already requires `qt6-qtwayland`, and its virtual camera is RPM Fusion's `akmod-v4l2loopback`, which the installer does not enable; on NixOS nixpkgs' OBS has Wayland built in and the virtual camera is `programs.obs-studio.enableVirtualCamera` in `configuration.nix`. Both say so instead of failing
+- **App tab**: select apps to install: Brave Origin Beta/Stable, Visual Studio Code, VS Code Insiders, Neovim, Zed, Alacritty, WezTerm, Antigravity IDE\*, Claude Code CLI, Antigravity 2.0\*, Antigravity CLI, Codex CLI, Cursor CLI, Opencode CLI, Kimi Code CLI, Muse Code, Hermes Agent, Devin CLI, Grok CLI, Mistral CLI, ORI Harness, Deepseek Harness\*, Orca\*, Ollama, Postman CLI, Bun, uv, Vicinae\*, Notion\*, Obsidian\*, ChatGPT\*, Slack‡, Discord Canary, Bitwarden, KeePassXC, LocalSend, Syncthing, VLC, OBS Studio, Zoom\*, Flatpak, Docker + Compose, Tailscale, Claude Desktop (\*Arch only, ‡not on Debian. Fedora also drops WezTerm, Claude Desktop, Slack, Discord Canary, Bitwarden and LocalSend; NixOS drops those except WezTerm, and the glibc curl CLIs. See [Fedora and NixOS](#fedora-and-nixos)). OBS Studio pulls in `v4l2loopback-dkms` (virtual camera) and `qt6-wayland` (Wayland rendering) with it on Arch, Debian and Ubuntu: both are required for it to work, not optional extras. Fedora's `obs-studio` already requires `qt6-qtwayland`, and its virtual camera is RPM Fusion's `akmod-v4l2loopback`, which the installer does not enable; on NixOS nixpkgs' OBS has Wayland built in and the virtual camera is `programs.obs-studio.enableVirtualCamera` in `configuration.nix`. Both say so instead of failing
 - **Confirmation plan**: shows exactly what will be installed before proceeding, and nothing touches the machine before you say yes to it: the AUR helper, the apt refresh and `stow` are the plan's first rows, not something that already happened
 - **Backup rotation**: existing configs move to `.bak`, old `.bak` rotates to `.old.bak`, and the summary lists every `.bak` the run created so nothing has to be scrolled back for
 - **A sign of life**: package installs run with their output hidden, so each one gets a spinner, and its elapsed seconds once it passes three. On a pipe, a redirect, `TERM=dumb` or `--no-color` it never draws at all, so captured output stays exactly what it was
@@ -242,6 +242,13 @@ Paste the whole output into an issue: it is the quickest way to answer "zsh is
 installed but my shell is still bash", which is the question it was written for.
 It also prints `grub/grub-theme.sh status` (see below).
 
+### Reporting a vulnerability
+
+Do not open a public issue for a security problem. The policy is
+[`.github/SECURITY.md`](.github/SECURITY.md): use the repository's **Security**
+tab, then **Report a vulnerability**. That form is private. Include what you
+found, how to reproduce it, and what it could do.
+
 ### The GRUB theme
 
 The `grub` row installs the vortex theme, and only appears when GRUB is
@@ -314,11 +321,12 @@ Both are AUR packages on Arch (`slack-desktop`, `discord-canary`) and both have
 a real path on apt, so neither is Arch-only — but they do not have the *same*
 path:
 
-- **Discord Canary** — everywhere. There is no apt repo, so the installer takes
-  the `.deb` Discord publishes for the current build
+- **Discord Canary** — Arch, Debian, and Ubuntu. There is no apt repo, so the
+  installer takes the `.deb` Discord publishes for the current build
   (`discord.com/api/download/canary?platform=linux&format=deb`, a 302 to the
   versioned file) and hands it to apt. Its dependencies are all stock, so
-  Debian and Ubuntu both resolve it.
+  Debian and Ubuntu both resolve it. Fedora and NixOS have no official repo
+  or Nix build for it, so the name is not offered there.
 - **Slack** — Arch and Ubuntu, not Debian. Slack's own apt repo
   (`packagecloud.io/slacktechnologies/slack`) is signed and still current, and
   that is what the installer adds. Debian is the exception: the `.deb` depends
@@ -331,9 +339,9 @@ path:
 
 ### Fedora and NixOS
 
-**Fedora** uses `dnf` for everything in the official repos, plus each vendor's own yum repo where that is the documented path (Brave, VS Code, Docker CE). Tools with no Fedora package (`lazygit`, `lazydocker`, `starship`, `pay-respects`, `fresh`) come from the upstream release `.rpm` or binary, the same checksum-verified helpers the apt side uses. `ghostty`, `protonvpn`, `yazi`, WezTerm, and the Arch-only desktop apps are stripped — COPR or a download page is not an official repo.
+**Fedora** uses `dnf` for everything in the official repos, plus each vendor's own yum repo where that is the documented path (Brave, VS Code, Docker CE, and Proton VPN on Fedora 43 and newer). Tools with no Fedora package (`lazygit`, `lazydocker`, `starship`, `pay-respects`, `fresh`) come from the upstream release `.rpm` or binary, the same checksum-verified helpers the apt side uses. `ghostty`, `yazi`, WezTerm, and the Arch-only desktop apps are stripped — COPR or a download page is not an official repo. Also stripped, because the vendor ships an apt repo or a one-off `.deb` and no yum repo: Claude Desktop, Slack, Discord Canary, Bitwarden, and LocalSend. `protonvpn` is offered from Fedora 43 up (Proton's `fedora-N-stable` repo has `proton-vpn-cli` 1.x there). Fedora 42's copy of that repo stops at 0.1.x, which this wrapper does not drive, so the row is absent there too.
 
-**NixOS** installs into the user's nix profile from nixpkgs (`nix profile install nixpkgs#…`). It never edits `configuration.nix`. Curl CLIs still use their vendor scripts into `~/.local/bin`. Brave Origin, VS Code, Docker, Flatpak, Tailscale, Ollama, and the same Arch-only desktop set are stripped: those belong in a NixOS module or have no official Nix build. `bun` comes from nixpkgs rather than the glibc vendor binary.
+**NixOS** installs into the user's nix profile from nixpkgs (`nix profile install nixpkgs#…`). It never edits `configuration.nix`. `bun` and `uv` come from nixpkgs. The other curl CLIs (Claude Code, Codex, Cursor, Opencode, Kimi Code, and the rest of that set) are not offered: their installers drop glibc binaries into `~/.local/bin`, which do not start on NixOS without nix-ld, and the vendors do not publish a Nix package this installer will call official. Brave Origin, VS Code, Docker, Flatpak, Tailscale, Ollama, and the same Arch-only desktop set are stripped too: those belong in a NixOS module or have no official Nix build. Claude Desktop, Slack, Discord Canary, Bitwarden, and LocalSend are stripped for the same reason.
 
 CI runs a real headless install on `fedora:42` and `nixos/nix` beside the existing Arch/Debian/Ubuntu/Omarchy jobs.
 
