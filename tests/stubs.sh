@@ -761,7 +761,7 @@ printf '#!/bin/sh\necho opencode stub\n' > "$HOME/.opencode/bin/opencode"
 chmod +x "$HOME/.opencode/bin/opencode"
 OPENCODE_SH
             ;;
-        *code.kimi.com/*)
+        *code.kimi.ai/*)
             cat > "$out" <<'KIMI_SH'
 #!/bin/sh
 # STUB_INSTALL_FAILS=1|once: the version lookup fails before anything is installed.
@@ -1050,7 +1050,7 @@ esac
 case "$url" in
     *starship.rs/install.sh) tool=starship ;;
     *opencode.ai/install)    tool=opencode ;;
-    *code.kimi.com*)         tool=kimi ;;
+    *code.kimi.ai*)          tool=kimi ;;
     *antigravity*)           tool=agy ;;
     *)                       tool="" ;;
 esac

@@ -4779,7 +4779,7 @@ curl_app_source() {             # curl_app_source <app> — sets _curl_url and _
         codex-cli)       _curl_url="https://chatgpt.com/codex/install.sh"      ; _shell="sh" ;;
         cursor-cli)      _curl_url="https://cursor.com/install"                ; _shell=bash ;;
         opencode)        _curl_url="https://opencode.ai/install"               ; _shell=bash ;;
-        kimi-code)       _curl_url="https://code.kimi.com/kimi-code/install.sh"  ; _shell=bash ;;
+        kimi-code)       _curl_url="https://code.kimi.ai/kimi-code/install.sh"   ; _shell=bash ;;
         muse)            _curl_url="https://dev.meta.ai/install.sh"              ; _shell=bash ;;
         hermes)          _curl_url="https://hermes-agent.nousresearch.com/install.sh" ; _shell=bash ;;
         # ends by launching its interactive setup wizard, with no flag to skip
