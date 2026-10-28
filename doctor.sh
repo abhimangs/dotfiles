@@ -117,7 +117,9 @@ case "$XDG_CONFIG" in
     *)         XDG_SHOWN="$XDG_CONFIG" ;;
 esac
 # Single-file targets are symlinks; ~/.config/<app> is a real directory by
-# design, with stow linking the files inside it — so look one level in.
+# design, with stow linking the files inside it. Those links are not all
+# direct children: bat and btop keep a theme one directory down, and a
+# maxdepth of 1 reported that as a single link.
 for t in "$HOME/.zshrc" "$HOME/.gitconfig" "$XDG_CONFIG/starship.toml" \
          "$HOME/scripts/pvpn/pvpn.zsh"; do
     if [ -L "$t" ]; then
@@ -147,8 +149,8 @@ for cfg in $(pcl '$1!="var" && $6!="-" && $6!="" {print $6}') wallpapers; do
         printf "  %-26s %s\n" "${XDG_SHOWN#\~/}/$cfg" "(absent)"
         continue
     fi
-    n=$(find "$t" -maxdepth 1 -type l 2>/dev/null | wc -l)
-    broken=$(find "$t" -maxdepth 1 -xtype l 2>/dev/null | wc -l)
+    n=$(find "$t" -type l 2>/dev/null | wc -l)
+    broken=$(find "$t" -xtype l 2>/dev/null | wc -l)
     printf "  %-26s %s\n" "${XDG_SHOWN#\~/}/$cfg" "$n symlink(s) inside$( [ "$broken" -gt 0 ] && echo ", $broken BROKEN")"
 done
 echo
@@ -209,7 +211,7 @@ if [ -n "${OMARCHY_PATH:-}" ] || [ -d /usr/share/omarchy ] || command -v omarchy
              "$XDG_CONFIG/alacritty" "$XDG_CONFIG/btop" "$XDG_CONFIG/tmux" "$XDG_CONFIG/lazygit"; do
         if [ ! -e "$t" ] && [ ! -L "$t" ]; then who="absent"
         elif [ -L "$t" ] && [[ "$(readlink -f "$t")" == "$d"/* ]]; then who="ours (link into the checkout)"
-        elif [ -d "$t" ] && find "$t" -maxdepth 1 -type l -exec readlink -f {} + 2>/dev/null | grep -q "^$d/"; then who="ours (stowed inside)"
+        elif [ -d "$t" ] && find "$t" -type l -exec readlink -f {} + 2>/dev/null | grep -q "^$d/"; then who="ours (stowed inside)"
         else who="not ours (Omarchy's or yours)"; fi
         printf "  %-26s %s\n" "${t/#$HOME\//}" "$who"
     done
