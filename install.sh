@@ -7857,8 +7857,10 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     _cargs=() ; [ -n "${APP_CURL_ARGS[$app]:-}" ] && read -ra _cargs <<< "${APP_CURL_ARGS[$app]}"
                     # OpenCode's script asks the rate-limited GitHub API for the
                     # latest version and gives up without it (a CI run failed on
-                    # it); handed VERSION, it never asks.
-                    if [ "$app" = opencode ] && _v=$(github_latest_tag anomalyco/opencode) && [ -n "$_v" ]; then
+                    # it); handed VERSION, it never asks. Only a 1.x tag: this is
+                    # the OpenCode 1 installer, it exits 1 on a 2.x VERSION, and
+                    # upstream says GitHub's Latest may become OpenCode 2.
+                    if [ "$app" = opencode ] && _v=$(github_latest_tag anomalyco/opencode) && [[ "$_v" == v1.* ]]; then
                         _cenv+=("VERSION=${_v#v}")
                     fi
                     # </dev/null: a vendor installer must never read this

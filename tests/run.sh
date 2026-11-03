@@ -562,6 +562,14 @@ nowant  curlapps 'is not on PATH'    'every installer produced its binary'
 [ "$(cat "$WORK/run/curlapps/state/opencode-version" 2>/dev/null)" = 1.2.3 ] \
     && note curlapps 'opencode is handed VERSION from the /latest redirect, not the API' \
     || bad  curlapps 'opencode was not handed the latest version'
+# GitHub's Latest becoming OpenCode 2 must not reach the OpenCode 1 installer.
+run     opencode-v2 ubuntu "$WORK/k-sel" DOTFILES_APPS="opencode" STUB_OPENCODE_TAG=v2.2.5
+check   opencode-v2 0
+if [ -z "$(cat "$WORK/run/opencode-v2/state/opencode-version" 2>/dev/null)" ]; then
+    note opencode-v2 'a 2.x Latest is not handed to the OpenCode 1 installer'
+else
+    bad  opencode-v2 'opencode was handed a 2.x VERSION'
+fi
 nowant  curlapps 'Failed \('         'nothing failed'
 # Tailscale is the exception to the line above it: no bin dir under $HOME, a
 # system one, because its installer drives the package manager as root instead

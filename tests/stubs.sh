@@ -557,10 +557,11 @@ case "$url" in
 esac
 # The /latest redirect github_latest_tag reads (a -w write-out,
 # printed whatever -o says), for the one repo whose
-# installer is handed a version from it.
+# installer is handed a version from it. STUB_OPENCODE_TAG
+# makes it an OpenCode 2 tag, which upstream says it may be.
 case "$url" in
     https://github.com/anomalyco/opencode/releases/latest)
-        printf 'https://github.com/anomalyco/opencode/releases/tag/v1.2.3'; exit 0 ;;
+        printf 'https://github.com/anomalyco/opencode/releases/tag/%s' "${STUB_OPENCODE_TAG:-v1.2.3}"; exit 0 ;;
 esac
 if [ -n "$out" ]; then
     # STUB_BINARY_DL=<url glob> [STUB_BINARY_DL_TIMES=n]: serve NUL-laden bytes
@@ -756,6 +757,8 @@ case " $* " in
     *) echo '# STUB PATH BLOCK (opencode)' >> "$HOME/.zshrc" ;;
 esac
 echo "${VERSION:-}" > "$STUB_STATE/opencode-version"
+# The real one is the OpenCode 1 installer and refuses a 2.x VERSION.
+case "${VERSION:-}" in 2.*) exit 1 ;; esac
 mkdir -p "$HOME/.opencode/bin"
 printf '#!/bin/sh\necho opencode stub\n' > "$HOME/.opencode/bin/opencode"
 chmod +x "$HOME/.opencode/bin/opencode"
