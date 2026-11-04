@@ -4532,7 +4532,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori deepseek-harness orca emdash ollama postman-cli postman notion-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori pi-cli deepseek-harness orca emdash ollama postman-cli postman notion-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4575,7 +4575,7 @@ if [[ "$DISTRO" == "nix" ]]; then
     # packages — strip them rather than faking a worse path. bun and uv stay:
     # APP_TYPE_NIX routes them to nixpkgs.
     strip_items APPS_LIST claude-code antigravity-cli codex-cli cursor-cli \
-        opencode kimi-code muse hermes devin grok-cli mistral-cli ori postman-cli notion-cli zed
+        opencode kimi-code muse hermes devin grok-cli mistral-cli ori pi-cli postman-cli notion-cli zed
 fi
 # No display server → drop everything that needs one, keeping the CLI tools
 [ "$IS_HEADLESS" -eq 1 ] && strip_items APPS_LIST "${GUI_APPS[@]}"
@@ -4603,6 +4603,7 @@ APP_LABEL[devin]="Devin CLI"
 APP_LABEL[grok-cli]="Grok CLI"
 APP_LABEL[mistral-cli]="Mistral CLI"
 APP_LABEL[ori]="ORI Harness"
+APP_LABEL[pi-cli]="Pi CLI"
 APP_LABEL[deepseek-harness]="Deepseek Harness"
 APP_LABEL[orca]="Orca"
 APP_LABEL[emdash]="Emdash"
@@ -4664,6 +4665,7 @@ APP_TYPE[devin]="curl"
 APP_TYPE[grok-cli]="curl"
 APP_TYPE[mistral-cli]="curl"
 APP_TYPE[ori]="curl"
+APP_TYPE[pi-cli]="curl"
 APP_TYPE[tailscale]="curl"
 # AUR-only, like vicinae/zoom — arch_install misses it in the repos and falls
 # through to the helper
@@ -4842,6 +4844,11 @@ curl_app_source() {             # curl_app_source <app> — sets _curl_url and _
         # entirely once it sees its install dir — ~/.local/bin, its default —
         # already on PATH, which is what CURL_APP_PATH puts there.
         ori)             _curl_url="https://openrouter.ai/labs/ori/install.sh"      ; _shell=bash ;;
+        # Its own `| sh`. Needs Node.js 22.19+ and npm first (ensure_pi_node),
+        # and runs with no terminal (setsid, in the apps loop): with one it
+        # asks for a keypress, offers to add a PATH line to the rc file, and
+        # ends by starting pi.
+        pi-cli)          _curl_url="https://pi.dev/install.sh"                      ; _shell="sh" ;;
         # Prefix ~/.local, so ~/.local/bin/postman (see APP_BIN); /usr/local
         # only when that is writable without sudo, i.e. as root, and then it
         # still links ~/.local/bin/postman to it.
@@ -4873,6 +4880,73 @@ curl_app_installed() {
     PATH="${CURL_APP_PATH}:$PATH" command -v "$1" &>/dev/null
 }
 
+# Pi's installer runs `npm ci` into ~/.pi/agent/install, so it needs Node.js
+# 22.19+ and npm. With either missing it offers to install them, but only on a
+# terminal, and the apps loop runs it with none (see setsid there), where it just
+# stops. So they go in first, from where Pi's installer would take them: apt
+# when the archive's candidate is new enough, else nodejs.org's latest 22.x
+# into PI_NODE_DIR, the directory Pi's own launcher puts on PATH. Debian 12
+# and 13 and Ubuntu 24.04 carry 18 to 20, so that is the usual path on apt.
+# Arch's own nodejs is current, so pacman there; Fedora goes to nodejs.org as
+# Pi's installer does.
+PI_NODE_DIR="$XDG_DATA/pi-node"
+PI_NODE_MIN="22.19.0"
+pi_node_ready() {
+    local _p="$PI_NODE_DIR/current/bin:$PATH" _v
+    _v=$(PATH="$_p" node --version 2>/dev/null) || return 1
+    PATH="$_p" command -v npm &>/dev/null && version_ge "${_v#v}" "$PI_NODE_MIN"
+}
+pi_node_apt_ok() {
+    local _c
+    _c=$(apt-cache policy nodejs 2>/dev/null | sed -n 's/^ *Candidate: *//p')
+    [ -n "$_c" ] && [ "$_c" != "(none)" ] && version_ge "${_c%%[+~-]*}" "$PI_NODE_MIN"
+}
+# The plan's half: where Node.js would come from, or nothing when it is here.
+pi_node_plan() {                # pi_node_plan <var>
+    local _d
+    pi_node_ready && { printf -v "$1" '%s' ""; return 0; }
+    home_shown _d "$PI_NODE_DIR"
+    case "$DISTRO" in
+        arch)   printf -v "$1" '%s' "nodejs and npm from pacman first" ;;
+        debian) if pi_node_apt_ok; then printf -v "$1" '%s' "nodejs and npm from apt first"
+                else printf -v "$1" '%s' "Node.js 22 from nodejs.org into $_d first"; fi ;;
+        *)      printf -v "$1" '%s' "Node.js 22 from nodejs.org into $_d first" ;;
+    esac
+}
+ensure_pi_node() {
+    pi_node_ready && return 0
+    case "$DISTRO" in
+        arch)   pacman_install nodejs npm ;;
+        debian) apt_update_once; pi_node_apt_ok && apt_install nodejs npm ;;
+    esac
+    pi_node_ready && return 0
+    local _arch _base="https://nodejs.org/dist/latest-v22.x" _tmp _file
+    case "$(uname -m)" in
+        x86_64|amd64)  _arch=x64 ;;
+        aarch64|arm64) _arch=arm64 ;;
+        armv7l|ppc64le|s390x) _arch=$(uname -m) ;;
+        *) return 1 ;;
+    esac
+    substep "Downloading Node.js 22 from nodejs.org for Pi..."
+    _tmp=$(mktemp -d -p "$RUN_TMPDIR" pinode_XXXXXX) || return 1
+    # .tar.gz, not Pi's .tar.xz: the same tree, and gzip is in every base
+    # install where xz is not.
+    curl -fsSL "$_base/SHASUMS256.txt" -o "$_tmp/SHASUMS256.txt" || return 1
+    _file=$(awk -v s="-linux-$_arch.tar.gz" 'substr($2, length($2) - length(s) + 1) == s && index($2, "node-v") == 1 { print $2; exit }' "$_tmp/SHASUMS256.txt")
+    [ -n "$_file" ] || return 1
+    curl -fsSL "$_base/$_file" -o "$_tmp/$_file" || return 1
+    (cd "$_tmp" && awk -v f="$_file" '$2 == f' SHASUMS256.txt | sha256sum -c --status) || {
+        substep "${C_YELLOW}Node.js download did not match nodejs.org's checksum${C_RESET}"
+        return 1
+    }
+    mkdir -p "$PI_NODE_DIR" || return 1
+    rm -rf "${PI_NODE_DIR:?}/${_file%.tar.gz}"
+    tar -xzf "$_tmp/$_file" -C "$PI_NODE_DIR" || return 1
+    ln -sfn "${_file%.tar.gz}" "$PI_NODE_DIR/current"
+    rm -rf "$_tmp"
+    pi_node_ready
+}
+
 # The interactive CLIs among the curl apps. Their installers are first-install
 # scripts, so a re-run is the wrong tool for an existing one — the value is the
 # update command it ships instead, and an empty value means it ships none and
@@ -4887,6 +4961,7 @@ APP_UPDATE[codex-cli]="codex update"
 APP_UPDATE[cursor-cli]="cursor-agent update"
 APP_UPDATE[devin]="devin update"
 APP_UPDATE[ori]="ori update"
+APP_UPDATE[pi-cli]="pi update"
 # Its own installer's help text is where this one is documented.
 APP_UPDATE[hermes]="hermes update"
 # The empty ones ship no update subcommand, so their installer is the updater —
@@ -4954,6 +5029,12 @@ APP_BIN[grok-cli]="grok"
 # vibe (and vibe-acp beside it) in ~/.local/bin
 APP_BIN[mistral-cli]="vibe"
 APP_BIN[ori]="ori"
+# A path, not a name, as for muse: /usr/bin/pi is Arch's cln and Debian's
+# package pi (they compute digits of pi). Pi links its launcher
+# (~/.pi/agent/bin/pi) into the first of ~/.local/bin, ~/bin, ... on PATH, and
+# CURL_APP_PATH puts ~/.local/bin first. With that other pi installed, Pi's own
+# installer refuses ("Managed install refused to replace Pi at /usr/bin/pi").
+APP_BIN[pi-cli]="$HOME/.local/bin/pi"
 # A path, not a name: the Postman GUI (AUR postman-bin) owns /usr/bin/postman,
 # so a PATH lookup for "postman" found the GUI and called the CLI installed —
 # the plan said "already installed" and the CLI never went in. The installer
@@ -5002,6 +5083,7 @@ APP_TYPE_DEB[devin]="curl"
 APP_TYPE_DEB[grok-cli]="curl"
 APP_TYPE_DEB[mistral-cli]="curl"
 APP_TYPE_DEB[ori]="curl"
+APP_TYPE_DEB[pi-cli]="curl"
 APP_TYPE_DEB[postman-cli]="curl"
 APP_TYPE_DEB[notion-cli]="curl"
 APP_TYPE_DEB[bun]="curl"
@@ -5170,6 +5252,7 @@ APP_DESC[devin]="Cognition's coding agent"
 APP_DESC[grok-cli]="xAI's coding agent"
 APP_DESC[mistral-cli]="Mistral's coding agent"
 APP_DESC[ori]="OpenRouter's CLI for projects you already have"
+APP_DESC[pi-cli]="coding agent with read, bash, edit and write tools"
 APP_DESC[deepseek-harness]="DeepSeek's agent harness"
 APP_DESC[orca]="Stably's agent worktree manager"
 APP_DESC[emdash]="run coding agents in parallel"
@@ -5209,6 +5292,7 @@ APP_NOTE[hermes]="run 'hermes setup' after"
 APP_NOTE[devin]="run 'devin setup' after"
 APP_NOTE[grok-cli]="also installs as 'agent'"
 APP_NOTE[mistral-cli]="run 'vibe --setup' after"
+APP_NOTE[pi-cli]="brings Node.js 22.19+ and npm when missing: pacman on Arch, apt when new enough, else nodejs.org's build"
 APP_NOTE[deepseek-harness]="run 'dsh web' to open it"
 APP_NOTE[orca]="run 'orca' to open it"
 APP_NOTE[vicinae]="bind a hotkey to: vicinae toggle"
@@ -5313,6 +5397,7 @@ APP_GROUP[devin]="AI agents"
 APP_GROUP[grok-cli]="AI agents"
 APP_GROUP[mistral-cli]="AI agents"
 APP_GROUP[ori]="AI agents"
+APP_GROUP[pi-cli]="AI agents"
 APP_GROUP[deepseek-harness]="AI agents"
 APP_GROUP[orca]="AI agents"
 APP_GROUP[emdash]="AI agents"
@@ -5924,7 +6009,9 @@ plan_body() {
                     [ "$_a" = uv ] && _how="already installed — will update (uv self update)"
                     echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_DIM}${_lbl} ${_how}${C_RESET}"
                 else
-                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl)${C_RESET}"
+                    local _pre=""
+                    [ "$_a" = pi-cli ] && pi_node_plan _pre
+                    echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_YELLOW}install ${_lbl}${C_RESET} ${C_DIM}(curl${_pre:+; ${_pre}})${C_RESET}"
                 fi
             else
                 local _pkg="${RESOLVED_APP_PKG[$_a]}"
@@ -7841,14 +7928,21 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                 # comes back must still start with #! before a shell sees it; one
                 # retry, then the app fails rather than running a binary blob.
                 _dlok=0
+                # Pi's installer stops without Node.js 22.19+ and npm (3: no
+                # download, its own error below).
+                [ "$app" = pi-cli ] && ! ensure_pi_node && _dlok=3
                 for _try in 1 2; do
+                    [ "$_dlok" -eq 3 ] && break
                     if curl -fsSL --compressed "$_curl_url" -o "$_tmpsh" 2>/dev/null; then
                         _dlok=1
                         [ "$(head -c2 "$_tmpsh")" = '#!' ] && { _dlok=2; break; }
                     fi
                     [ "$_try" -eq 1 ] && sleep 2
                 done
-                if [ "$_dlok" -eq 1 ]; then
+                if [ "$_dlok" -eq 3 ]; then
+                    error "${C_ACCENT}${_lbl}${C_RESET}: needs Node.js ${PI_NODE_MIN}+ and npm, and neither the package manager nor nodejs.org provided them"
+                    FAILED+=("$_lbl")
+                elif [ "$_dlok" -eq 1 ]; then
                     error "${C_ACCENT}${_lbl}${C_RESET}: the downloaded installer is not a shell script"
                     FAILED+=("$_lbl")
                 elif [ "$_dlok" -eq 2 ]; then
@@ -7863,6 +7957,10 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     if [ "$app" = opencode ] && _v=$(github_latest_tag anomalyco/opencode) && [[ "$_v" == v1.* ]]; then
                         _cenv+=("VERSION=${_v#v}")
                     fi
+                    # A nodejs.org Node from ensure_pi_node, ahead of the rest.
+                    # An array element, not APP_CURL_ENV, which splits on the
+                    # spaces a WSL PATH is full of; env takes the later PATH.
+                    [ "$app" = pi-cli ] && _cenv+=("PATH=$PI_NODE_DIR/current/bin:${CURL_APP_PATH}:$PATH")
                     # </dev/null: a vendor installer must never read this
                     # script's stdin — under `curl … | bash` that is the rest of
                     # the download stream, and on a terminal it is the keys the
@@ -7872,7 +7970,12 @@ if [ "${#APPS[@]}" -gt 0 ]; then
                     # the terminal itself — </dev/null does not reach it, and it
                     # waits forever. With no controlling terminal it says "Login
                     # canceled" and exits 1, which the binary check below absorbs.
-                    _nott=(); [ "$app" = devin ] && _nott=(setsid -w)
+                    # Pi's opens /dev/tty three times: a raw-mode keypress to
+                    # pick install/uninstall, a PATH line for the rc file (a
+                    # write into this repo), and "Start pi now? [Y/n]", which
+                    # execs pi. With no terminal it takes the default action and
+                    # skips the other two.
+                    _nott=(); case "$app" in devin|pi-cli) _nott=(setsid -w) ;; esac
                     # One retry, as for updates: a vendor endpoint that drops a
                     # single request is not a failed install. Kimi's script looks
                     # its version up with one curl and no retry, and lost it on two
