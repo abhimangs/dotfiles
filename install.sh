@@ -328,7 +328,7 @@ strip_items() {
 }
 
 GUI_CONFIGS=(ghostty kitty rofi ulauncher mpv)
-GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash photocraft postman)
+GUI_APPS=(brave-beta brave-stable vscode vscode-insiders zed antigravity-ide antigravity notion obsidian claude-desktop chatgpt slack discord-canary alacritty wezterm vicinae vlc obs-studio zoom bitwarden keepassxc localsend emdash t3code photocraft postman)
 
 # No fallback to a shared /tmp. Everything below writes here — the bashrc
 # rewrite, downloaded keyrings that get sudo-installed into /etc — and in a
@@ -4532,7 +4532,7 @@ dep_pkg_name() {
 }
 
 # ── Applications ──────────────────────────────────────────────────────────────
-APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori pi-cli deepseek-harness orca emdash ollama postman-cli postman notion-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
+APPS_LIST=(brave-beta brave-stable vscode vscode-insiders neovim zed alacritty wezterm antigravity-ide claude-code antigravity antigravity-cli codex-cli cursor-cli opencode kimi-code muse hermes devin grok-cli mistral-cli ori pi-cli deepseek-harness orca emdash t3code ollama postman-cli postman notion-cli bun uv vicinae notion obsidian chatgpt claude-desktop slack discord-canary bitwarden keepassxc localsend syncthing vlc obs-studio photocraft zoom flatpak docker tailscale)
 if [[ "$DISTRO" == "debian" ]]; then
     # Notion (no official Linux build), Obsidian (only a vendor .deb/AppImage on
     # apt, no repo), the Antigravity desktop/IDE (upstream packaging still a
@@ -4540,13 +4540,14 @@ if [[ "$DISTRO" == "debian" ]]; then
     # Nix flake, no apt repo), Zoom (a vendor .deb behind a download page, no
     # apt repo — the same shape as Obsidian), DeepSeek Harness (AUR only —
     # upstream ships source, no apt repo), Orca (AUR only, stably-orca-bin —
-    # no apt repo either) and Emdash (AUR only, emdash-bin) are Arch-only for now. ChatGPT is the same shape:
+    # no apt repo either), Emdash (AUR only, emdash-bin) and T3 Code (AUR only,
+    # t3code-bin) are Arch-only for now. ChatGPT is the same shape:
     # OpenAI's own installer bootstraps a signed pacman repo directly — it
     # shells out to pacman/pacman-key/pacman-conf itself — with no apt/deb path.
     # Slack is neither: it has a working apt repo, just not one every apt
     # distro can resolve — see the strip below and ensure_slack_deb.
     # Strip, never a second literal list — see the CONFIGS note above.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft postman
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash t3code chatgpt photocraft postman
     # Slack splits the two: Ubuntu still has libappindicator3-1 in universe and
     # takes Slack's own apt repo, Debian dropped the library and cannot resolve
     # the package at all. The only entry that is Ubuntu-only rather than
@@ -4556,7 +4557,7 @@ fi
 if [[ "$DISTRO" == "fedora" || "$DISTRO" == "nix" ]]; then
     # The apt side's Arch-only set first — none of them has an official RPM
     # repo or a nixpkgs package worth calling official either.
-    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash chatgpt photocraft postman
+    strip_items APPS_LIST notion obsidian antigravity-ide antigravity vicinae zoom deepseek-harness orca emdash t3code chatgpt photocraft postman
     # Vendors with an apt repo or .deb and no RPM repo (Claude Desktop, Slack,
     # Discord Canary, Bitwarden, LocalSend), and WezTerm, which is COPR-only
     # on Fedora. NixOS has community packages for some, but not official ones.
@@ -4607,6 +4608,7 @@ APP_LABEL[pi-cli]="Pi CLI"
 APP_LABEL[deepseek-harness]="Deepseek Harness"
 APP_LABEL[orca]="Orca"
 APP_LABEL[emdash]="Emdash"
+APP_LABEL[t3code]="T3 Code"
 APP_LABEL[photocraft]="PhotoCraft"
 APP_LABEL[postman-cli]="Postman CLI"
 APP_LABEL[postman]="Postman GUI"
@@ -4672,6 +4674,7 @@ APP_TYPE[tailscale]="curl"
 APP_TYPE[deepseek-harness]="paru"
 APP_TYPE[orca]="paru"
 APP_TYPE[emdash]="paru"
+APP_TYPE[t3code]="paru"
 APP_TYPE[photocraft]="paru"
 APP_TYPE[postman-cli]="curl"
 APP_TYPE[notion-cli]="curl"
@@ -4726,6 +4729,7 @@ APP_PKG[antigravity]="antigravity"
 APP_PKG[deepseek-harness]="deepseek-harness-bin"
 APP_PKG[orca]="stably-orca-bin"
 APP_PKG[emdash]="emdash-bin"
+APP_PKG[t3code]="t3code-bin"
 APP_PKG[photocraft]="photocraft-bin"
 APP_PKG[postman]="postman-bin"
 APP_PKG[vicinae]="vicinae-bin"
@@ -5256,6 +5260,7 @@ APP_DESC[pi-cli]="coding agent with read, bash, edit and write tools"
 APP_DESC[deepseek-harness]="DeepSeek's agent harness"
 APP_DESC[orca]="Stably's agent worktree manager"
 APP_DESC[emdash]="run coding agents in parallel"
+APP_DESC[t3code]="desktop control surface for local coding agents"
 APP_DESC[photocraft]="Photoshop alternative"
 APP_DESC[postman-cli]="run Postman collections from the terminal"
 APP_DESC[postman]="API client with a desktop app"
@@ -5401,6 +5406,7 @@ APP_GROUP[pi-cli]="AI agents"
 APP_GROUP[deepseek-harness]="AI agents"
 APP_GROUP[orca]="AI agents"
 APP_GROUP[emdash]="AI agents"
+APP_GROUP[t3code]="AI agents"
 APP_GROUP[photocraft]="Media"
 APP_GROUP[notion]="Chat & notes"
 APP_GROUP[obsidian]="Chat & notes"
