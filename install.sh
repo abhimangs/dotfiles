@@ -38,6 +38,10 @@ SELECTION_FLAG_GIVEN=0
 # Empty means "nobody said" — the two single-key prompts decide instead.
 OPT_PRIVATE=""
 OPT_BACKUP_MODE=""
+# What backup_file obeys. Set here, not inherited: the run-alone modes call
+# backup_file long before show_plan decides it, and a BACKUP_MODE=delete left
+# in the caller's environment made --restore-bash rm -rf a real ~/.bashrc.
+BACKUP_MODE="backup"
 FC_CACHE_PID=""
 FONT_PIDS=()
 
