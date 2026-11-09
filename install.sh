@@ -1705,7 +1705,12 @@ _aur_run_robust() {
     local err; err=$(<"$tmplog")
 
     # ── attempt 2: PGP / signature problem ───────────────────────────────────
-    if grep -qiE 'pgp|key|signature|invalid or corrupted|unknown trust|not trusted' <<< "$err"; then
+    # Only what a signature failure prints (makepkg's "One or more PGP
+    # signatures could not be verified" / "unknown public key", pacman's
+    # "signature from ... is unknown trust", "(PGP signature)", key lookups).
+    # A bare "key" matched any build log: wezterm-git's cargo output has
+    # "Compiling xkeysym", which ended in an offer to skip verification.
+    if grep -qiE 'PGP signature|unknown public key|signature from .* is (invalid|unknown trust|marginal trust)|signature is (invalid|not trusted)|required key missing|key .* could not be (looked up|imported)' <<< "$err"; then
         substep "${C_YELLOW}PGP key issue — refreshing keyring and retrying${C_RESET}"
         sudo pacman -S --needed --noconfirm archlinux-keyring &>/dev/null 2>&1 || true
         sudo pacman-key --populate archlinux &>/dev/null 2>&1 || true
