@@ -34,6 +34,12 @@ if vim.fn.has("nvim-0.8") == 0 then return end
 local uv = vim.uv or vim.loop
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not uv.fs_stat(lazypath) then
+  -- vim.fn.system raises (E475) for a command that is not executable, so the
+  -- shell_error branch below never saw "no git": startup ended in an error.
+  if vim.fn.executable("git") == 0 then
+    vim.api.nvim_echo({ { "lazy.nvim not installed, plugins skipped: git is not installed", "WarningMsg" } }, true, {})
+    return
+  end
   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable",
     "https://github.com/folke/lazy.nvim.git", lazypath })
   if vim.v.shell_error ~= 0 then
