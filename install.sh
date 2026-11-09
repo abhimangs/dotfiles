@@ -733,8 +733,10 @@ item_how() {                    # item_how <var> <dotfiles|tools|apps> <key> <pr
                     *:vscode*)          _h="Microsoft's yum repo" ;;
                     *:docker)           _h="Docker's own yum repo" ;;
                     fresh:*|pay-respects:*) _h="the upstream release .rpm" ;;
+                    # Not "updated on every run": DEB_LATEST, which does that,
+                    # is apt-only, and on dnf an installed one is left as it is.
                     lazygit:*|lazydocker:*|starship:*)
-                                        _h="the upstream release binary, updated on every run" ;;
+                                        _h="the upstream release binary" ;;
                     *)                  _h="dnf" ;;
                 esac
             elif [[ "$DISTRO" == "nix" ]]; then
