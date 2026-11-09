@@ -6190,6 +6190,10 @@ restore_bash() {
     local shell_action=""
     if [ -z "$bash_path" ]; then
         steps+=("${C_RED}skip${C_RESET} ${C_DIM}no bash on PATH — login shell left alone${C_RESET}")
+    elif [ "$DISTRO" = nix ]; then
+        # configuration.nix owns it, and the install never changed it here.
+        [ "${current_shell##*/}" = bash ] \
+            || steps+=("${C_DIM}login shell is configuration.nix's: drop users.users.${target_user}.shell there${C_RESET}")
     elif same_shell "$current_shell" "$bash_path"; then
         steps+=("${C_DIM}login shell is already bash${C_RESET}")
     else
@@ -7673,6 +7677,31 @@ for cfg in "${SELECTED[@]}"; do
             # Without this guard the fallbacks below run 'chsh -s "" <user>',
             # which blanks the login shell entry.
             error "zsh binary not found on PATH — leaving the default shell alone"
+        elif [ "$DISTRO" = nix ]; then
+            # NixOS writes every declared user's shell from configuration.nix
+            # at each activation, so a chsh here is undone by the next
+            # nixos-rebuild. /etc/shells is generated and read-only, and the
+            # profile's zsh is not in it: display managers hide an account
+            # whose shell is missing from that list. Say what to set instead,
+            # and let the .bashrc hand-off carry interactive shells meanwhile.
+            if [ "${current_shell##*/}" = zsh ]; then
+                substep "${C_DIM}Login shell for ${target_user} is already zsh${C_RESET}"
+            else
+                substep "${C_YELLOW}NixOS sets login shells from configuration.nix — not changed here${C_RESET}"
+                substep "${C_DIM}To make zsh yours: ${C_ACCENT}users.users.${target_user}.shell = pkgs.zsh;${C_RESET} ${C_DIM}and${C_RESET} ${C_ACCENT}programs.zsh.enable = true;${C_RESET}"
+            fi
+            if ! zsh_hook_wanted; then
+                substep "${C_DIM}bash config selected too — leaving ~/.bashrc as a working bash${C_RESET}"
+            elif ensure_zsh_autoexec; then
+                [ "$_HOOK_STATE" = "present" ] \
+                    || substep "${C_DIM}Added a .bashrc fallback — interactive bash hands over to zsh${C_RESET}"
+            elif [ "$_HOOK_STATE" = "skipped-repo-link" ]; then
+                substep "${C_YELLOW}~/.bashrc is a stowed symlink — fallback hook not written${C_RESET}"
+            elif [ "$_HOOK_STATE" = "skipped-user-link" ]; then
+                substep "${C_YELLOW}~/.bashrc is your own symlink — fallback hook not written${C_RESET}"
+            elif [ "$_HOOK_STATE" = "malformed" ]; then
+                substep "${C_YELLOW}A hand-edited hook block is in ~/.bashrc — left alone${C_RESET}"
+            fi
         elif same_shell "$current_shell" "$zsh_path"; then
             substep "${C_DIM}Login shell for ${target_user} is already zsh${C_RESET}"
             # The hook is otherwise only (re-)written the run the shell actually
