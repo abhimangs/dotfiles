@@ -279,6 +279,9 @@ home_shown() {                  # home_shown <var> <path>
     esac
 }
 home_shown XDG_SHOWN "$XDG_CONFIG"
+# The checkout, as shown: a clone is not always ~/dotfiles, and "re-run with
+# bash ~/dotfiles/install.sh" named a file that is not there.
+home_shown DOTFILES_SHOWN "$DOTFILES_DIR"
 
 # ── Headless detection ────────────────────────────────────────────────────────
 # On a cloud VPS or a container there is no display server, so terminal
@@ -1066,7 +1069,7 @@ tui_pane_build() {              # tui_pane_build <view entry or empty>
     TUI_PTXT=(); TUI_PCLR=(); TUI_PLBL=()
     if [ "$idx" = @private ]; then
         tui_pane_add "private mode" "${C_ACCENT}${C_BOLD}"
-        tui_pane_add "leave no sign ~/dotfiles came from a repo, or whose" "$C_DIM"
+        tui_pane_add "leave no sign ${DOTFILES_SHOWN} came from a repo, or whose" "$C_DIM"
         tui_pane_add "" "$C_RESET"
         if [ "$STRIP_REPO" = 1 ]; then
             tui_pane_add "state    private, scrubbed at the end of the run" "$C_RED" 9
@@ -5517,9 +5520,13 @@ dir_target_conflicts() {
 # since a config with dozens of files should not spill the rest of the plan.
 plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
     local -n _pdd_steps="$1"
-    local _pdd_t="$2" _pdd_s="$3" _pdd_line _pdd_n=0
+    local _pdd_t="$2" _pdd_s="$3" _pdd_line _pdd_n=0 _pdd_ts _pdd_ss
     { [ -e "$_pdd_t" ] || [ -L "$_pdd_t" ]; } && [ -d "$_pdd_s" ] || return 0
+    # diff names both trees in full; the plan shows paths with ~ everywhere else.
+    home_shown _pdd_ts "$_pdd_t"; home_shown _pdd_ss "$_pdd_s"
     while IFS= read -r _pdd_line; do
+        _pdd_line="${_pdd_line//"$_pdd_t"/"$_pdd_ts"}"
+        _pdd_line="${_pdd_line//"$_pdd_s"/"$_pdd_ss"}"
         _pdd_n=$(( _pdd_n + 1 ))
         if [ "$_pdd_n" -gt 4 ]; then _pdd_steps+=("${C_DIM}…${C_RESET}"); return 0; fi
         _pdd_steps+=("${C_DIM}${_pdd_line}${C_RESET}")
@@ -5555,7 +5562,7 @@ plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
 # Omarchy ships its own, theme-linked copy of these and rewrites them from its
 # refresh and font commands. Rows only; the install is the same everywhere.
 omarchy_themed() { case "$1" in alacritty|btop|ghostty|kitty|lazygit|tmux) return 0 ;; esac; return 1; }
-OMARCHY_WT_MSG="Omarchy's refresh and font commands copy over ~/.config files, so on these links they can write into ~/dotfiles or replace the link with a plain file; doctor.sh reports it"
+OMARCHY_WT_MSG="Omarchy's refresh and font commands copy over ~/.config files, so on these links they can write into ${DOTFILES_SHOWN} or replace the link with a plain file; doctor.sh reports it"
 
 omarchy_row() {         # omarchy_row <steps-array> <key>
     [ -n "$OMARCHY_DIR" ] && omarchy_themed "$2" || return 0
@@ -7175,7 +7182,7 @@ elif [ "$TUI_CONFIRMED" = 1 ]; then
     if [ "$STRIP_REPO" -eq 1 ]; then success "${C_RED}private${C_RESET}"; else success "keep"; fi
 else
     echo -e "${C_MAIN}${C_BOLD} ${G_TOP} ${G_INFO} Privacy${C_RESET}"
-    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ~/dotfiles came from a repo, or whose:${C_RESET}"
+    echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_DIM}Private leaves no sign that ${DOTFILES_SHOWN} came from a repo, or whose:${C_RESET}"
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
     private_preview
     echo -e "${C_MAIN}${C_BOLD} ${G_MID}${C_RESET}"
@@ -8306,8 +8313,8 @@ if [ "$STRIP_REPO" -eq 1 ]; then
     strip_repo_traces; _strip_rc=$?
     case "$_strip_rc" in
       0)
-        substep "${C_DIM}~/dotfiles is now a plain folder — symlinks still resolve${C_RESET}"
-        substep "${C_DIM}Re-run any time with: ${C_ACCENT}bash ~/dotfiles/install.sh${C_RESET}"
+        substep "${C_DIM}${DOTFILES_SHOWN} is now a plain folder — symlinks still resolve${C_RESET}"
+        substep "${C_DIM}Re-run any time with: ${C_ACCENT}bash ${DOTFILES_SHOWN}/install.sh${C_RESET}"
         substep "${C_DIM}Only pulling new changes needs a clone — nothing else does${C_RESET}"
         # Gated on the specific fact, not on the general run having gone well.
         if [ -e "$DOTFILES_DIR/.git" ]; then
