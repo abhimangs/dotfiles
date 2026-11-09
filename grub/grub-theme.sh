@@ -1075,9 +1075,15 @@ write_undo() {                  # write_undo <main-file-now> <extra records…>
     new_tmp; t="$_tmp"
     printf '# grub-theme.sh: what "uninstall" puts back. One change per record.\n' > "$t"
     if [ -f "$UNDO" ]; then
+        # Keyed "k<line>", never the bare line: a blank line is an empty
+        # subscript, and bash's "bad array subscript" for it aborts the whole
+        # command this runs under, so every install or rebuild after the first
+        # died on any /etc/default/grub with a blank line in it (all of them).
         local -A left=()
+        local n
         while IFS= read -r line || [ -n "$line" ]; do
-            left["$line"]=$(( ${left["$line"]:-0} + 1 ))
+            n="${left["k$line"]:-0}"
+            left["k$line"]=$(( n + 1 ))
         done < "$now"
         keep=0
         while IFS= read -r line || [ -n "$line" ]; do
@@ -1086,8 +1092,9 @@ write_undo() {                  # write_undo <main-file-now> <extra records…>
                 ours$'\t'*)
                     pend="${line#ours$'\t'}"
                     keep=0
-                    if [ "${left["$pend"]:-0}" -gt 0 ]; then
-                        left["$pend"]=$(( left["$pend"] - 1 ))
+                    n="${left["k$pend"]:-0}"
+                    if [ "$n" -gt 0 ]; then
+                        left["k$pend"]=$(( n - 1 ))
                         keep=1
                         printf '%s\n' "$line" >> "$t"
                     fi ;;

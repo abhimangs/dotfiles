@@ -101,10 +101,15 @@ grub_fixture() {        # grub_fixture <root> <distro>
         printf '# GRUB Environment Block\nmenu_auto_hide=1\nboot_success=1\n' > "$boot/grubenv"
     else
         boot="$root/boot/grub"; bin=grub-mkconfig
+        # The blank and comment lines are every stock file's: write_undo once
+        # died on the blank one (an empty associative-array key).
         printf '%s\n' \
+            '# GRUB boot loader configuration' \
+            '' \
             'GRUB_DEFAULT="0"' \
             'GRUB_TIMEOUT="5"' \
             'GRUB_TIMEOUT_STYLE="menu"' \
+            '' \
             '#GRUB_THEME="/path/to/gfxtheme"' \
             'GRUB_THEME="/boot/grub/themes/starfield/theme.txt"' \
             > "$etc"
