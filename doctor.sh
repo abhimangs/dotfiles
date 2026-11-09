@@ -326,9 +326,11 @@ echo
 echo "── fonts ─────────────────────────────────────────────"
 echo "fc-cache        : $(command -v fc-cache || echo '<not installed>')"
 if command -v fc-list >/dev/null 2>&1; then
-    _fc="$(fc-list 2>/dev/null)"
-    echo "JetBrainsMono   : $(grep -ci jetbrainsmono <<< "$_fc") faces"
-    echo "Maple Mono      : $(grep -ci 'maple' <<< "$_fc") faces"
+    # By family, the names every config asks for. A grep of fc-list for
+    # "jetbrainsmono" also counted plain JetBrains Mono, so a machine without
+    # the Nerd Font still read "32 faces".
+    echo "JetBrainsMono NF: $(fc-list 'JetBrainsMono Nerd Font' file 2>/dev/null | grep -c .) faces"
+    echo "Maple Mono      : $(fc-list 'Maple Mono' file 2>/dev/null | grep -c .) faces"
 else
     echo "  fontconfig not installed (expected on a headless server)"
 fi
