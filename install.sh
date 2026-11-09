@@ -5948,6 +5948,28 @@ plan_body() {
             ;;
           zsh)
             plan_home_file steps "$HOME/.zshrc"
+            # The two things the zsh step does outside its stow target, which
+            # the plan used to leave out: the login shell, and the hand-off
+            # block appended to ~/.bashrc. The same tests the loop makes.
+            local _zls _zp
+            _zls="$(login_shell_of "$(id -un)")"
+            _zp="$(command -v zsh 2>/dev/null)"
+            if { [ -n "$_zp" ] && ! same_shell "$_zls" "$_zp"; } \
+               || { [ -z "$_zp" ] && [ "${_zls##*/}" != zsh ]; }; then
+                if [ "$DISTRO" = nix ]; then
+                    [ "${_zls##*/}" = zsh ] \
+                        || steps+=("${C_DIM}login shell left to configuration.nix — the run says what to set${C_RESET}")
+                else
+                    steps+=("${C_GREEN}set login shell → zsh${C_RESET} ${C_DIM}(was ${_zls:-unknown})${C_RESET}")
+                fi
+            fi
+            if zsh_hook_wanted && [ ! -L "$HOME/.bashrc" ] \
+               && ! bashrc_hook_range "$HOME/.bashrc" >/dev/null 2>&1; then
+                local _zorig=""
+                [ -e "$PRISTINE_BASHRC" ] || [ -e "$PRISTINE_ABSENT" ] \
+                    || _zorig=" ${C_DIM}(the current one is kept as ~/.bashrc.orig)${C_RESET}"
+                steps+=("${C_GREEN}add the bash → zsh hand-off to ~/.bashrc${C_RESET}${_zorig}")
+            fi
             # The hand-off hook is never written through a link of the user's.
             [ -L "$HOME/.bashrc" ] && ! is_repo_link "$HOME/.bashrc" && zsh_hook_wanted \
                 && steps+=("${C_DIM}no .bashrc fallback hook — ~/.bashrc is your own symlink${C_RESET}")
