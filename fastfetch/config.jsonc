@@ -47,7 +47,7 @@
     {
       "type": "packages",
       "key": "  󰏗 Packages",
-      "format": "{1}",
+      "format": "{all}",
       "keyColor": "green"
     },
     {
