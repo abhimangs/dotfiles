@@ -1369,22 +1369,27 @@ tui_tick_installed() {
 }
 
 TUI_CONFIRMED=0
+# Set by the WINCH trap. bash's read does not return for a trapped signal (it
+# runs the trap and goes back to waiting), so a resize left the old frame,
+# wrapped and garbled, on screen until the next key. Every read times out
+# instead, and the timeout redraws when this is set: a builtin, no fork.
+TUI_RESIZED=0
 tui_loop() {
     local key rest rc pending=1
     tui_draw
     while true; do
         # -d '' matters: with the default delimiter, `read -n1` on a newline
         # hands back an empty string, and Enter would never arrive at all.
-        if [ "$pending" = 1 ]; then
-            IFS= read -rsn1 -d '' -t 0.2 key <"$TTY_IN"; rc=$?
-            if [ "$rc" -gt 128 ]; then
-                if [ -f "$TUI_UPD_READY" ]; then tui_apply_upgrades; pending=0; tui_draw; fi
-                continue
+        IFS= read -rsn1 -d '' -t 0.2 key <"$TTY_IN"; rc=$?
+        if [ "$rc" -gt 128 ]; then
+            if [ "$pending" = 1 ] && [ -f "$TUI_UPD_READY" ]; then
+                tui_apply_upgrades; pending=0; TUI_RESIZED=0; tui_draw
+            elif [ "$TUI_RESIZED" = 1 ]; then
+                TUI_RESIZED=0; tui_draw
             fi
-            [ "$rc" -ne 0 ] && break
-        else
-            IFS= read -rsn1 -d '' key <"$TTY_IN" || break
+            continue
         fi
+        [ "$rc" -ne 0 ] && break
         case "$key" in
             $'\033')
                 rest=""
@@ -1490,7 +1495,7 @@ tui_pick() {
     # keypress arrives without waiting for a newline, -ixon so ctrl-s is a key.
     stty -echo -icanon -ixon min 1 time 0 <"$TTY_IN" 2>/dev/null
     printf '\033[?1049h\033[?25l'
-    trap 'TUI_ROWS=0; tui_size || true' WINCH
+    trap 'TUI_ROWS=0; tui_size || true; TUI_RESIZED=1' WINCH
     tui_loop
     local rc=$?
     tui_cleanup
