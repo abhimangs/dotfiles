@@ -3650,6 +3650,17 @@ bashrc_hook_strip_to() {
     return 0
 }
 
+# 0 when <rc>, with our hook taken out, is not the pristine copy any more:
+# lines the user added after the first run. Only reads; the temp file is ours.
+bashrc_changed_since_pristine() {
+    local rc="$1" tmp r
+    tmp="$(mktemp -p "$RUN_TMPDIR" bashrc_cmp_XXXXXX)" || return 1
+    bashrc_hook_strip_to "$rc" "$tmp" 2>/dev/null || cp "$rc" "$tmp" 2>/dev/null
+    cmp -s "$tmp" "$PRISTINE_BASHRC"; r=$?
+    rm -f "$tmp"
+    [ "$r" -ne 0 ]
+}
+
 # The block itself, as a single source of truth for writing and previewing.
 bashrc_hook_block() {
     cat <<EOF
@@ -6093,11 +6104,22 @@ restore_bash() {
     # bashrc", which is how this used to unstow the bash config and then
     # immediately stow it straight back — or, with no pristine copy, unstow it
     # and leave the user with no ~/.bashrc at all while printing success.
-    local bashrc_action="" stowed_bash=0
+    local bashrc_action="" stowed_bash=0 rc_keep=0
     is_repo_link "$rc" && stowed_bash=1
-    if [ -e "$PRISTINE_BASHRC" ]; then
+    if [ -e "$PRISTINE_BASHRC" ] && [ -L "$rc" ] && [ "$stowed_bash" = 0 ]; then
+        # The user's own link (a sync folder, their own dotfiles repo). cp
+        # writes through it and replaces the file it points at; the hook, if
+        # an older version put one there, still comes out below.
+        steps+=("${C_DIM}leave ~/.bashrc alone — it is your own symlink, not ours${C_RESET}")
+    elif [ -e "$PRISTINE_BASHRC" ]; then
         bashrc_action="restore"
         steps+=("${C_GREEN}restore${C_RESET} ${C_DIM}~/.bashrc from the copy kept before the first run${C_RESET}")
+        # Anything written to ~/.bashrc since the first run would be gone
+        # with no .bak. Compared hook-free, since the hook is ours to drop.
+        if [ "$stowed_bash" = 0 ] && [ -f "$rc" ] && bashrc_changed_since_pristine "$rc"; then
+            rc_keep=1
+            steps+=("${C_GREEN}keep${C_RESET} ${C_DIM}the current ~/.bashrc as ~/.bashrc.bak — it has changed since${C_RESET}")
+        fi
     elif [ -e "$PRISTINE_ABSENT" ] || [ "$stowed_bash" = 1 ] || [ ! -e "$rc" ]; then
         bashrc_action="repo"
         if [ "$stowed_bash" = 1 ]; then
@@ -6195,6 +6217,11 @@ restore_bash() {
 
     case "$bashrc_action" in
       restore)
+        # backup, not BACKUP_MODE: the one thing a restore must not do is
+        # lose the newer copy it is replacing.
+        if [ "$rc_keep" = 1 ] && [ -f "$rc" ] && [ ! -L "$rc" ]; then
+            BACKUP_MODE=backup backup_file "$rc"
+        fi
         if cp -p "$PRISTINE_BASHRC" "$rc" 2>/dev/null; then
             substep "Restored ${C_ACCENT}~/.bashrc${C_RESET} ${C_DIM}from the pristine copy${C_RESET}"
         else
