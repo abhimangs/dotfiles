@@ -5480,6 +5480,17 @@ dir_target_conflicts() {
         [ -z "$pkg" ] && return 0
         [ -e "$d/$pkg/${f#"$target"/}" ] && return 0
     done
+    # Someone else's link counts the same way as a real file: kitty.conf
+    # pointed at a sync folder made stow abort with "existing target is not
+    # owned by stow" after a plan that said re-stow. Only where the package
+    # has a path of its own: a link anywhere else does not stop stow. With no
+    # link of ours to name the package, the target's name is the package's
+    # (kitty, nvim, wallpapers: every caller's is).
+    local base="${pkg:-${target##*/}}"
+    for l in "${links[@]}"; do
+        is_repo_link "$l" && continue
+        { [ -e "$d/$base/${l#"$target"/}" ] || [ -L "$d/$base/${l#"$target"/}" ]; } && return 0
+    done
     return 1
 }
 
