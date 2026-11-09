@@ -3177,15 +3177,27 @@ want    nvim-uninst 'Unstowed neovim'        'and unstows it'
                          || note nvim-uninst "the emptied ~/.config/nvim is gone"
 
 # The plan's ".old.bak will be discarded" warning globbed a literal ~/.config,
-# so under XDG_CONFIG_HOME it never fired. It only fires on a plan that backs
-# something up, so a real micro config of the user's is what it backs up.
+# so under XDG_CONFIG_HOME it never fired. It only fires on a plan whose own
+# rotation drops an .old.bak: a real micro config of the user's, backed up over
+# an existing micro.bak while a micro.old.bak is there too.
 build_root "$WORK/run/xdg-oldbak" ubuntu
-mkdir -p "$WORK/run/xdg-oldbak/home/xdg/micro.old.bak" "$WORK/run/xdg-oldbak/home/xdg/micro"
+mkdir -p "$WORK/run/xdg-oldbak/home/xdg/micro.old.bak" "$WORK/run/xdg-oldbak/home/xdg/micro.bak" \
+         "$WORK/run/xdg-oldbak/home/xdg/micro"
 echo '{}' > "$WORK/run/xdg-oldbak/home/xdg/micro/settings.json"
 RUN_ARGS="--dry-run" install_pass "$WORK/run/xdg-oldbak" "$WORK/run/xdg-oldbak" "$WORK/k-sel" \
     DOTFILES_CONFIGS="micro" XDG_CONFIG_HOME="$WORK/run/xdg-oldbak/home/xdg"
 check xdg-oldbak 0
 want  xdg-oldbak 'two backups are kept' 'warns about an .old.bak under XDG_CONFIG_HOME'
+
+# And not for one this run never touches: with no micro.bak there is nothing
+# to rotate, so the micro.old.bak beside it survives the run.
+build_root "$WORK/run/oldbak-idle" ubuntu
+mkdir -p "$WORK/run/oldbak-idle/home/xdg/micro.old.bak" "$WORK/run/oldbak-idle/home/xdg/micro"
+echo '{}' > "$WORK/run/oldbak-idle/home/xdg/micro/settings.json"
+RUN_ARGS="--dry-run" install_pass "$WORK/run/oldbak-idle" "$WORK/run/oldbak-idle" "$WORK/k-sel" \
+    DOTFILES_CONFIGS="micro" XDG_CONFIG_HOME="$WORK/run/oldbak-idle/home/xdg"
+check  oldbak-idle 0
+nowant oldbak-idle 'two backups are kept' 'no warning when nothing is rotated'
 
 echo
 echo "── distro list parity ───────────────────────────────────"

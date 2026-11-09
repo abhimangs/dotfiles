@@ -5547,6 +5547,7 @@ plan_dir_diff() {        # plan_dir_diff <steps-array> <target-dir> <source-dir>
 # that replaces nothing. Five hand-written copies of this if/else lived in the
 # plan before, each worded a little differently.
 PLAN_REPLACES=()
+PLAN_DROPS_OLDBAK=0
 plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
     local -n _prr="$1"
     local _p="$2" _n="${2##*/}" _s; home_shown _s "$2"
@@ -5554,8 +5555,11 @@ plan_replace_row() {    # plan_replace_row <steps-array> <path> [delete-note]
     if [[ "$BACKUP_MODE" == "delete" ]]; then
         _prr+=("${C_RED}delete${C_RESET} ${C_DIM}${_s}${C_RESET}${3:-}")
     else
-        { [ -e "$_p.bak" ] || [ -L "$_p.bak" ]; } && \
+        if [ -e "$_p.bak" ] || [ -L "$_p.bak" ]; then
             _prr+=("${C_YELLOW}rotate${C_RESET} ${C_DIM}${_n}.bak → ${_n}.old.bak${C_RESET}")
+            # This rotation, not any .old.bak lying around, is what loses one.
+            { [ -e "$_p.old.bak" ] || [ -L "$_p.old.bak" ]; } && PLAN_DROPS_OLDBAK=1
+        fi
         _prr+=("${C_YELLOW}backup${C_RESET} ${C_DIM}${_s} → ${_n}.bak${C_RESET}")
     fi
 }
@@ -5811,20 +5815,11 @@ show_plan() {
     # Only two generations are kept, so a rotation destroys whatever is in
     # .old.bak. The rows below say "x.bak → x.old.bak" and stop there, which
     # reads like nothing is lost. On a third run something is.
-    # backup_bases, not a hand-written glob: that one named ~/.config outright,
-    # so under XDG_CONFIG_HOME — or for ~/scripts/pvpn — it found nothing.
-    if [ "${#PLAN_REPLACES[@]}" -gt 0 ] && [[ "$BACKUP_MODE" != "delete" ]]; then
-        # Read the whole list before the loop can break out of it. Breaking
-        # out of `done < <(backup_bases)` left it writing into a closed pipe:
-        # silent where SIGPIPE kills it, "printf: write error: Broken pipe"
-        # all over the plan where SIGPIPE is ignored (the CI runners).
-        local _o _bases
-        mapfile -t _bases < <(backup_bases)
-        for _o in "${_bases[@]}"; do
-            { [ -e "$_o.old.bak" ] || [ -L "$_o.old.bak" ]; } || continue
-            echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
-            break
-        done
+    # From the silent pass's plan_replace_row rows, so it fires for a rotation
+    # this run makes. Scanning every backup_bases path warned about an old
+    # kitty.old.bak on a run that only replaced ~/.gitconfig.
+    if [ "$PLAN_DROPS_OLDBAK" -eq 1 ] && [[ "$BACKUP_MODE" != "delete" ]]; then
+        echo -e "${C_MAIN}${C_BOLD} ${G_MID}  ${C_YELLOW}${G_DOT}${C_RESET} ${C_DIM}two backups are kept — rotating discards the current .old.bak${C_RESET}"
     fi
 
     plan_body "$@"
@@ -5863,6 +5858,7 @@ plan_body() {
     # gambling on.
     local cfg step _d _a
     PLAN_REPLACES=()
+    PLAN_DROPS_OLDBAK=0
 
     plan_prereqs
 
