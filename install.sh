@@ -5843,9 +5843,12 @@ plan_body() {
         fi
 
         case "$cfg" in
-          # One arm for all eight: same target shape (~/.config/<name>/), same
+          # One arm for all ten: same target shape (~/.config/<name>/), same
           # backup rules. The ones that differ do so by a line or two at the end.
-          fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline|ulauncher)
+          # Keep it in step with the install loop's stow_config arm: mpv and
+          # fontconfig were missing here, so a real ~/.config/mpv was moved
+          # aside (or rm -rf'd in delete mode) with no row in the plan.
+          fastfetch|ghostty|kitty|rofi|micro|fresh|ccstatusline|ulauncher|mpv|fontconfig)
             target="$XDG_CONFIG/$cfg"
             # The symlink test comes first for the same reason it does in
             # stow_config: -d follows the link, and what gets moved aside is
