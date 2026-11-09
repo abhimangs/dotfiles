@@ -2262,19 +2262,26 @@ NIX_LAST_ERROR=""
 # 5.2, and a miss here reinstalls every package on the next run.
 nix_profile_attrs() {
     command -v nix &>/dev/null || return 0
-    local json line attr
+    local json line attr rest
     json=$(nix "${NIX_FLAGS[@]}" profile list --json 2>/dev/null) || true
-    while IFS= read -r line; do
-        case "$line" in *'"attrPath"'*) ;; *) continue ;; esac
-        # "attrPath": "legacyPackages.x86_64-linux.fresh-editor"
-        # or "attrPath": "nixpkgs#fresh-editor"
-        attr="${line#*\"attrPath\"}"
-        attr="${attr#*\"}"
+    # Every occurrence, not one per line: nix prints this JSON pretty only to
+    # a terminal, and captured here it is one line, so a per-line read saw
+    # the first package and no other.
+    #   "attrPath": "legacyPackages.x86_64-linux.fresh-editor"
+    #   or "attrPath": "nixpkgs#fresh-editor", or "attrPath": null
+    rest="$json"
+    while [[ "$rest" == *'"attrPath"'* ]]; do
+        rest="${rest#*\"attrPath\"}"
+        attr="${rest#"${rest%%[![:space:]:]*}"}"
+        # null (a store path, no attribute): skip it rather than read the
+        # next key's name as one.
+        case "$attr" in \"*) ;; *) continue ;; esac
+        attr="${attr#\"}"
         attr="${attr%%\"*}"
         [ -n "$attr" ] || continue
         attr="${attr##*#}"
         printf '%s\n' "${attr##*.}"
-    done <<< "$json"
+    done
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         # nix-env -q prints name-version; strip from the first -<digit>.
