@@ -3083,14 +3083,19 @@ ensure_vscode_deb() {
     local pkg="$1"
     apt_pkg_installed "$pkg" && return 0
     ensure_apt_deps
-    if [ ! -s /etc/apt/keyrings/packages.microsoft.gpg ]; then
-        apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
-            /etc/apt/keyrings/packages.microsoft.gpg || return 1
-    fi
-    # Same guard as the keyring fetch above: code and code-insiders share this
-    # one source file, so picking both re-wrote the identical line and forced
-    # a second full `apt update` for a repo already configured by the first.
-    if [ ! -s /etc/apt/sources.list.d/vscode.list ]; then
+    # Only when no source maps this repo yet, ours or anyone's. code and
+    # code-insiders share it, so picking both used to re-write the line and
+    # force a second full `apt update`. And VS Code's own .deb (and its setup
+    # docs) write vscode.sources signed by /usr/share/keyrings/microsoft.gpg:
+    # a second entry for the same repo with our keyring is "Conflicting values
+    # set for option Signed-By", which stops every apt command on the machine.
+    # The same test Microsoft's postinst makes before adding its own.
+    if ! grep -qsE '^[[:space:]]*(deb[[:space:]].*[[:space:]]|URIs:([[:space:]].*)?[[:space:]])https?://packages\.microsoft\.com/repos/code/?([[:space:]]|$)' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; then
+        if [ ! -s /etc/apt/keyrings/packages.microsoft.gpg ]; then
+            apt_install_keyring https://packages.microsoft.com/keys/microsoft.asc \
+                /etc/apt/keyrings/packages.microsoft.gpg || return 1
+        fi
         apt_write_source_line \
             "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
             /etc/apt/sources.list.d/vscode.list
