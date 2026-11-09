@@ -2239,12 +2239,14 @@ ensure_docker_fedora() {
     rpm_pkg_installed docker-ce && return 0
     local pkg host=fedora
     [ "$OS_ID" = fedora ] || host=rhel
+    # Repo first, as on apt: removing these before it was known to be reachable
+    # left a machine with neither Docker when download.docker.com was not.
+    dnf_add_repo_file "https://download.docker.com/linux/${host}/docker-ce.repo" docker-ce.repo || return 1
     for pkg in docker docker-client docker-client-latest docker-common docker-latest \
                docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux \
                docker-engine moby-engine podman-docker; do
         rpm_pkg_installed "$pkg" && sudo dnf remove --assumeyes "$pkg" &>/dev/null
     done
-    dnf_add_repo_file "https://download.docker.com/linux/${host}/docker-ce.repo" docker-ce.repo || return 1
     dnf_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     rpm_pkg_installed docker-ce
 }
@@ -3229,14 +3231,6 @@ ensure_docker_deb() {
     apt_pkg_installed docker-ce && return 0
     ensure_apt_deps
 
-    local pkg
-    for pkg in docker.io docker-doc docker-compose docker-compose-v2 docker-buildx podman-docker containerd runc; do
-        # apt_get, not a bare sudo apt-get: removing containerd or docker.io is
-        # exactly where debconf or needrestart opens a dialog, and where the
-        # dpkg lock is still held by whatever ran before us.
-        apt_pkg_installed "$pkg" && apt_get remove -y "$pkg" &>/dev/null 2>&1
-    done
-
     local host="debian"
     [ "$IS_UBUNTU" -eq 1 ] && host="ubuntu"
     apt_install_keyring "https://download.docker.com/linux/${host}/gpg" \
@@ -3246,6 +3240,17 @@ ensure_docker_deb() {
         "deb [arch=$(deb_arch) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${host} ${codename} stable" \
         /etc/apt/sources.list.d/docker.list
     apt_update_once
+
+    # The distro's Docker goes only now, with Docker's own repo in place: done
+    # first, an unreachable download.docker.com (the key fetch above fails
+    # and returns) left the machine with neither.
+    local pkg
+    for pkg in docker.io docker-doc docker-compose docker-compose-v2 docker-buildx podman-docker containerd runc; do
+        # apt_get, not a bare sudo apt-get: removing containerd or docker.io is
+        # exactly where debconf or needrestart opens a dialog, and where the
+        # dpkg lock is still held by whatever ran before us.
+        apt_pkg_installed "$pkg" && apt_get remove -y "$pkg" &>/dev/null 2>&1
+    done
     apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     apt_pkg_installed docker-ce
 }
