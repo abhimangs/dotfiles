@@ -188,7 +188,10 @@ _title_cwd() { printf '\e]2;%s\a' "${PWD##*/}"; }
 case ";${PROMPT_COMMAND:-};" in *";_title_cwd;"*) ;; *) PROMPT_COMMAND="_title_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;; esac
 
 # ── Fastfetch ─────────────────────────────────────────────────
-command -v fastfetch &>/dev/null && fastfetch
+# Not for `bash -ic 'cmd'` (editors probing the shell's env, `bash -ic alias >
+# f`): that is interactive too, and the banner landed in front of the
+# command's own output. Nor when stdout is not a terminal.
+[ -z "${BASH_EXECUTION_STRING:-}" ] && [ -t 1 ] && command -v fastfetch &>/dev/null && fastfetch
 
 # Sourcing this file must not report failure. Without this the last command
 # above decides the status, so on any machine without fastfetch `source
