@@ -4315,6 +4315,14 @@ install_error_tail() {
     done
 }
 
+# Each attempt starts with none: only the package-manager helpers reset their
+# own, so a release download (upstream_bin, install_release_bin) that failed
+# after an apt batch had failed was reported with apt's words about another
+# package entirely.
+clear_install_errors() {
+    APT_LAST_ERROR=""; PACMAN_LAST_ERROR=""; DNF_LAST_ERROR=""; NIX_LAST_ERROR=""
+}
+
 # The install-or-fail preamble every config arm opened with — six near-identical
 # copies of it, which is how the wording drifted apart between them. Returns
 # non-zero on failure; the `continue` stays at the call site because it has to
@@ -4332,6 +4340,7 @@ ensure_cfg_pkg() {
         return 0
     fi
     substep "Installing ${C_ACCENT}${pkg}${C_RESET}..."
+    clear_install_errors
     case "$DISTRO" in
         # arch_install tries the official repos before the AUR — keep it that way
         arch)   arch_install "$pkg" && return 0 ;;
@@ -7472,6 +7481,7 @@ if [ "${#DEPS[@]}" -gt 0 ]; then
         else
             substep "${_dep_n} Installing ${C_ACCENT}${dep}${C_RESET}..."
             _dep_ok=1
+            clear_install_errors
             case "$DISTRO" in
                 arch) arch_install "$dep_pkg" || _dep_ok=0 ;;
                 debian)
@@ -7940,6 +7950,7 @@ if [ "${#APPS[@]}" -gt 0 ]; then
         _app_n=$(( _app_n + 1 ))
         _lbl="${APP_LABEL[$app]}"
         _type="${RESOLVED_APP_TYPE[$app]}"
+        clear_install_errors
         # counter only in the running output — $_lbl also feeds the summary
         substep "${C_DIM}[${_app_n}/${#APPS[@]}]${C_RESET} ${C_ACCENT}${_lbl}${C_RESET}"
 
