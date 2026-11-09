@@ -7591,7 +7591,9 @@ for cfg in "${SELECTED[@]}"; do
 
         if [ "$STOWED_WALLPAPER" -eq 0 ] && needs_wallpaper "$cfg"; then
             if [ -d "$DOTFILES_DIR/wallpapers" ]; then
-                stow_config "wallpapers"
+                # The terminal config names this file; without it the summary
+                # read clean over a background that is not there.
+                stow_config "wallpapers" || FAILED+=("wallpapers")
                 STOWED_WALLPAPER=1
             fi
         fi
