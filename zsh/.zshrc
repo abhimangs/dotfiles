@@ -44,11 +44,18 @@ unset _zinit_zsh
 # ── Completion ────────────────────────────────────────────────
 autoload -Uz compinit
 _compdump="${ZDOTDIR:-$HOME}/.zcompdump"
-if [[ -s "$_compdump" ]]; then
+# -C skips the check for new completion files, so anything installed after the
+# dump was made (docker, gh, …) never completed until the dump was deleted.
+# Check once a day: a dump older than 24h gets the full compinit, then touch,
+# since compinit leaves an unchanged dump's mtime alone.
+_stale=( "$_compdump"(N.mh+24) )
+if [[ -s "$_compdump" ]] && (( ! ${#_stale} )); then
     compinit -C -d "$_compdump"
 else
     compinit -d "$_compdump"
+    touch "$_compdump" 2>/dev/null
 fi
+unset _stale
 # Recompile completion cache in background if stale
 if [[ ! -s "$_compdump.zwc" || "$_compdump" -nt "$_compdump.zwc" ]]; then
     zcompile "$_compdump" &>/dev/null &!
