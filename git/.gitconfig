@@ -56,12 +56,15 @@
     # Safe force-push: fails if the remote has diverged since your last fetch
     pushf   = push --force-with-lease
 
+# gh is an optional tool: without the guard every https push or pull to
+# GitHub printed "gh: command not found" before asking for a password. The
+# quotes are needed, since ; starts a comment in this file.
 [credential "https://github.com"]
 	helper = 
-	helper = !gh auth git-credential
+	helper = "!f() { command -v gh >/dev/null 2>&1 || exit 0; exec gh auth git-credential $1; }; f"
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !gh auth git-credential
+	helper = "!f() { command -v gh >/dev/null 2>&1 || exit 0; exec gh auth git-credential $1; }; f"
 
 # No [user] here: this file is shared, and whoever stows it would commit under
 # the name in it. Your name and email go in ~/.gitconfig.local (last, so it
