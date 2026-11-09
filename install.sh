@@ -6080,7 +6080,12 @@ plan_body() {
         # named — the one thing this section exists to prevent.
         if printf '%s\n' "${APPS[@]}" | grep -qx claude-code \
            && ! printf '%s\n' "${cfgs[@]}" | grep -qx ccstatusline; then
-            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}point Claude Code at ccstatusline${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}"
+            # The config pulls bun in; the app alone does not, and the line it
+            # writes runs through bunx, so without bun it renders blank.
+            local _nobun=""
+            curl_app_installed bun || printf '%s\n' "${APPS[@]}" | grep -qx bun \
+                || _nobun=" ${C_YELLOW}— needs bun, which is not selected: blank until it is installed${C_RESET}"
+            echo -e "${C_MAIN}${C_BOLD} ${G_MID}    ${C_DIM}${G_DOT}${C_RESET} ${C_GREEN}point Claude Code at ccstatusline${C_RESET} ${C_DIM}(merges statusLine into ~/.claude/settings.json)${C_RESET}${_nobun}"
         fi
     fi
 
@@ -8228,11 +8233,18 @@ if printf '%s\n' "${SELECTED[@]}" | grep -qx ccstatusline \
     # Every step closes its own box. Without this the next header opens inside
     # this one and the whole run reads as one unterminated block — but "ready"
     # is only true when ours is actually the statusLine in that file.
-    if wire_claude_statusline; then
+    _sl_ok=0; wire_claude_statusline && _sl_ok=1
+    # After the apps loop, so a bun queued with it is already here. Claude
+    # Code blanks the line for a command it cannot run, and says nothing.
+    # Before success, which closes the box.
+    curl_app_installed bun \
+        || substep "${C_YELLOW}bun is not installed${C_RESET} ${C_DIM}— the statusline stays blank until it is: ${C_ACCENT}install.sh --apps=bun${C_RESET}"
+    if [ "$_sl_ok" -eq 1 ]; then
         success "Statusline ready"
     else
         success "Statusline unchanged"
     fi
+    unset _sl_ok
 fi
 
 # ── Step 5d: strip repo traces (private mode) ────────────────────────────────
