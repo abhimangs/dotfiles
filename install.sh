@@ -1955,13 +1955,16 @@ apt_drop_own_dead_source() {
             owner="${base%%-ubuntu-*}"
         elif grep -qE "^(${APT_OWN_SOURCES})\.(list|sources)$" <<< "$base"; then
             # vendor repo: the filename stem is not in apt's error text, so
-            # match on the hosts the file itself points at instead.
+            # match on the repositories the file itself points at instead.
+            # Host and path, not the host alone: apt names the whole URL, and
+            # a dead dotnet repo (packages.microsoft.com/ubuntu/<new>/prod)
+            # used to take our working vscode.list on the same host with it.
             owner=""
             local _h
             while IFS= read -r _h; do
                 grep -qiF "$_h" <<< "$APT_UPDATE_ERROR" && { owner="$_h"; break; }
             done < <(grep -ohE 'https?://[^ ]+' "$f" 2>/dev/null \
-                     | sed -E 's#https?://([^/ ]+).*#\1#' | sort -u)
+                     | sed -E 's#^https?://##; s#/+$##' | sort -u)
             [ -n "$owner" ] || continue
         else
             continue
