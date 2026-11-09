@@ -79,6 +79,11 @@ echo "── dotfiles checkout ────────────────�
 # "$HOME/dotfiles (MISSING)" while running from inside the checkout is the kind
 # of wrong answer that sends someone debugging the wrong thing.
 d="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# The same checkout with every link resolved, for comparing against readlink -f
+# (install.sh's is_repo_link resolves it the same way). Run through a symlinked
+# path, the logical one matched none of our links: every config was skipped as
+# "not stowed" and the drift check said "no drift" over a replaced file.
+dr="$(readlink -f "$d" 2>/dev/null || printf '%s' "$d")"
 echo "dir             : $d $( [ -d "$d" ] && echo '(exists)' || echo '(MISSING)')"
 echo "install.sh      : $( [ -f "$d/install.sh" ] && echo present || echo MISSING)"
 echo "git metadata    : $( [ -e "$d/.git" ] && echo present || echo 'stripped (private mode)')"
@@ -173,7 +178,7 @@ for _e in "${_pkgs[@]}"; do
     _bad=() _ok=0
     while IFS= read -r -d '' _f; do
         _rel="${_f#"$d/$_pkg/"}"; _t="$_dst/$_rel"
-        if [ -e "$_t" ] && [[ "$(readlink -f "$_t")" == "$d"/* ]]; then _ok=1
+        if [ -e "$_t" ] && [[ "$(readlink -f "$_t")" == "$dr"/* ]]; then _ok=1
         elif [ -L "$_t" ] && [ ! -e "$_t" ]; then _bad+=("$_pkg/$_rel is a broken link, not our link")
         elif [ -L "$_t" ]; then _bad+=("$_pkg/$_rel is a link elsewhere (-> $(readlink "$_t")), not our link")
         elif [ -e "$_t" ]; then _bad+=("$_pkg/$_rel is a plain file, not our link — something replaced it (Omarchy's font setter does this)")
@@ -210,8 +215,9 @@ if [ -n "${OMARCHY_PATH:-}" ] || [ -d /usr/share/omarchy ] || command -v omarchy
              "$XDG_CONFIG/starship.toml" "$XDG_CONFIG/ghostty" "$XDG_CONFIG/kitty" \
              "$XDG_CONFIG/alacritty" "$XDG_CONFIG/btop" "$XDG_CONFIG/tmux" "$XDG_CONFIG/lazygit"; do
         if [ ! -e "$t" ] && [ ! -L "$t" ]; then who="absent"
-        elif [ -L "$t" ] && [[ "$(readlink -f "$t")" == "$d"/* ]]; then who="ours (link into the checkout)"
-        elif [ -d "$t" ] && find "$t" -type l -exec readlink -f {} + 2>/dev/null | grep -q "^$d/"; then who="ours (stowed inside)"
+        elif [ -L "$t" ] && [[ "$(readlink -f "$t")" == "$dr"/* ]]; then who="ours (link into the checkout)"
+        elif [ -d "$t" ] && find "$t" -type l -exec readlink -f {} + 2>/dev/null \
+                | awk -v p="$dr/" 'index($0, p) == 1 { f = 1 } END { exit !f }'; then who="ours (stowed inside)"
         else who="not ours (Omarchy's or yours)"; fi
         printf "  %-26s %s\n" "${t/#$HOME\//}" "$who"
     done
