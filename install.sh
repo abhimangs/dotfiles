@@ -4193,8 +4193,15 @@ stow_to() {
     mkdir -p "$target_dir"
     # Un-stow first so re-runs are idempotent
     stow --target "$target_dir" --dir "$DOTFILES_DIR" -D "$name" &>/dev/null 2>&1 || true
-    if ! stow --target "$target_dir" --dir "$DOTFILES_DIR" "$name" &>/dev/null 2>&1; then
-        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ${target_dir}/"
+    local out shown line
+    if ! out="$(stow --target "$target_dir" --dir "$DOTFILES_DIR" "$name" 2>&1)"; then
+        home_shown shown "$target_dir"
+        error "Stow failed for ${C_ACCENT}${name}${C_RESET} — check for conflicts in ${shown}/"
+        # stow names the file in the way; "check for conflicts" alone sent
+        # people looking through the whole directory for it.
+        while IFS= read -r line; do
+            [ -n "$line" ] && substep "${C_DIM}${line}${C_RESET}"
+        done < <(printf '%s\n' "$out" | grep -v '^All operations aborted' | sed -n '1,4p')
         return 1
     fi
     return 0
