@@ -2420,7 +2420,15 @@ apt_add_fallback_mirror() {
     [ "$APT_FALLBACK_ADDED" -eq 1 ] && return 1
     APT_FALLBACK_ADDED=1
 
-    local codename; codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")"
+    # The base release's codename, not the derivative's own: Mint's is wilma
+    # (Ubuntu's noble), elementary's circe, LMDE's faye (Debian's bookworm),
+    # and lines naming those 404 on Ubuntu's and Debian's mirrors.
+    local codename
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
+    else
+        codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}")"
+    fi
     [ -n "$codename" ] || return 1
 
     # The name carries no "dotfiles": /etc outlives $HOME, so a file here is a
