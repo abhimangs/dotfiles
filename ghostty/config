@@ -41,7 +41,9 @@ confirm-close-surface = false
 focus-follows-mouse = true
 clipboard-paste-protection = true
 window-inherit-font-size = true
-scrollback-limit = 10000
+# No scrollback-limit: it is in bytes, not lines, so 10000 kept about one
+# screenful. The default (10 MB, 50 MB from 1.4) is the generous one; the
+# lines key, scrollback-limit-lines, only exists from 1.4 on.
 
 # Shell integration. There is no "cwd" feature (it made ghostty reject the whole
 # line); new tabs already open in the current directory by default.
