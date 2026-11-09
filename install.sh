@@ -7176,9 +7176,15 @@ if [[ "$DISTRO" == "arch" ]]; then
             exit 1
         fi
         substep "Installing build dependencies..."
-        if ! sudo pacman -S --needed --noconfirm base-devel git; then
-            error "Failed to install base-devel/git. Check your internet or sudo access."
-            exit 1
+        # pacman_install, not a bare pacman -S: a sync db older than the
+        # mirrors 404s on these too, and only it refreshes and retries. A
+        # failure is not fatal either, like every other way the bootstrap can
+        # fail: repo packages still install, and each AUR item says why not.
+        _aur_deps=1
+        if ! pacman_install base-devel git; then
+            error "Could not install base-devel/git — the AUR helpers cannot be built"
+            install_error_tail
+            _aur_deps=0
         fi
 
         # Both helpers, newest release each. paru from its AUR source package,
@@ -7190,6 +7196,7 @@ if [[ "$DISTRO" == "arch" ]]; then
         # Under RUN_TMPDIR: a predictable /tmp path is shared across users, and
         # the EXIT trap cleans it up if a build is interrupted.
         for _h in yay:yay-bin paru:paru; do
+            [ "$_aur_deps" -eq 1 ] || break
             _pkg="${_h#*:}"; _h="${_h%%:*}"
             "$_h" --version &>/dev/null && continue
             # Any installed copy of this helper cannot start (it would have
@@ -7222,7 +7229,7 @@ if [[ "$DISTRO" == "arch" ]]; then
                 substep "${C_YELLOW}${_h} did not install, or cannot start${C_RESET}"
             fi
         done
-        unset _h _pkg _rm
+        unset _h _pkg _rm _aur_deps
 
         # Not fatal: everything from the official repos still installs, and each
         # AUR item then fails on its own line ("No AUR helper available").
