@@ -12,7 +12,7 @@ curl -fsSL https://abhiman.io/linux.sh | bash
 
 Works on Arch Linux, Debian, Ubuntu, Fedora, and NixOS, as a normal user or as root. Every run moves any existing `~/dotfiles` to `~/dotfiles.bak` and replaces it with a fresh clone, so the checkout is always clean. On NixOS, packages go into your user profile from nixpkgs — `configuration.nix` is never edited.
 
-`linux.sh` is deliberately tiny and is hosted by hand at `abhiman.io/linux.sh`, so it is the one file that must not need changing: it installs `git` if it is missing (with pacman or apt only, so on Fedora and NixOS have `git` installed first, or clone manually as below), clones, and hands off. Distro detection, privileges, prompts and every install step live in `install.sh`, which the fresh clone always brings with it.
+`linux.sh` is deliberately tiny and is hosted by hand at `abhiman.io/linux.sh`, so it is the one file that must not need changing: it installs `git` if it is missing (with pacman, dnf or apt, so on NixOS have `git` installed first, or clone manually as below), clones, and hands off. Distro detection, privileges, prompts and every install step live in `install.sh`, which the fresh clone always brings with it.
 
 Or clone manually:
 

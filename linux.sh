@@ -17,6 +17,8 @@ if ! command -v git >/dev/null 2>&1; then
     if [ "$(id -u)" -eq 0 ]; then SUDO=; else SUDO=sudo; fi
     if command -v pacman >/dev/null 2>&1; then
         $SUDO pacman -Sy --needed --noconfirm git
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO dnf install -y git
     else
         $SUDO apt-get update -qq || true
         $SUDO env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 \
