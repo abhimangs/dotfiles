@@ -914,6 +914,20 @@ want    ghostty-deb13 'ghostty' 'Debian 13 offers ghostty'
 RUN_ARGS="--list --gui" run ghostty-ubu ubuntu "$WORK/k-none"
 check   ghostty-ubu 0
 want    ghostty-ubu 'ghostty' 'Ubuntu offers ghostty'
+# The ghostty-ubuntu installer builds for 24.04/26.04/26.10 only, and a
+# derivative is judged by the release it is built on: Mint 21 (vanessa) is
+# jammy underneath, LMDE 6 (faye) is bookworm.
+RUN_ARGS="--list --gui" STUB_UBUNTU_CODENAME=jammy run ghostty-jammy ubuntu "$WORK/k-none"
+check   ghostty-jammy 0
+nowant  ghostty-jammy 'ghostty' 'Ubuntu 22.04 is refused by the installer, so not offered'
+RUN_ARGS="--list --gui" STUB_UBUNTU_CODENAME=vanessa STUB_OS_EXTRA='UBUNTU_CODENAME=jammy' \
+    run ghostty-mint21 ubuntu "$WORK/k-none"
+check   ghostty-mint21 0
+nowant  ghostty-mint21 'ghostty' 'a jammy-based derivative is not offered it either'
+RUN_ARGS="--list --gui" STUB_DEBIAN_CODENAME=faye STUB_OS_EXTRA='DEBIAN_CODENAME=bookworm' \
+    run ghostty-lmde6 debian "$WORK/k-none"
+check   ghostty-lmde6 0
+nowant  ghostty-lmde6 'ghostty' 'LMDE 6 is bookworm underneath'
 
 # 15p5. proton-vpn-cli 1.x is in Proton's fedora-N-stable repo from 43 up.
 #       42's repo stops at 0.1.x, which pvpn.zsh does not drive.

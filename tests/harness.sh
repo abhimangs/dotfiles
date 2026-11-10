@@ -284,10 +284,16 @@ build_root() {          # build_root <root> <distro>
         # os-release is rewritten to ID=omarchy, so only ID_LIKE says "arch".
         omarchy) : > "$root/etc/arch-release"
                 printf 'NAME="Omarchy"\nID=omarchy\nID_LIKE=arch\n' > "$root/etc/os-release" ;;
-        ubuntu) printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\n' > "$root/etc/os-release"
-                printf 'deb http://archive.ubuntu.com/ubuntu noble main\n' > "$root/etc/apt/sources.list" ;;
+        # STUB_UBUNTU_CODENAME / STUB_DEBIAN_CODENAME pick the release;
+        # STUB_OS_EXTRA adds lines, for a derivative's UBUNTU_CODENAME or
+        # DEBIAN_CODENAME naming the base it is built on.
+        ubuntu) printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=%s\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\n' \
+                    "${STUB_UBUNTU_CODENAME:-noble}" > "$root/etc/os-release"
+                [ -z "${STUB_OS_EXTRA:-}" ] || printf '%s\n' "$STUB_OS_EXTRA" >> "$root/etc/os-release"
+                printf 'deb http://archive.ubuntu.com/ubuntu %s main\n' "${STUB_UBUNTU_CODENAME:-noble}" > "$root/etc/apt/sources.list" ;;
         debian) printf 'ID=debian\nVERSION_CODENAME=%s\nPRETTY_NAME="Debian GNU/Linux 12 (%s)"\n' \
                     "${STUB_DEBIAN_CODENAME:-bookworm}" "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/os-release"
+                [ -z "${STUB_OS_EXTRA:-}" ] || printf '%s\n' "$STUB_OS_EXTRA" >> "$root/etc/os-release"
                 printf 'deb http://deb.debian.org/debian %s main\n' "${STUB_DEBIAN_CODENAME:-bookworm}" > "$root/etc/apt/sources.list" ;;
         fedora) printf 'ID=fedora\nVERSION_ID=%s\nPRETTY_NAME="Fedora Linux %s"\n' \
                     "${STUB_FEDORA_VERSION:-42}" "${STUB_FEDORA_VERSION:-42}" > "$root/etc/os-release" ;;

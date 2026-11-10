@@ -4476,12 +4476,28 @@ CONFIGS=(fastfetch ghostty kitty bash zsh protonvpn starship rofi ulauncher git 
 # re-declared as a second literal list: a hand-maintained Debian copy silently
 # drops every config added after it was written (micro and fresh both were).
 [[ "$DISTRO" == "debian" ]] && strip_items CONFIGS rofi
-# Ghostty needs GTK4 4.14+ and the ghostty-ubuntu installer refuses Debian
-# before trixie (bookworm has GTK 4.8): no reasonable path, so it is not offered.
-if [[ "$DISTRO" == "debian" && "$IS_UBUNTU" -eq 0 ]]; then
-    case "$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")" in
-        bookworm|bullseye|buster|stretch) strip_items CONFIGS ghostty ;;
-    esac
+# Ghostty needs GTK4 4.14+, and the ghostty-ubuntu installer (the only
+# non-snap path) builds for a fixed set of base releases: Ubuntu 24.04, 26.04
+# and 26.10 and what is built on them, Debian trixie and forky. It refuses the
+# rest outright, so those are not offered: Debian before trixie (bookworm has
+# GTK 4.8), Ubuntu before 24.04 and the interim releases it has dropped. By the
+# base release's codename, so Mint, Pop, elementary and LMDE (whose own
+# VERSION_CODENAME, faye, slipped past the Debian list) count as what they are
+# built on. A list of what is refused, so a new release is offered.
+if [[ "$DISTRO" == "debian" ]]; then
+    if [ "$IS_UBUNTU" -eq 1 ]; then
+        _gh_cn="$(. /etc/os-release 2>/dev/null && printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
+        case "$_gh_cn" in
+            questing|plucky|oracular|mantic|lunar|kinetic|jammy|impish|hirsute|groovy|focal|bionic|xenial)
+                strip_items CONFIGS ghostty ;;
+        esac
+    else
+        _gh_cn="$(. /etc/os-release 2>/dev/null && printf '%s' "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}")"
+        case "$_gh_cn" in
+            bookworm|bullseye|buster|stretch) strip_items CONFIGS ghostty ;;
+        esac
+    fi
+    unset _gh_cn
 fi
 # Fedora: no ghostty package (COPR only, which is not an official source).
 # rofi stays: Fedora ships 2.0, the Wayland-capable release the config is
